@@ -1,21 +1,35 @@
-import React, { useState, useCallback, useMemo, type FC } from 'react';
+import React, { useMemo, useState, type FC } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { colors, icons, SLASH_COMMANDS } from '../theme/theme.js';
 import { readFileSync, existsSync, readdirSync, statSync } from 'fs';
-import { resolve, relative, join, basename, dirname } from 'path';
+import { basename, dirname, join, resolve } from 'path';
 
 interface InputBoxProps {
   onSubmit: (text: string) => void;
   isGenerating: boolean;
   onCancel: () => void;
+  onApprove?: () => void;
+  onDeny?: () => void;
+  onRetry?: () => void;
+  pendingApproval?: boolean;
+  canRetry?: boolean;
   workingDirectory: string;
+  phase: string;
+  viewportWidth: number;
 }
 
 export const InputBox: FC<InputBoxProps> = ({
   onSubmit,
   isGenerating,
   onCancel,
+  onApprove,
+  onDeny,
+  onRetry,
+  pendingApproval = false,
+  canRetry = false,
   workingDirectory,
+  phase,
+  viewportWidth,
 }) => {
   const [input, setInput] = useState('');
   const [cursorPos, setCursorPos] = useState(0);
@@ -23,18 +37,15 @@ export const InputBox: FC<InputBoxProps> = ({
   const [historyIdx, setHistoryIdx] = useState(-1);
   const [acIndex, setAcIndex] = useState(0);
 
-  // Compute autocomplete suggestions
   const suggestions = useMemo(() => {
     if (!input || isGenerating) return [];
 
-    // Slash command autocomplete
     if (input.startsWith('/')) {
       return SLASH_COMMANDS
         .filter(c => c.cmd.startsWith(input.toLowerCase()))
         .map(c => ({ value: c.cmd, label: `${c.cmd}  ${c.desc}` }));
     }
 
-    // @ file autocomplete
     const atMatch = input.match(/@([\w./\-]*)$/);
     if (atMatch) {
       const partial = atMatch[1] || '';
@@ -49,11 +60,9 @@ export const InputBox: FC<InputBoxProps> = ({
           .filter(f => f.startsWith(prefix) && !f.startsWith('.'))
           .slice(0, 8)
           .map(f => {
-            const full = partial.includes('/')
-              ? dirname(partial) + '/' + f
-              : f;
+            const full = partial.includes('/') ? `${dirname(partial)}/${f}` : f;
             const isDir = statSync(join(dir, f)).isDirectory();
-            return { value: '@' + full + (isDir ? '/' : ''), label: (isDir ? '/' : ' ') + f };
+            return { value: `@${full}${isDir ? '/' : ''}`, label: `${isDir ? '/' : ' '} ${f}` };
           });
       } catch { return []; }
     }
@@ -61,61 +70,80 @@ export const InputBox: FC<InputBoxProps> = ({
     return [];
   }, [input, isGenerating, workingDirectory]);
 
-  useInput((ch, key) => {
-    // Ctrl+C = cancel
-    if (key.ctrl && ch === 'c') {
+  useInput((character, key) => {
+    if (key.ctrl && character === 'c') {
       if (isGenerating) onCancel();
       return;
     }
-    // Ctrl+D = exit
-    if (key.ctrl && ch === 'd') {
-      process.exit(0);
-    }
-    if (isGenerating) return;
+    if (key.ctrl && character === 'd') { process.exit(0); }
+    if (isGenerating && !pendingApproval) return;
 
-    // Tab = accept autocomplete
-    if (key.tab && suggestions.length > 0) {
-      const pick = suggestions[acIndex % suggestions.length];
-      if (pick) {
-        if (input.startsWith('/')) {
-          setInput(pick.value + ' ');
-          setCursorPos(pick.value.length + 1);
-        } else {
-          // replace the @partial with the full value
-          const replaced = input.replace(/@[\w./\-]*$/, pick.value);
-          setInput(replaced);
-          setCursorPos(replaced.length);
-        }
-        setAcIndex(0);
-      }
+    // Handle tool approval keybindings
+    if (pendingApproval) {
+      const isEnter = key.return || character === '\r' || character === '\n' ||
+        (character && character.length > 1 && /[\r\n]/.test(character));
+      if (isEnter && onApprove) { onApprove(); return; }
+      if (key.escape && onDeny) { onDeny(); return; }
+      return; // Block all other input during approval
+    }
+
+    // Handle retry (only when error state and not generating)
+    if (canRetry && character === 'r' && !isGenerating && !input) {
+      onRetry?.();
       return;
     }
 
-    // Enter = submit
-    if (key.return) {
-      const trimmed = input.trim();
-      if (!trimmed) return;
+    if (key.tab && suggestions.length > 0) {
+      const picked = suggestions[acIndex % suggestions.length];
+      if (picked) {
+        if (input.startsWith('/')) {
+          setInput(`${picked.value} `);
+          setCursorPos(picked.value.length + 1);
+        } else {
+          const replaced = input.replace(/@[\w./\-]*$/, picked.value);
+          setInput(replaced);
+          setCursorPos(replaced.length);
+        }
+      }
+      setAcIndex(0);
+      return;
+    }
 
-      // Expand file mentions
-      let processed = trimmed;
-      const mentions = trimmed.match(/@([\w./\-]+)/g);
+    if (suggestions.length > 0 && key.downArrow) { setAcIndex(i => (i + 1) % suggestions.length); return; }
+    if (suggestions.length > 0 && key.upArrow) { setAcIndex(i => (i - 1 + suggestions.length) % suggestions.length); return; }
+
+    // Detect Enter: key.return, single \r/\n, OR multi-char chunk containing \r/\n
+    // (terminal-sessions/PTY often sends text+newline as one data chunk)
+    const hasNewline = key.return || character === '\r' || character === '\n' ||
+      (character && character.length > 1 && /[\r\n]/.test(character));
+
+    if (hasNewline) {
+      // Extract any extra text before the newline (from pasted/chunked input)
+      const extraText = character ? character.replace(/[\r\n]+/g, '') : '';
+      const fullInput = extraText
+        ? (input.slice(0, cursorPos) + extraText + input.slice(cursorPos)).trim()
+        : input.trim();
+      if (!fullInput) return;
+
+      let processed = fullInput;
+      const mentions = fullInput.match(/@([\w./\-]+)/g);
       if (mentions) {
-        for (const m of mentions) {
-          const fp = m.slice(1);
-          const full = resolve(workingDirectory, fp);
-          if (existsSync(full) && !statSync(full).isDirectory()) {
+        for (const mention of mentions) {
+          const relativePath = mention.slice(1);
+          const fullPath = resolve(workingDirectory, relativePath);
+          if (existsSync(fullPath) && !statSync(fullPath).isDirectory()) {
             try {
-              const content = readFileSync(full, 'utf-8');
+              const content = readFileSync(fullPath, 'utf-8');
               processed = processed.replace(
-                m,
-                `\n[File: ${fp}]\n\`\`\`\n${content.slice(0, 10000)}\n\`\`\`\n`
+                mention,
+                `\n[File: ${relativePath}]\n\`\`\`\n${content.slice(0, 10000)}\n\`\`\`\n`,
               );
-            } catch {}
+            } catch { /* keep original */ }
           }
         }
       }
 
-      setHistory(prev => [trimmed, ...prev].slice(0, 50));
+      setHistory(prev => [fullInput, ...prev].slice(0, 50));
       setHistoryIdx(-1);
       setInput('');
       setCursorPos(0);
@@ -124,22 +152,22 @@ export const InputBox: FC<InputBoxProps> = ({
       return;
     }
 
-    // History ↑↓
     if (key.upArrow && history.length > 0) {
-      const ni = Math.min(historyIdx + 1, history.length - 1);
-      setHistoryIdx(ni);
-      const h = history[ni]!;
-      setInput(h);
-      setCursorPos(h.length);
+      const next = Math.min(historyIdx + 1, history.length - 1);
+      const entry = history[next] || '';
+      setHistoryIdx(next);
+      setInput(entry);
+      setCursorPos(entry.length);
       return;
     }
+
     if (key.downArrow) {
       if (historyIdx > 0) {
-        const ni = historyIdx - 1;
-        setHistoryIdx(ni);
-        const h = history[ni]!;
-        setInput(h);
-        setCursorPos(h.length);
+        const next = historyIdx - 1;
+        const entry = history[next] || '';
+        setHistoryIdx(next);
+        setInput(entry);
+        setCursorPos(entry.length);
       } else {
         setHistoryIdx(-1);
         setInput('');
@@ -148,11 +176,9 @@ export const InputBox: FC<InputBoxProps> = ({
       return;
     }
 
-    // Cursor
     if (key.leftArrow) { setCursorPos(p => Math.max(0, p - 1)); return; }
     if (key.rightArrow) { setCursorPos(p => Math.min(input.length, p + 1)); return; }
 
-    // Backspace
     if (key.backspace || key.delete) {
       if (cursorPos > 0) {
         setInput(prev => prev.slice(0, cursorPos - 1) + prev.slice(cursorPos));
@@ -161,55 +187,64 @@ export const InputBox: FC<InputBoxProps> = ({
       return;
     }
 
-    // Ctrl+U = clear
-    if (key.ctrl && ch === 'u') {
-      setInput(''); setCursorPos(0); return;
-    }
+    if (key.ctrl && character === 'u') { setInput(''); setCursorPos(0); return; }
+    if (key.escape) { setAcIndex(0); return; }
 
-    // Escape = cycle autocomplete or clear
-    if (key.escape) {
-      if (suggestions.length > 0) {
-        setAcIndex(i => (i + 1) % suggestions.length);
-      }
-      return;
-    }
-
-    // Printable char
-    if (ch && !key.ctrl && !key.meta) {
-      setInput(prev => prev.slice(0, cursorPos) + ch + prev.slice(cursorPos));
-      setCursorPos(p => p + ch.length);
+    if (character && !key.ctrl && !key.meta && !/[\r\n]/.test(character)) {
+      setInput(prev => prev.slice(0, cursorPos) + character + prev.slice(cursorPos));
+      setCursorPos(p => p + character.length);
       setAcIndex(0);
     }
   });
 
   const before = input.slice(0, cursorPos);
-  const rest = input.slice(cursorPos);
+  const after = input.slice(cursorPos);
+  const narrow = viewportWidth < 88;
+  const ruler = '\u2500'.repeat(Math.max(8, Math.min(120, viewportWidth - 4)));
 
   return (
-    <Box flexDirection="column">
-      {/* Autocomplete dropdown */}
-      {suggestions.length > 0 && (
-        <Box flexDirection="column" marginLeft={3}>
+    <Box flexDirection="column" marginTop={1}>
+      {suggestions.length > 0 ? (
+        <Box flexDirection="column" marginBottom={1}>
+          <Text color={colors.subtle}>
+            {narrow
+              ? `  ${suggestions.length} suggestion${suggestions.length === 1 ? '' : 's'} \u00b7 Tab`
+              : `  ${suggestions.length} suggestion${suggestions.length === 1 ? '' : 's'} \u00b7 Tab accept \u00b7 \u2191\u2193 move`}
+          </Text>
           {suggestions.slice(0, 6).map((s, i) => {
-            const isSel = i === acIndex % suggestions.length;
-            const line = `${isSel ? '▸ ' : '  '}${s.label}`;
+            const sel = i === acIndex % suggestions.length;
             return (
-              <Text key={s.value} color={isSel ? colors.cyan : colors.dim}>{line}</Text>
+              <Text key={s.value} color={sel ? colors.primary : colors.subtle}>
+                {`  ${sel ? '\u25b8' : ' '} ${truncLabel(s.label, narrow ? Math.max(16, viewportWidth - 6) : Math.max(20, viewportWidth - 10))}`}
+              </Text>
             );
           })}
-          <Text color={colors.dim}>  Tab accept · Esc cycle</Text>
         </Box>
+      ) : null}
+
+      <Text color={colors.faint}>{`  ${ruler}`}</Text>
+
+      {input.length === 0 && !isGenerating ? (
+        <Text>
+          <Text color={colors.muted}>{'  '}</Text>
+          <Text color={colors.primary}>{icons.prompt}</Text>
+          <Text color={colors.subtle}>{narrow ? ' type a goal...' : ' type a goal, mention @file, or use /command...'}</Text>
+        </Text>
+      ) : isGenerating ? (
+        <Text color={colors.warn}>{`  ${phase} \u00b7 Ctrl+C to stop`}</Text>
+      ) : (
+        <Text>
+          <Text color={colors.muted}>{'  '}</Text>
+          <Text color={colors.primary}>{icons.prompt}</Text>
+          <Text color={colors.text}>{` ${before}`}</Text>
+          <Text color={colors.primary}>{'\u258c'}</Text>
+          <Text color={colors.text}>{after}</Text>
+        </Text>
       )}
-      {/* Input line */}
-      <Box borderStyle="round" borderColor={colors.brand} paddingX={1}>
-        {input.length === 0 && !isGenerating ? (
-          <Text color={colors.dim}>{icons.prompt} Type a message... (/help for commands)</Text>
-        ) : isGenerating ? (
-          <Text color={colors.amber}>{icons.loading} generating...</Text>
-        ) : (
-          <Text color={colors.text}>{icons.prompt} {before}<Text color={colors.brand}>▎</Text>{rest}</Text>
-        )}
-      </Box>
     </Box>
   );
 };
+
+function truncLabel(label: string, limit: number): string {
+  return label.length > limit ? `${label.slice(0, limit - 1)}\u2026` : label;
+}

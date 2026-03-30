@@ -27,13 +27,7 @@ export interface ModelInfo {
   contextWindow?: number;
 }
 
-// Detect if an Ollama model uses <think> tags for reasoning (vs native reasoning field)
-function usesThinkTags(modelId: string): boolean {
-  const lower = modelId.toLowerCase();
-  return lower.includes('deepseek-r1') || lower.includes('deepseek_r1');
-}
-
-// Detect if an Ollama model supports reasoning
+// Detect if an Ollama model uses reasoning (via <think> tags through OpenAI-compat)
 function isOllamaReasoningModel(modelId: string): boolean {
   const lower = modelId.toLowerCase();
   return lower.includes('think') || lower.includes('reason') ||
@@ -65,14 +59,13 @@ export function createModel(provider: ProviderConfig, modelId: string): Language
       });
       const baseModel = ollama(modelId);
 
-      // Only use extractReasoningMiddleware for models using <think> tags
-      if (usesThinkTags(modelId)) {
+      // All Ollama reasoning models use <think> tags through OpenAI-compat endpoint
+      if (isOllamaReasoningModel(modelId)) {
         return wrapLanguageModel({
           model: baseModel,
           middleware: extractReasoningMiddleware({ tagName: 'think' }),
         });
       }
-      // Models with native reasoning field (qwen3, etc.) work automatically
       return baseModel;
     }
     default:

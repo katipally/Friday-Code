@@ -163,5 +163,173 @@ export function createTools(workingDirectory: string) {
         }
       },
     }),
+
+    gitStatus: tool({
+      description: 'Show the current git status (staged, unstaged, untracked files)',
+      parameters: z.object({}),
+      execute: async () => {
+        try {
+          const result = execSync('git status --porcelain', {
+            cwd: workingDirectory, encoding: 'utf-8', timeout: 10000,
+          });
+          const lines = result.trim().split('\n').filter(Boolean);
+          const staged = lines.filter(l => /^[MADRC]/.test(l)).map(l => l.trim());
+          const unstaged = lines.filter(l => /^.[MADRC]/.test(l)).map(l => l.trim());
+          const untracked = lines.filter(l => l.startsWith('??')).map(l => l.slice(3));
+          return { staged, unstaged, untracked, clean: lines.length === 0 };
+        } catch (e: any) {
+          return { error: e.message };
+        }
+      },
+    }),
+
+    gitDiff: tool({
+      description: 'Show git diff for working changes or staged changes',
+      parameters: z.object({
+        staged: z.boolean().describe('Show staged changes instead of working changes').default(false),
+        path: z.string().describe('Optional file path to limit diff').optional(),
+      }),
+      execute: async ({ staged, path }) => {
+        try {
+          const args = staged ? '--cached' : '';
+          const pathArg = path ? `-- "${path}"` : '';
+          const result = execSync(`git diff ${args} ${pathArg}`.trim(), {
+            cwd: workingDirectory, encoding: 'utf-8', timeout: 10000, maxBuffer: 1024 * 1024 * 2,
+          });
+          return { diff: result.slice(0, 15000), truncated: result.length > 15000 };
+        } catch (e: any) {
+          return { error: e.message };
+        }
+      },
+    }),
+
+    gitLog: tool({
+      description: 'Show recent git commit history',
+      parameters: z.object({
+        count: z.number().describe('Number of commits to show').default(10),
+        oneline: z.boolean().describe('Show one line per commit').default(true),
+      }),
+      execute: async ({ count, oneline }) => {
+        try {
+          const fmt = oneline ? '--oneline' : '--format=%H|%an|%ar|%s';
+          const result = execSync(`git log ${fmt} -n ${Math.min(count, 50)}`, {
+            cwd: workingDirectory, encoding: 'utf-8', timeout: 10000,
+          });
+          if (oneline) {
+            return { commits: result.trim().split('\n').filter(Boolean) };
+          }
+          const commits = result.trim().split('\n').filter(Boolean).map(line => {
+            const [hash, author, date, ...msgParts] = line.split('|');
+            return { hash, author, date, message: msgParts.join('|') };
+          });
+          return { commits };
+        } catch (e: any) {
+          return { error: e.message };
+        }
+      },
+    }),
+
+    gitCommit: tool({
+      description: 'Stage files and create a git commit',
+      parameters: z.object({
+        message: z.string().describe('Commit message'),
+        files: z.array(z.string()).describe('Files to stage (use ["."] for all)').default(['.'])
+      }),
+      execute: async ({ message, files }) => {
+        try {
+          const fileArgs = files.map(f => `"${f}"`).join(' ');
+          execSync(`git add ${fileArgs}`, { cwd: workingDirectory, encoding: 'utf-8', timeout: 10000 });
+          const result = execSync(`git commit -m "${message.replace(/"/g, '\\"')}"`, {
+            cwd: workingDirectory, encoding: 'utf-8', timeout: 10000,
+          });
+          return { success: true, output: result.trim() };
+        } catch (e: any) {
+          return { error: e.message };
+        }
+      },
+    }),
+
+    webFetch: tool({
+      description: 'Fetch content from a URL. Returns text content for analysis.',
+      parameters: z.object({
+        url: z.string().describe('URL to fetch'),
+        maxLength: z.number().describe('Max response length in characters').default(10000),
+      }),
+      execute: async ({ url, maxLength }) => {
+        try {
+          const response = await fetch(url, {
+            headers: { 'User-Agent': 'Friday-Code/1.0' },
+            signal: AbortSignal.timeout(15000),
+          });
+          if (!response.ok) {
+            return { error: `HTTP ${response.status}: ${response.statusText}` };
+          }
+          const text = await response.text();
+          return {
+            content: text.slice(0, maxLength),
+            contentType: response.headers.get('content-type') || 'unknown',
+            truncated: text.length > maxLength,
+            statusCode: response.status,
+          };
+        } catch (e: any) {
+          return { error: e.message };
+        }
+      },
+    }),
+
+    runTests: tool({
+      description: 'Run the test suite. Auto-detects the test runner from package.json or common patterns.',
+      parameters: z.object({
+        command: z.string().describe('Test command to run. If empty, auto-detects from package.json scripts.').optional(),
+      }),
+      execute: async ({ command }) => {
+        try {
+          let testCmd = command;
+          if (!testCmd) {
+            const pkgPath = join(workingDirectory, 'package.json');
+            if (existsSync(pkgPath)) {
+              const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+              if (pkg.scripts?.test) testCmd = 'npm test';
+              else if (pkg.scripts?.['test:unit']) testCmd = 'npm run test:unit';
+            }
+            if (!testCmd && existsSync(join(workingDirectory, 'Makefile'))) {
+              testCmd = 'make test';
+            }
+            if (!testCmd) testCmd = 'npm test';
+          }
+          const result = execSync(testCmd, {
+            cwd: workingDirectory,
+            encoding: 'utf-8',
+            timeout: 120000,
+            maxBuffer: 1024 * 1024 * 5,
+          });
+          return { output: result.slice(0, 15000), exitCode: 0, command: testCmd };
+        } catch (e: any) {
+          return {
+            output: ((e.stdout || '') + '\n' + (e.stderr || '')).slice(0, 15000),
+            exitCode: e.status || 1,
+            command: command || 'npm test',
+            error: e.message,
+          };
+        }
+      },
+    }),
   };
 }
+
+/** Tool safety classification for human-in-the-loop approval */
+export const TOOL_SAFETY: Record<string, 'safe' | 'destructive'> = {
+  readFile: 'safe',
+  listDirectory: 'safe',
+  searchFiles: 'safe',
+  searchContent: 'safe',
+  gitStatus: 'safe',
+  gitDiff: 'safe',
+  gitLog: 'safe',
+  webFetch: 'safe',
+  writeFile: 'destructive',
+  editFile: 'destructive',
+  executeCommand: 'destructive',
+  gitCommit: 'destructive',
+  runTests: 'destructive',
+};

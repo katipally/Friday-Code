@@ -33,7 +33,11 @@ for (let i = 0; i < args.length; i++) {
     /model              Select AI model
     /provider           Manage providers & API keys
     /scope <path>       Change working directory
+    /inspector          Toggle the side inspector
+    /detach             Toggle detached focus view
     /clear              Clear conversation
+    /new                Start a fresh conversation
+    /history            Show history count
     /exit               Exit Friday Code
     @file               Mention a file for context
 `);
