@@ -17,7 +17,6 @@ sqlite.pragma('foreign_keys = ON');
 
 export const db = drizzle(sqlite, { schema });
 
-// Initialize tables
 export function initializeDatabase() {
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS conversations (
@@ -72,7 +71,6 @@ export function initializeDatabase() {
     );
   `);
 
-  // Seed default providers
   const existing = sqlite.prepare('SELECT COUNT(*) as count FROM providers').get() as { count: number };
   if (existing.count === 0) {
     sqlite.exec(`

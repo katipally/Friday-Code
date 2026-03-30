@@ -1,6 +1,3 @@
-// Friday Code — Monochrome Violet + Gray palette
-// One accent family, clean gray scale, desaturated semantics
-
 export const colors = {
   // Primary — soft violet family
   primary: '#A78BFA',
@@ -20,7 +17,6 @@ export const colors = {
   error: '#FCA5A5',
   info: '#93C5FD',
 
-  // Backward-compat aliases (used by ModelSelector, etc.)
   brand: '#A78BFA',
   brandLight: '#C4B5FD',
   accent: '#A78BFA',

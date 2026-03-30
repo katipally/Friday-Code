@@ -1,154 +1,154 @@
-# Friday Code ◆
+# Friday Code
 
-**The open-source terminal AI coding agent.**
+**Open-source terminal AI coding agent.**
 
-Built with React (Ink), Vercel AI SDK, SQLite + Drizzle ORM. Supports OpenAI, Anthropic, and Ollama.
+Friday Code is a terminal-native AI assistant that reads, writes, and edits code using tool-calling agent loops. Built with React (Ink), Vercel AI SDK, and SQLite.
 
 ```
-  ╔══════════════════════════════════════════╗
-  ║  ◆ F R I D A Y   C O D E              ║
-  ║  AI-powered terminal coding agent      ║
-  ╚══════════════════════════════════════════╝
+  ◈ friday code
+  model → ollama/qwen3:Thinking
+  scope → ~/projects/my-app
+
+  · explain this project
+  · find and fix bugs in @file
+  · refactor this module for clarity
 ```
 
-## Features
-
-- 🤖 **Multi-provider AI** — OpenAI, Anthropic, and Ollama (local models) with live model fetching
-- 🎨 **Beautiful Terminal UI** — Custom React-based TUI built on Ink with rich components
-- ⚡ **Streaming responses** — Real-time text streaming with reasoning/thinking display
-- 🛠️ **Agent tools** — File read/write/edit, shell execution, file search, content search
-- 💬 **Conversation history** — Persistent conversations stored in SQLite
-- 🔍 **File mentions** — Reference files with `@filepath` to include as context
-- ⌨️ **Slash commands** — `/model`, `/clear`, `/scope`, `/help`, `/provider`, and more
-- 🧠 **Reasoning support** — Displays AI thinking/reasoning when model supports it
-- 📂 **Scope management** — Set working directory scope for the AI agent
-- 🗄️ **SQLite + Drizzle** — Type-safe database with conversations, settings, and model cache
-
-## Quick Start
+## Install
 
 ```bash
-# Clone and install
-git clone https://github.com/your-org/friday-code.git
+npm install -g friday-code
+```
+
+Or run from source:
+
+```bash
+git clone https://github.com/yashwanthreddy/friday-code.git
 cd friday-code
 npm install
-
-# Set API key (choose one)
-export OPENAI_API_KEY=sk-...
-# or
-export ANTHROPIC_API_KEY=sk-ant-...
-
-# Run
-npm run dev
+npm run build
+npm start
 ```
 
 ## Usage
 
-### Start Friday Code
 ```bash
-npm run dev                    # Start in current directory
-npm run dev -- --dir /path     # Start with specific scope
+friday                     # Start in current directory
+friday --dir ~/projects    # Start with a specific scope
 ```
 
-### Inside Friday Code
+### Commands
 
 | Command | Description |
 |---------|-------------|
-| `/help` | Show all commands |
+| `/help` | Show all commands and shortcuts |
 | `/model` | Select AI model and provider |
-| `/provider` | Manage providers & API keys |
+| `/provider` | Manage providers and API keys |
 | `/scope <path>` | Change working directory |
+| `/config` | View or set configuration |
 | `/clear` | Clear conversation history |
+| `/new` | Start a new conversation |
 | `/history` | Show message count |
-| `/exit` | Exit Friday Code |
-| `@file` | Mention a file for context |
+| `/exit` | Quit Friday Code |
 
 ### Keyboard Shortcuts
 
 | Key | Action |
 |-----|--------|
-| `Enter` | Submit message |
+| `Enter` | Send message |
+| `Tab` | Autocomplete command or file |
+| `↑` / `↓` | Navigate input history |
 | `Ctrl+C` | Cancel generation |
 | `Ctrl+D` | Exit |
-| `↑/↓` | Navigate input history |
-| `←/→` | Move cursor |
 | `Ctrl+U` | Clear input line |
+
+### File Mentions
+
+Reference files inline with `@filename`:
+
+```
+explain what @src/index.ts does and suggest improvements
+```
+
+The file contents are automatically included as context.
+
+## Providers
+
+Friday Code supports three AI providers out of the box:
+
+| Provider | Setup | Notes |
+|----------|-------|-------|
+| **OpenAI** | Set `OPENAI_API_KEY` env var or use `/provider` | GPT-4o, o1, o3, o4 |
+| **Anthropic** | Set `ANTHROPIC_API_KEY` env var or use `/provider` | Claude Sonnet 4, 3.5 Sonnet |
+| **Ollama** | Install [Ollama](https://ollama.com) locally | Any local model — no API key needed |
+
+Models are fetched live from each provider. Use `/model` to browse and select.
+
+## Tools
+
+The agent has access to these tools during conversations:
+
+| Tool | Description | Approval |
+|------|-------------|----------|
+| `readFile` | Read file contents | Auto |
+| `writeFile` | Create or overwrite a file | Required |
+| `editFile` | Find-and-replace edit | Required |
+| `listDirectory` | List files in a directory | Auto |
+| `searchFiles` | Glob-pattern file search | Auto |
+| `searchContent` | Grep-based content search | Auto |
+| `executeCommand` | Run a shell command | Required |
+| `gitStatus` | Show git status | Auto |
+| `gitDiff` | Show git diff | Auto |
+| `gitLog` | Show commit history | Auto |
+| `gitCommit` | Stage and commit | Required |
+| `webFetch` | Fetch a URL | Auto |
+| `runTests` | Run the test suite | Required |
+
+Destructive tools require approval by default. Press `Enter` to approve or `Esc` to deny. Disable with `/config approval off`.
+
+## Configuration
+
+Friday Code stores its database at `~/.friday-code/friday.db`.
+
+API keys can be set via:
+- Environment variables (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`)
+- The `/provider` command inside the TUI
+- A `.env` file in the working directory
+
+Runtime settings via `/config`:
+
+| Setting | Values | Default |
+|---------|--------|---------|
+| `maxSteps` | `1`–`100` | `25` |
+| `approval` | `on` / `off` | `on` |
 
 ## Architecture
 
 ```
-friday-code/
-├── src/
-│   ├── index.tsx              # Entry point
-│   ├── ui/
-│   │   ├── theme/theme.ts     # Design system & colors
-│   │   ├── components/        # Reusable UI components
-│   │   │   └── components.tsx # Panel, StatusBar, Spinner, etc.
-│   │   └── views/
-│   │       ├── App.tsx        # Main application view
-│   │       ├── InputBox.tsx   # Input component with history
-│   │       └── ModelSelector.tsx  # Model/provider picker
-│   ├── core/
-│   │   ├── engine/agent.ts    # AI agent loop (streamText)
-│   │   ├── providers/registry.ts  # Provider management
-│   │   └── tools/tools.ts     # File, shell, search tools
-│   └── db/
-│       ├── schema.ts          # Drizzle ORM schema
-│       └── index.ts           # Database initialization
-├── package.json
-├── tsconfig.json
-└── drizzle.config.ts
+src/
+├── index.tsx                    # CLI entry point
+├── core/
+│   ├── engine/agent.ts          # Agent loop (streamText, tool calling)
+│   ├── providers/registry.ts    # Provider and model management
+│   └── tools/tools.ts           # Tool definitions
+├── db/
+│   ├── index.ts                 # Database initialization
+│   └── schema.ts                # Drizzle ORM schema
+└── ui/
+    ├── theme/theme.ts           # Color palette and icons
+    ├── components/components.tsx # All UI components
+    └── views/
+        ├── App.tsx              # Main application orchestrator
+        ├── InputBox.tsx         # Input with autocomplete
+        └── ModelSelector.tsx    # Model/provider picker
 ```
 
-### Tech Stack
-
-- **UI**: React + Ink (terminal rendering) with custom component library
-- **AI**: Vercel AI SDK (`streamText`, tool calling, multi-step agent loop)
-- **Database**: SQLite via better-sqlite3 + Drizzle ORM
-- **Providers**: `@ai-sdk/openai`, `@ai-sdk/anthropic`, Ollama (via OpenAI-compatible)
-- **Language**: TypeScript with strict mode
-- **Runtime**: Node.js 18+ with tsx for development
-
-### Agent Loop
-
-Friday Code uses a **React-pattern agent loop**:
-
-1. **Observe** — Receive user input + file context
-2. **Think** — Stream reasoning (when model supports it)
-3. **Act** — Call tools (read files, edit code, run commands)
-4. **Respond** — Stream final response text
-
-The loop supports up to 10 steps per turn, allowing the AI to:
-- Read a file → Edit it → Run tests → Fix issues → Respond
-
-### AI Providers
-
-| Provider | Setup | Models |
-|----------|-------|--------|
-| **OpenAI** | `OPENAI_API_KEY` or `/model` in TUI | GPT-4o, GPT-4, o1, o3, etc. |
-| **Anthropic** | `ANTHROPIC_API_KEY` or `/model` in TUI | Claude Sonnet 4, 3.5 Sonnet, 3 Opus, etc. |
-| **Ollama** | Install Ollama locally | Any local model (llama3, codellama, etc.) |
-
-## Configuration
-
-Friday Code stores data in `~/.friday-code/`:
-
-- `friday.db` — SQLite database (conversations, settings, provider keys)
-
-API keys can be set via:
-1. Environment variables (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`)
-2. The `/model` command in the TUI (stored in DB)
-3. A `.env` file in the project directory
+**Stack:** TypeScript · React + Ink · Vercel AI SDK · SQLite + Drizzle ORM · Node.js 18+
 
 ## Contributing
 
-Contributions welcome! This is fully open-source.
-
-```bash
-# Development
-npm run dev          # Run with tsx (hot-reload)
-npm run build        # TypeScript compilation
-```
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
 ## License
 
-MIT
+[MIT](LICENSE)

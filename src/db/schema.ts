@@ -1,7 +1,6 @@
 import { sqliteTable, text, integer, blob } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 
-// Conversations table
 export const conversations = sqliteTable('conversations', {
   id: text('id').primaryKey(),
   title: text('title').notNull().default('New Chat'),
@@ -12,7 +11,6 @@ export const conversations = sqliteTable('conversations', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
 });
 
-// Messages table
 export const messages = sqliteTable('messages', {
   id: text('id').primaryKey(),
   conversationId: text('conversation_id').notNull().references(() => conversations.id, { onDelete: 'cascade' }),
@@ -27,7 +25,6 @@ export const messages = sqliteTable('messages', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
 });
 
-// Provider configurations
 export const providers = sqliteTable('providers', {
   id: text('id').primaryKey(), // 'openai', 'anthropic', 'ollama'
   name: text('name').notNull(),
@@ -38,7 +35,6 @@ export const providers = sqliteTable('providers', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
 });
 
-// Cached models from providers
 export const models = sqliteTable('models', {
   id: text('id').primaryKey(), // e.g. 'openai:gpt-4o'
   providerId: text('provider_id').notNull().references(() => providers.id, { onDelete: 'cascade' }),
@@ -51,7 +47,6 @@ export const models = sqliteTable('models', {
   lastFetched: integer('last_fetched', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
 });
 
-// App settings (key-value)
 export const settings = sqliteTable('settings', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),

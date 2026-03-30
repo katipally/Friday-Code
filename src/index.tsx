@@ -33,8 +33,7 @@ for (let i = 0; i < args.length; i++) {
     /model              Select AI model
     /provider           Manage providers & API keys
     /scope <path>       Change working directory
-    /inspector          Toggle the side inspector
-    /detach             Toggle detached focus view
+    /config             View/set configuration
     /clear              Clear conversation
     /new                Start a fresh conversation
     /history            Show history count
@@ -43,7 +42,7 @@ for (let i = 0; i < args.length; i++) {
 `);
     process.exit(0);
   } else if (arg === '--version' || arg === '-v') {
-    console.log('friday-code v0.1.0');
+    console.log('friday-code v1.0.1');
     process.exit(0);
   }
 }

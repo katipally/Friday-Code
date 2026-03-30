@@ -35,7 +35,6 @@ function isOllamaReasoningModel(modelId: string): boolean {
     lower.includes(':thinking');
 }
 
-// Create AI SDK model instance from provider + model config
 export function createModel(provider: ProviderConfig, modelId: string): LanguageModelV1 {
   switch (provider.type) {
     case 'openai': {
@@ -73,7 +72,6 @@ export function createModel(provider: ProviderConfig, modelId: string): Language
   }
 }
 
-// Fetch models from provider API
 export async function fetchModelsFromProvider(provider: ProviderConfig): Promise<ModelInfo[]> {
   const fetched: ModelInfo[] = [];
 
@@ -155,7 +153,6 @@ export async function fetchModelsFromProvider(provider: ProviderConfig): Promise
   return fetched;
 }
 
-// Get all configured providers from DB
 export function getProviders(): ProviderConfig[] {
   return db.select().from(providers).all().map(p => ({
     id: p.id,
@@ -167,12 +164,10 @@ export function getProviders(): ProviderConfig[] {
   }));
 }
 
-// Update provider API key
 export function updateProviderKey(providerId: string, apiKey: string) {
   db.update(providers).set({ apiKey }).where(eq(providers.id, providerId)).run();
 }
 
-// Get or set a setting
 export function getSetting(key: string): string | undefined {
   const row = db.select().from(settings).where(eq(settings.key, key)).get();
   return row?.value;
@@ -184,7 +179,6 @@ export function setSetting(key: string, value: string) {
     .run();
 }
 
-// Save fetched models to DB
 export function cacheModels(modelList: ModelInfo[]) {
   for (const m of modelList) {
     db.insert(models).values({
@@ -209,7 +203,6 @@ export function cacheModels(modelList: ModelInfo[]) {
   }
 }
 
-// Get cached models for a provider
 export function getCachedModels(providerId?: string): ModelInfo[] {
   const query = providerId
     ? db.select().from(models).where(eq(models.providerId, providerId)).all()
@@ -227,7 +220,6 @@ export function getCachedModels(providerId?: string): ModelInfo[] {
   }));
 }
 
-// Get the currently active model configuration
 export function getActiveModelConfig(): { provider: ProviderConfig; modelId: string } | null {
   const providerId = getSetting('active_provider');
   const modelId = getSetting('active_model');
