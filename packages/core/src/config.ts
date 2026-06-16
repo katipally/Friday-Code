@@ -2,6 +2,7 @@ import fs from "node:fs"
 import { configPath, fridayDir } from "@friday/providers"
 import type { McpServerConfig } from "@friday/mcp"
 import type { Effort, ModeId } from "@friday/shared"
+import type { HooksConfig } from "./hooks.ts"
 
 export interface FridayConfig {
   providerId?: string
@@ -13,6 +14,10 @@ export interface FridayConfig {
   mcp?: Record<string, McpServerConfig>
   /** context window (tokens) of the selected model — drives auto-compaction */
   contextWindow?: number
+  /** lifecycle hooks (deterministic scripts) */
+  hooks?: HooksConfig
+  /** bash command allow/deny lists (prefix or `*` glob) */
+  bash?: { allow?: string[]; deny?: string[] }
 }
 
 export function loadConfig(): FridayConfig {

@@ -74,6 +74,8 @@ export class Engine {
     resolveProvider: () => this.resolveProvider(),
     nextId: () => this.nextId(),
     emit: (sessionId, body) => this.dispatch(sessionId, body),
+    hooks: () => loadConfig().hooks,
+    bashPolicy: () => loadConfig().bash,
   }
 
   constructor(opts: EngineOptions) {
@@ -373,6 +375,9 @@ export class Engine {
     switch (name) {
       case "compact":
         void this.focused().forceCompact()
+        break
+      case "commit":
+        void this.focused().commitFlow()
         break
       default:
         this.dispatch(this.focusedId, { type: "error", message: `Unknown command: /${name}` })

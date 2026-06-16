@@ -25,6 +25,9 @@ import {
   type ToolResult,
 } from "@friday/tools"
 import { LspManager, formatDiagnostics } from "@friday/lsp"
+import { runHooks, type HookEvent, type HookPayload, type HooksConfig } from "./hooks.ts"
+import { gitStatus, gitDiff, gitCommitAll } from "./git.ts"
+import { bashRisk, matchesList } from "./safety.ts"
 import { subagentPrompt, systemPrompt } from "./prompt.ts"
 import type { SessionStore } from "./sessions.ts"
 import { loadProjectContext, type ProjectContext } from "./context.ts"
@@ -49,13 +52,6 @@ function safeParse(s: string): unknown {
   }
 }
 
-function summarizeCall(tc: ToolCall): string {
-  const args = safeParse(tc.arguments) as Record<string, unknown>
-  if (typeof args.command === "string") return args.command
-  if (typeof args.path === "string") return String(args.path)
-  return tc.arguments.slice(0, 120)
-}
-
 export interface SessionStats {
   messages: number
   tokens: number
@@ -75,6 +71,10 @@ export interface RunnerHost {
   nextId: () => string
   /** emit a body tagged with this runner's session id */
   emit: (sessionId: string, body: EngineEventBody) => void
+  /** lifecycle hooks config */
+  hooks: () => HooksConfig | undefined
+  /** bash allow/deny lists */
+  bashPolicy: () => { allow?: string[]; deny?: string[] } | undefined
 }
 
 /**
@@ -126,10 +126,25 @@ export class SessionRunner {
     this.context = loadProjectContext(this.roots)
     this.skills = loadSkills(this.roots)
     this.lsp = new LspManager(this.cwd)
+    void this.hook("SessionStart")
   }
 
   private emit(body: EngineEventBody): void {
     this.host.emit(this.sessionId, body)
+  }
+
+  private hook(event: HookEvent, extra: Partial<HookPayload> = {}, matchKey?: string) {
+    return runHooks(event, this.host.hooks(), { event, session_id: this.sessionId, cwd: this.cwd, ...extra }, matchKey)
+  }
+
+  /** Refresh the git working-tree state for the Files panel. */
+  private async refreshGit(): Promise<void> {
+    try {
+      const st = await gitStatus(this.cwd)
+      if (st.repo) this.emit({ type: "changed-files", items: st.files, branch: st.branch })
+    } catch {
+      /* not a repo / no git */
+    }
   }
 
   // ---- public accessors (used by the manager / UI) ----
@@ -168,6 +183,7 @@ export class SessionRunner {
     if (includeMessages)
       this.emit({ type: "session-loaded", sessionId: this.sessionId, title: this.title, cwd: this.cwd, roots: this.roots, messages: this.messages })
     this.emit({ type: "todos", items: this.todos })
+    void this.refreshGit()
   }
 
   addRoot(dir: string): void {
@@ -267,6 +283,13 @@ export class SessionRunner {
       this.emit({ type: "error", message: "No model selected — open /model to connect one." })
       return
     }
+    // UserPromptSubmit hook may block the prompt or inject extra context.
+    const pre = await this.hook("UserPromptSubmit", { prompt: text })
+    if (pre.block) {
+      this.emit({ type: "error", message: pre.reason ?? "Prompt blocked by a hook." })
+      return
+    }
+
     this.busy = true
     this.abort = new AbortController()
     this.currentCheckpoint = {
@@ -279,7 +302,9 @@ export class SessionRunner {
     this.checkpoints.push(this.currentCheckpoint)
     this.redoState = undefined
     const { text: expanded, files } = expandMentions(text, this.roots)
-    this.addMessage({ role: "user", text: await this.augmentSymbols(text, expanded, files) })
+    let promptText = await this.augmentSymbols(text, expanded, files)
+    if (pre.context) promptText += `\n\n<hook_context>\n${pre.context}\n</hook_context>`
+    this.addMessage({ role: "user", text: promptText })
     this.setTitleFromPrompt(text)
     const start = now()
     try {
@@ -293,6 +318,8 @@ export class SessionRunner {
     } finally {
       this.busy = false
       this.abort = undefined
+      void this.hook("Stop")
+      void this.refreshGit()
       this.emit({ type: "mascot", state: "idle" })
       this.emit({ type: "status", text: "ready" })
     }
@@ -362,6 +389,7 @@ export class SessionRunner {
     const cut = safeCutIndex(this.messages, this.messages.length - COMPACTION.keepRecent, floor)
     if (cut <= floor) return
     const before = estimateTokens(this.messages.slice(0, cut))
+    void this.hook("PreCompact")
     this.emit({ type: "status", text: "compacting context…" })
     const summary = await this.summarize(provider, apiKey, signal, this.messages.slice(0, cut), this.compaction?.summary)
     if (!summary) return
@@ -524,6 +552,7 @@ export class SessionRunner {
           this.emit({ type: "mascot", state: "working" })
           this.emit({ type: "status", text: `subagent: ${a.description ?? "task"}…` })
           const summary = await this.runSubagent(a.prompt ?? "", a.agent)
+          void this.hook("SubagentStop", { tool_response: summary })
           this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: summary })
           this.emit({ type: "tool-result", callId: tc.id, ok: true, output: summary, title: `task: ${a.description ?? "subagent"}` })
           continue
@@ -562,7 +591,19 @@ export class SessionRunner {
           continue
         }
 
-        const decision = await this.checkPermission(tool, tc, sel.mode)
+        let args = safeParse(tc.arguments)
+
+        // PreToolUse hook: may block the call or replace its input.
+        const pre = await this.hook("PreToolUse", { tool_name: tc.name, tool_input: args }, tc.name)
+        if (pre.block) {
+          const msg = `Blocked by a PreToolUse hook${pre.reason ? `: ${pre.reason}` : "."}`
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: msg, isError: true })
+          this.emit({ type: "tool-result", callId: tc.id, ok: false, output: msg })
+          continue
+        }
+        if (pre.input !== undefined) args = pre.input
+
+        const decision = await this.checkPermission(tool, args, sel.mode)
         if (decision === "deny") {
           const msg = `User denied permission to run ${tool.name}.`
           this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: msg, isError: true })
@@ -571,11 +612,10 @@ export class SessionRunner {
         }
 
         if (tool.permission === "edit" && this.currentCheckpoint) {
-          const a = safeParse(tc.arguments) as { path?: string }
-          if (typeof a.path === "string") snapshotFile(this.currentCheckpoint, path.resolve(this.cwd, a.path))
+          const p = (args as any)?.path
+          if (typeof p === "string") snapshotFile(this.currentCheckpoint, path.resolve(this.cwd, p))
         }
 
-        const args = safeParse(tc.arguments)
         let result: ToolResult
         try {
           result = await tool.execute(args, { cwd: this.cwd, roots: this.roots, signal })
@@ -589,6 +629,7 @@ export class SessionRunner {
           if (diag) result = { ...result, output: result.output + diag }
         }
 
+        void this.hook("PostToolUse", { tool_name: tc.name, tool_input: args, tool_response: result.output }, tc.name)
         this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: result.output, isError: result.isError })
         this.emit({ type: "tool-result", callId: tc.id, ok: !result.isError, output: result.output, title: result.title, diff: result.diff })
       }
@@ -711,19 +752,84 @@ export class SessionRunner {
     return "Unknown LSP tool."
   }
 
-  private async checkPermission(tool: Tool, tc: ToolCall, mode: ModeId): Promise<"allow" | "deny"> {
+  private async checkPermission(tool: Tool, args: unknown, mode: ModeId): Promise<"allow" | "deny"> {
     const cat = tool.permission
     if (cat === "read") return "allow"
+    const command = typeof (args as any)?.command === "string" ? ((args as any).command as string) : undefined
+
+    // bash allow/deny lists take precedence over the mode policy.
+    if (cat === "bash" && command) {
+      const policy = this.host.bashPolicy()
+      if (matchesList(command, policy?.deny)) return "deny"
+      if (matchesList(command, policy?.allow)) return "allow"
+    }
     if (this.sessionAllow.has(cat)) return "allow"
     const verdict = getMode(mode).policy[cat]
     if (verdict === "allow") return "allow"
     if (verdict === "deny") return "deny"
 
     const requestId = this.host.nextId()
-    this.emit({ type: "permission-request", requestId, tool: tool.name, summary: `Allow ${tool.name}?`, detail: summarizeCall(tc) })
+    const detail = command ?? (typeof (args as any)?.path === "string" ? String((args as any).path) : JSON.stringify(args).slice(0, 120))
+    const risk = command ? bashRisk(command) : undefined
+    this.emit({ type: "permission-request", requestId, tool: tool.name, summary: `Allow ${tool.name}?`, detail, risk })
     this.emit({ type: "mascot", state: "idle" })
     this.emit({ type: "status", text: "waiting for you…" })
     this.needsInput = true
+    void this.hook("Notification", { message: `${tool.name} needs approval` })
     return new Promise<"allow" | "deny">((resolve) => this.pending.set(requestId, { resolve, category: cat }))
+  }
+
+  // ---- /commit ----
+  async commitFlow(): Promise<void> {
+    const status = await gitStatus(this.cwd)
+    if (!status.repo) return this.emit({ type: "error", message: "Not a git repository." })
+    if (!status.dirty) return this.emit({ type: "status", text: "nothing to commit — working tree clean" })
+
+    this.emit({ type: "mascot", state: "working" })
+    this.emit({ type: "status", text: "drafting commit message…" })
+    const drafted = await this.draftCommit(await gitDiff(this.cwd))
+
+    const requestId = this.host.nextId()
+    this.emit({ type: "ask-user", requestId, question: `Commit message (Enter to accept, or type your own):\n\n${drafted}` })
+    this.needsInput = true
+    const answer = await new Promise<string>((resolve) => this.pendingAsk.set(requestId, resolve))
+    this.needsInput = this.pending.size > 0 || this.pendingAsk.size > 0
+    const message = answer && answer !== "(no answer)" ? answer : drafted
+
+    const res = await gitCommitAll(this.cwd, message)
+    this.emit({ type: "mascot", state: "idle" })
+    if (res.ok) {
+      this.emit({ type: "notice", text: `✓ committed ${res.info} — ${message}` })
+      void this.refreshGit()
+    } else {
+      this.emit({ type: "error", message: `Commit failed: ${res.info}` })
+    }
+    this.emit({ type: "status", text: "ready" })
+  }
+
+  private async draftCommit(diff: string): Promise<string> {
+    const sel = this.host.selection()
+    if (!sel.model || !diff.trim()) return "Update files"
+    const provider = this.host.resolveProvider()
+    const apiKey = getProviderKey(provider.id)
+    const req = {
+      model: sel.model,
+      messages: [
+        {
+          role: "system",
+          text: "Write ONE concise git commit subject line in conventional-commits style (type(scope): summary), imperative mood, under 72 chars. Output only the line.",
+        } as Message,
+        { role: "user", text: `Diff:\n${diff}` } as Message,
+      ],
+      tools: [],
+      maxTokens: 80,
+    }
+    let text = ""
+    try {
+      for await (const ev of this.host.streamFn(provider, apiKey, req, new AbortController().signal)) if (ev.type === "text") text += ev.delta
+    } catch {
+      return "Update files"
+    }
+    return text.trim().split("\n")[0] || "Update files"
   }
 }

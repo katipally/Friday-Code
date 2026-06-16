@@ -96,6 +96,9 @@ export function ContextPanel() {
               open={filesOpen()}
               onToggle={() => setFilesOpen(!filesOpen())}
             >
+              <Show when={app.branch()}>
+                <text fg={theme.textFaint}> {app.branch()}</text>
+              </Show>
               <Show when={app.changedFiles().length || app.diagnostics().length} fallback={<text fg={theme.textFaint}>no changes</text>}>
                 <For each={app.changedFiles()}>
                   {(f) => (

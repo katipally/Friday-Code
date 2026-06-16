@@ -46,7 +46,7 @@ export function PermissionCard() {
             <box
               border
               borderStyle="rounded"
-              borderColor={theme.border}
+              borderColor={p().risk ? theme.error : theme.border}
               backgroundColor={theme.bgComposer}
               paddingLeft={1}
               paddingRight={1}
@@ -55,6 +55,11 @@ export function PermissionCard() {
                 {p().detail}
               </text>
             </box>
+          </Show>
+
+          {/* Risk warning for dangerous shell commands. */}
+          <Show when={p().risk}>
+            <text fg={theme.error}>⚠ risky — {p().risk}</text>
           </Show>
 
           <box flexDirection="row" gap={3} marginTop={1}>

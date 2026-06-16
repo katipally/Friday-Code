@@ -19,7 +19,7 @@ export type EngineEventBody =
   | { type: "reasoning"; id: string; delta: string }
   | { type: "tool-call"; id: string; callId: string; name: string; input: unknown }
   | { type: "tool-result"; callId: string; ok: boolean; output: string; title?: string; diff?: string }
-  | { type: "permission-request"; requestId: string; tool: string; summary: string; detail?: string }
+  | { type: "permission-request"; requestId: string; tool: string; summary: string; detail?: string; risk?: string }
   | { type: "ask-user"; requestId: string; question: string; options?: string[] }
   | { type: "turn-done"; id: string }
   | { type: "usage"; input: number; output: number; costUsd?: number }
@@ -29,7 +29,9 @@ export type EngineEventBody =
   | { type: "session-loaded"; sessionId: string; title: string; cwd: string; roots: string[]; messages: Message[] }
   | { type: "todos"; items: TodoItem[] }
   | { type: "diagnostics"; items: { path: string; errors: number; warnings: number }[] }
+  | { type: "changed-files"; items: { path: string; status: string; added: number; removed: number }[]; branch?: string }
   | { type: "compaction"; turnsCompacted: number; kept: number; tokensBefore: number; tokensAfter: number }
+  | { type: "notice"; text: string }
   | { type: "error"; message: string }
 
 /** A bus event, tagged with the session it originates from. */

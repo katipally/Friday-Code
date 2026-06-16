@@ -40,7 +40,7 @@ export type ViewItem =
   | { kind: "error"; id: string; text: string }
   | { kind: "notice"; id: string; text: string }
 
-export type PendingPermission = { requestId: string; tool: string; summary: string; detail?: string }
+export type PendingPermission = { requestId: string; tool: string; summary: string; detail?: string; risk?: string }
 export type PendingAsk = { requestId: string; question: string; options?: string[] }
 export type SessionItem = { id: string; title: string }
 export type ChangedFile = { path: string; status: string; added: number; removed: number }
@@ -123,6 +123,7 @@ export function createAppStore(engine: Engine) {
   const [sessions, setSessions] = createSignal<SessionItem[]>(engine.listSessions())
   const [allSessions, setAllSessions] = createSignal(engine.listAllSessions())
   const [changedFiles, setChangedFiles] = createSignal<ChangedFile[]>([])
+  const [branch, setBranch] = createSignal<string>("")
   const runningTools = createMemo(() =>
     items.filter((i) => i.kind === "tool" && i.status === "running").map((i) => (i as any).title ?? (i as any).name),
   )
@@ -208,7 +209,7 @@ export function createAppStore(engine: Engine) {
           })
         break
       case "permission-request":
-        setKey(setSessionPending, sid, { requestId: e.requestId, tool: e.tool, summary: e.summary, detail: e.detail })
+        setKey(setSessionPending, sid, { requestId: e.requestId, tool: e.tool, summary: e.summary, detail: e.detail, risk: e.risk })
         setKey(setSessionNeeds, sid, true)
         break
       case "ask-user":
@@ -234,6 +235,15 @@ export function createAppStore(engine: Engine) {
         break
       case "diagnostics":
         setKey(setSessionDiag, sid, e.items)
+        break
+      case "changed-files":
+        if (focused) {
+          setChangedFiles(e.items)
+          setBranch(e.branch ?? "")
+        }
+        break
+      case "notice":
+        if (focused) setItems(items.length, { kind: "notice", id: nextLocalId(), text: e.text })
         break
       case "compaction":
         if (focused) {
@@ -290,6 +300,7 @@ export function createAppStore(engine: Engine) {
     { name: "dir", description: "change or add a working directory" },
     { name: "mcp", description: "view / add / remove MCP servers" },
     { name: "compact", description: "summarize older context to reclaim the window" },
+    { name: "commit", description: "stage all changes and commit (drafts a message)" },
     { name: "undo", description: "rewind files + conversation to a checkpoint" },
     { name: "help", description: "show the keymap" },
     { name: "exit", description: "quit Friday (clean exit)" },
@@ -325,6 +336,9 @@ export function createAppStore(engine: Engine) {
         return true
       case "compact":
         sendEngineCommand("compact")
+        return true
+      case "commit":
+        sendEngineCommand("commit")
         return true
       case "undo":
         setCheckpointsOpen(true)
@@ -531,6 +545,7 @@ export function createAppStore(engine: Engine) {
     todos,
     changedFiles,
     setChangedFiles,
+    branch,
     diagnostics,
     sendEngineCommand,
   }
