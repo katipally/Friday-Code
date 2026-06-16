@@ -192,7 +192,8 @@ export class Engine {
 
   /** Announce initial state (used right after the UI subscribes). */
   ready(): void {
-    if (this.model && this.providerId) this.emit({ type: "model-changed", model: this.model, provider: this.providerId })
+    if (this.model && this.providerId)
+      this.emit({ type: "model-changed", model: this.model, provider: this.providerId, reasoning: this.modelReasoning })
     this.emit({ type: "session-changed", sessionId: this.sessionId, title: this.sessionTitle, cwd: this.cwd })
     if (this.messages.length)
       this.emit({ type: "session-loaded", sessionId: this.sessionId, title: this.sessionTitle, cwd: this.cwd, messages: this.messages })
@@ -282,8 +283,8 @@ export class Engine {
     }
     return out
   }
-  selection(): { providerId?: string; model?: string; effort: Effort; mode: ModeId } {
-    return { providerId: this.providerId, model: this.model, effort: this.effort, mode: this.mode }
+  selection(): { providerId?: string; model?: string; effort: Effort; mode: ModeId; reasoning: boolean } {
+    return { providerId: this.providerId, model: this.model, effort: this.effort, mode: this.mode, reasoning: this.modelReasoning }
   }
   contextInfo(): { files: string[] } {
     return { files: this.context.files }
@@ -303,7 +304,7 @@ export class Engine {
     this.model = model
     this.modelReasoning = reasoning
     saveConfig({ providerId, model, reasoning })
-    this.emit({ type: "model-changed", model, provider: providerId })
+    this.emit({ type: "model-changed", model, provider: providerId, reasoning })
   }
 
   // ---- command intake ----

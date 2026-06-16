@@ -1,3 +1,4 @@
+import { Show } from "solid-js"
 import { theme, getMode } from "@friday/shared"
 import { useApp } from "../store.tsx"
 
@@ -21,8 +22,11 @@ export function TopBar() {
         <text fg={mode().accent}>{mode().label}</text>
       </box>
       <text fg={theme.textFaint}> · </text>
-      <box onMouseDown={() => app.setModelModalOpen(true)}>
+      <box flexDirection="row" gap={1} onMouseDown={() => app.setModelModalOpen(true)}>
         <text fg={theme.textMuted}>{app.model()}</text>
+        <Show when={app.reasoningModel()}>
+          <text fg={theme.textFaint}>◇ {app.effort()}</text>
+        </Show>
       </box>
     </box>
   )

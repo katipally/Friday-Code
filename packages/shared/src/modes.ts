@@ -26,20 +26,20 @@ export interface Mode {
 
 export const MODES: readonly Mode[] = [
   {
-    id: "plan",
-    label: "plan",
-    glyph: "◐",
-    accent: "#38bdf8", // cyan/blue
-    hint: "read-only · proposes a plan, never edits",
-    policy: { edit: "deny", bash: "ask", network: "ask" },
-  },
-  {
     id: "default",
     label: "default",
     glyph: "⬡",
     accent: "#2dd4bf", // teal/mint — Friday's signature
     hint: "asks before edits & commands",
     policy: { edit: "ask", bash: "ask", network: "ask" },
+  },
+  {
+    id: "plan",
+    label: "plan",
+    glyph: "◐",
+    accent: "#38bdf8", // cyan/blue
+    hint: "read-only · proposes a plan, never edits",
+    policy: { edit: "deny", bash: "ask", network: "ask" },
   },
   {
     id: "accept-edit",
@@ -62,7 +62,7 @@ export const MODES: readonly Mode[] = [
 export const DEFAULT_MODE: ModeId = "default"
 
 export function getMode(id: ModeId): Mode {
-  return MODES.find((m) => m.id === id) ?? MODES[1]!
+  return MODES.find((m) => m.id === id) ?? MODES[0]!
 }
 
 export function cycleMode(id: ModeId, dir: 1 | -1 = 1): ModeId {

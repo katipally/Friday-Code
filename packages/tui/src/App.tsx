@@ -1,5 +1,5 @@
 import { Match, onMount, Show, Switch } from "solid-js"
-import { useKeyboard, useRenderer, useSelectionHandler, useTerminalDimensions } from "@opentui/solid"
+import { useKeyboard, useRenderer, useSelectionHandler } from "@opentui/solid"
 import { theme, getMode } from "@friday/shared"
 import type { Engine } from "@friday/core"
 import { AppProvider, createAppStore, useApp } from "./store.tsx"
@@ -22,22 +22,10 @@ import { ExitScreen } from "./components/ExitScreen.tsx"
 
 function Shell() {
   const app = useApp()
-  const dims = useTerminalDimensions()
   const accent = () => getMode(app.mode()).accent
 
-  function onMove(e: { x: number }) {
-    const d = app.dragging()
-    if (!d) return
-    const w = dims().width
-    if (d === "left") app.setLeftWidth(Math.max(14, Math.min(Math.floor(w / 2), e.x - 1)))
-    else app.setRightWidth(Math.max(16, Math.min(Math.floor(w / 2), w - e.x - 2)))
-  }
-  function onUp() {
-    if (app.dragging()) app.setDragging(null)
-  }
-
   return (
-    <box width="100%" height="100%" backgroundColor={theme.bg} onMouseMove={onMove as any} onMouseUp={onUp}>
+    <box width="100%" height="100%" backgroundColor={theme.bg}>
       <box flexGrow={1} flexDirection="column" border borderStyle="rounded" borderColor={accent()} backgroundColor={theme.bg}>
         <TopBar />
         <box flexDirection="row" flexGrow={1} minHeight={0}>

@@ -79,6 +79,7 @@ export function createAppStore(engine: Engine) {
   const [mode, setModeSig] = createSignal<ModeId>(engine.selection().mode ?? DEFAULT_MODE)
   const [effort, setEffortSig] = createSignal<Effort>(engine.selection().effort ?? "medium")
   const [model, setModel] = createSignal<string>(engine.selection().model ?? "no model — open /model")
+  const [reasoningModel, setReasoningModel] = createSignal<boolean>(engine.selection().reasoning ?? false)
   const [needsModel, setNeedsModel] = createSignal(false)
 
   const [leftOpen, setLeftOpen] = createSignal(true)
@@ -91,7 +92,6 @@ export function createAppStore(engine: Engine) {
   const [mascot, setMascot] = createSignal<MascotState>("idle")
   const [status, setStatus] = createSignal("ready")
   const [tokens, setTokens] = createSignal(0)
-  const [dragging, setDragging] = createSignal<null | "left" | "right">(null)
   const [busy, setBusy] = createSignal(false)
   const [pending, setPending] = createSignal<PendingPermission | null>(null)
   const [askPending, setAskPending] = createSignal<PendingAsk | null>(null)
@@ -133,6 +133,7 @@ export function createAppStore(engine: Engine) {
         break
       case "model-changed":
         setModel(e.model)
+        setReasoningModel(e.reasoning)
         setNeedsModel(false)
         break
       case "message-start":
@@ -357,6 +358,7 @@ export function createAppStore(engine: Engine) {
     effort,
     setEffort,
     model,
+    reasoningModel,
     needsModel,
     leftOpen,
     setLeftOpen,
@@ -373,8 +375,6 @@ export function createAppStore(engine: Engine) {
     mascot,
     status,
     tokens,
-    dragging,
-    setDragging,
     busy,
     pending,
     askPending,

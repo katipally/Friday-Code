@@ -46,9 +46,9 @@ test("Shift+Tab cycles modes, Ctrl+B toggles sessions panel, F1 overlay + mouse 
   await t.mockMouse.click(2, 2) // dismiss first-run /model
   await t.flush()
 
-  t.mockInput.pressTab({ shift: true })
+  t.mockInput.pressTab({ shift: true }) // default -> plan (new order)
   await t.flush()
-  expect(t.captureCharFrame()).toContain("accept edits")
+  expect(t.captureCharFrame()).toContain("plan")
 
   t.mockInput.pressKey("b", { ctrl: true })
   await t.flush()

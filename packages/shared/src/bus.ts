@@ -8,7 +8,7 @@ import type { Message } from "./types.ts"
 
 export type EngineEvent =
   | { type: "ready"; needsModel: boolean }
-  | { type: "model-changed"; model: string; provider: string }
+  | { type: "model-changed"; model: string; provider: string; reasoning: boolean }
   | { type: "message-start"; role: "assistant"; id: string }
   | { type: "text"; id: string; delta: string }
   | { type: "reasoning"; id: string; delta: string }
