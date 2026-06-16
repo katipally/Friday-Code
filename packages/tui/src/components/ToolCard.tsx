@@ -6,14 +6,14 @@ import { DiffCard } from "./DiffCard.tsx"
 
 const MAX_OUTPUT_LINES = 12
 
+/** A tool step on the timeline: ⏺ marker + title; output / diff hangs off a ⎿ branch. */
 export function ToolCard(props: { item: Extract<ViewItem, { kind: "tool" }> }) {
   const app = useApp()
   const spin = useSpinner()
   const accent = () => getMode(app.mode()).accent
 
-  const glyph = () =>
-    props.item.status === "running" ? spin() : props.item.status === "error" ? "✗" : "✓"
-  const glyphColor = () =>
+  const marker = () => (props.item.status === "running" ? spin() : "⏺")
+  const markerColor = () =>
     props.item.status === "running" ? accent() : props.item.status === "error" ? theme.error : theme.success
 
   const outputLines = () => props.item.output.split("\n")
@@ -26,29 +26,24 @@ export function ToolCard(props: { item: Extract<ViewItem, { kind: "tool" }> }) {
   }
 
   return (
-    <box
-      flexDirection="column"
-      border
-      borderStyle="rounded"
-      borderColor={theme.border}
-      backgroundColor={theme.bg}
-      paddingLeft={1}
-      paddingRight={1}
-      marginBottom={1}
-    >
+    <box flexDirection="column" marginBottom={1}>
       <box flexDirection="row" gap={1} onMouseDown={() => app.toggleToolOpen(props.item.id)}>
-        <text fg={glyphColor()}>{glyph()}</text>
+        <text fg={markerColor()}>{marker()}</text>
         <text fg={theme.text}>{props.item.title ?? props.item.name}</text>
       </box>
 
       <Show when={props.item.diff}>
-        <box marginTop={1}>
-          <DiffCard diff={props.item.diff!} />
+        <box flexDirection="row" gap={1}>
+          <text fg={theme.borderMuted}>⎿</text>
+          <box flexGrow={1}>
+            <DiffCard diff={props.item.diff!} />
+          </box>
         </box>
       </Show>
 
       <Show when={!props.item.diff && props.item.output}>
-        <box marginTop={1}>
+        <box flexDirection="row" gap={1}>
+          <text fg={theme.borderMuted}>⎿</text>
           <text fg={props.item.status === "error" ? theme.error : theme.textMuted} selectable>
             {clippedOutput()}
           </text>

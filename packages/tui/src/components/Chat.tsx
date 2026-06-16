@@ -1,22 +1,19 @@
 import { For, Match, Show, Switch } from "solid-js"
-import { theme, getMode } from "@friday/shared"
+import { theme, getMode, type ModeId } from "@friday/shared"
 import { useApp, type ViewItem } from "../store.tsx"
 import { ThinkingCard } from "./ThinkingCard.tsx"
 import { ToolCard } from "./ToolCard.tsx"
+import { Markdown } from "./Markdown.tsx"
 import { Logo } from "./Logo.tsx"
 
+/** User prompt: ❯ marker + a left accent bar colored by the mode it was sent in, with padding. */
 function UserBubble(props: { item: Extract<ViewItem, { kind: "user" }> }) {
+  const app = useApp()
+  const accent = () => getMode((props.item.mode as ModeId) ?? app.mode()).accent
   return (
-    <box
-      flexDirection="column"
-      border
-      borderStyle="rounded"
-      borderColor={theme.user}
-      paddingLeft={1}
-      paddingRight={1}
-      marginBottom={1}
-    >
-      <text fg={theme.user}>you</text>
+    <box flexDirection="row" gap={1} marginBottom={1}>
+      <box width={1} backgroundColor={accent()} />
+      <text fg={accent()}>❯</text>
       <text fg={theme.text} selectable>
         {props.item.text}
       </text>
@@ -24,6 +21,7 @@ function UserBubble(props: { item: Extract<ViewItem, { kind: "user" }> }) {
   )
 }
 
+/** Assistant reply: rendered flush on the background with a ⏺ marker; reasoning is a ⎿ branch. */
 function AssistantMessage(props: { item: Extract<ViewItem, { kind: "assistant" }> }) {
   const app = useApp()
   const accent = () => getMode(app.mode()).accent
@@ -31,19 +29,14 @@ function AssistantMessage(props: { item: Extract<ViewItem, { kind: "assistant" }
     <box flexDirection="column" marginBottom={1}>
       <ThinkingCard item={props.item} />
       <Show when={props.item.text.length > 0}>
-        <box
-          flexDirection="column"
-          border
-          borderStyle="rounded"
-          borderColor={accent()}
-          paddingLeft={1}
-          paddingRight={1}
-        >
-          <text fg={accent()}>⬡ friday</text>
-          <text fg={theme.text} selectable>
-            {props.item.text}
-            {props.item.done ? "" : " ▋"}
-          </text>
+        <box flexDirection="row" gap={1}>
+          <text fg={accent()}>⏺</text>
+          <box flexGrow={1} flexDirection="column">
+            <Markdown content={props.item.text} />
+            <Show when={!props.item.done}>
+              <text fg={theme.textFaint}>▋</text>
+            </Show>
+          </box>
         </box>
       </Show>
     </box>
@@ -52,18 +45,9 @@ function AssistantMessage(props: { item: Extract<ViewItem, { kind: "assistant" }
 
 function ErrorBubble(props: { item: Extract<ViewItem, { kind: "error" }> }) {
   return (
-    <box
-      flexDirection="row"
-      gap={1}
-      border
-      borderStyle="rounded"
-      borderColor={theme.error}
-      paddingLeft={1}
-      paddingRight={1}
-      marginBottom={1}
-    >
-      <text fg={theme.error}>✗</text>
-      <text fg={theme.text} selectable>
+    <box flexDirection="row" gap={1} marginBottom={1}>
+      <text fg={theme.error}>⏺</text>
+      <text fg={theme.error} selectable>
         {props.item.text}
       </text>
     </box>

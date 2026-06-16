@@ -14,7 +14,7 @@ import type { Engine, SessionStats } from "@friday/core"
 export type ToolStatus = "running" | "done" | "error"
 
 export type ViewItem =
-  | { kind: "user"; id: string; text: string }
+  | { kind: "user"; id: string; text: string; mode?: ModeId }
   | {
       kind: "assistant"
       id: string
@@ -297,7 +297,7 @@ export function createAppStore(engine: Engine) {
   }
 
   function submitRaw(text: string) {
-    setItems(items.length, { kind: "user", id: nextLocalId(), text })
+    setItems(items.length, { kind: "user", id: nextLocalId(), text, mode: mode() })
     engine.send({ type: "prompt", text })
   }
 
