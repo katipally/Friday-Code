@@ -33,25 +33,33 @@ export function AskCard() {
           backgroundColor={theme.bgElevated}
           paddingLeft={1}
           paddingRight={1}
+          paddingTop={1}
+          paddingBottom={1}
           marginBottom={1}
           gap={1}
         >
           <box flexDirection="row" gap={1}>
             <text fg={theme.info}>? friday asks</text>
-            <text fg={theme.text}>{a().question}</text>
           </box>
+
+          <text fg={theme.text}>{a().question}</text>
+
+          {/* Numbered choices — click a row or press its number. */}
           <Show when={a().options?.length}>
             <box flexDirection="column">
               <For each={a().options}>
                 {(opt, i) => (
                   <box flexDirection="row" gap={1} onMouseDown={() => app.replyAsk(opt)}>
-                    <text fg={accent()}>{i() + 1}.</text>
+                    <box border borderStyle="rounded" borderColor={accent()} paddingLeft={1} paddingRight={1}>
+                      <text fg={accent()}>{i() + 1}</text>
+                    </box>
                     <text fg={theme.text}>{opt}</text>
                   </box>
                 )}
               </For>
             </box>
           </Show>
+
           <box flexDirection="row" gap={1} alignItems="center">
             <text fg={theme.textFaint}>›</text>
             <box flexGrow={1} border borderStyle="rounded" borderColor={theme.border} paddingLeft={1} paddingRight={1}>
@@ -60,7 +68,7 @@ export function AskCard() {
                 onSubmit={submitFree}
                 keyBindings={[{ name: "return", action: "submit" }]}
                 focused
-                placeholder="type an answer, pick a number, or esc to skip…"
+                placeholder={a().options?.length ? "…or type your own answer · esc to skip" : "type an answer · esc to skip"}
                 placeholderColor={theme.textFaint}
                 minHeight={1}
                 maxHeight={4}

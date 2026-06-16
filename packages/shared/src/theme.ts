@@ -20,6 +20,8 @@ export const theme = {
   // lines
   border: "#2c2f36",
   borderMuted: "#23262c",
+  /** the single outermost frame around the whole app — kept black, not accent */
+  frame: "#000000",
 
   // roles
   user: "#9aa5ce", // user message accent (calm)

@@ -2,17 +2,14 @@ import { Show } from "solid-js"
 import { theme } from "@friday/shared"
 import { useApp, type PendingPermission } from "../store.tsx"
 
-function Btn(props: { label: string; color: string; onClick: () => void }) {
+/** A keycap-style action button: [k] label, tinted by intent. */
+function Action(props: { keycap: string; label: string; color: string; onClick: () => void }) {
   return (
-    <box
-      border
-      borderStyle="rounded"
-      borderColor={props.color}
-      paddingLeft={1}
-      paddingRight={1}
-      onMouseDown={props.onClick}
-    >
-      <text fg={props.color}>{props.label}</text>
+    <box flexDirection="row" gap={1} onMouseDown={props.onClick}>
+      <box border borderStyle="rounded" borderColor={props.color} paddingLeft={1} paddingRight={1}>
+        <text fg={props.color}>{props.keycap}</text>
+      </box>
+      <text fg={theme.textMuted}>{props.label}</text>
     </box>
   )
 }
@@ -31,22 +28,39 @@ export function PermissionCard() {
           backgroundColor={theme.bgElevated}
           paddingLeft={1}
           paddingRight={1}
+          paddingTop={1}
+          paddingBottom={1}
           marginBottom={1}
           gap={1}
         >
           <box flexDirection="row" gap={1}>
-            <text fg={theme.warning}>⚠ permission</text>
-            <text fg={theme.text}>{p().summary}</text>
+            <text fg={theme.warning}>⚠ permission required</text>
+            <box flexGrow={1} />
+            <text fg={theme.textFaint}>{p().tool}</text>
           </box>
+
+          <text fg={theme.text}>{p().summary}</text>
+
+          {/* The exact command / path, in a monospace block so long input wraps cleanly. */}
           <Show when={p().detail}>
-            <text fg={theme.textMuted} selectable>
-              {p().detail}
-            </text>
+            <box
+              border
+              borderStyle="rounded"
+              borderColor={theme.border}
+              backgroundColor={theme.bgComposer}
+              paddingLeft={1}
+              paddingRight={1}
+            >
+              <text fg={theme.textMuted} selectable>
+                {p().detail}
+              </text>
+            </box>
           </Show>
-          <box flexDirection="row" gap={2}>
-            <Btn label="allow once  a" color={theme.success} onClick={() => app.replyPermission("allow-once")} />
-            <Btn label="always  s" color={theme.info} onClick={() => app.replyPermission("allow-always")} />
-            <Btn label="deny  d / esc" color={theme.error} onClick={() => app.replyPermission("deny")} />
+
+          <box flexDirection="row" gap={3} marginTop={1}>
+            <Action keycap="a" label="allow once" color={theme.success} onClick={() => app.replyPermission("allow-once")} />
+            <Action keycap="s" label="allow always" color={theme.info} onClick={() => app.replyPermission("allow-always")} />
+            <Action keycap="d" label="deny · esc" color={theme.error} onClick={() => app.replyPermission("deny")} />
           </box>
         </box>
       )}

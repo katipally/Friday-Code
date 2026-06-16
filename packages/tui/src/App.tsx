@@ -1,6 +1,6 @@
 import { Match, onMount, Show, Switch } from "solid-js"
 import { useKeyboard, useRenderer, useSelectionHandler } from "@opentui/solid"
-import { theme, getMode } from "@friday/shared"
+import { theme } from "@friday/shared"
 import type { Engine } from "@friday/core"
 import { AppProvider, createAppStore, useApp } from "./store.tsx"
 import { Splash } from "./components/Splash.tsx"
@@ -25,11 +25,11 @@ import { ExitScreen } from "./components/ExitScreen.tsx"
 
 function Shell() {
   const app = useApp()
-  const accent = () => getMode(app.mode()).accent
 
   return (
     <box width="100%" height="100%" backgroundColor={theme.bg}>
-      <box flexGrow={1} flexDirection="column" border borderStyle="rounded" borderColor={accent()} backgroundColor={theme.bg}>
+      {/* The single outermost frame stays black; mode accent lives on badges, panels and focus rings. */}
+      <box flexGrow={1} flexDirection="column" border borderStyle="rounded" borderColor={theme.frame} backgroundColor={theme.bg}>
         <TopBar />
         <box flexDirection="row" flexGrow={1} minHeight={0}>
           <SessionsPanel />
