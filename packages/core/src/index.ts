@@ -2,3 +2,6 @@ export { Engine, type EngineOptions, type StreamFn, type SessionStats } from "./
 export { SessionStore, type SessionRow } from "./sessions.ts"
 export { loadConfig, saveConfig, type FridayConfig } from "./config.ts"
 export { systemPrompt } from "./prompt.ts"
+export { loadProjectContext, type ProjectContext } from "./context.ts"
+export { expandMentions } from "./mentions.ts"
+export { loadCommands, type CustomCommand } from "./commands.ts"

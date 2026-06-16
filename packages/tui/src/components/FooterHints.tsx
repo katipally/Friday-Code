@@ -4,9 +4,10 @@ import { useApp } from "../store.tsx"
 
 const HINTS: { keys: string; label: string }[] = [
   { keys: "⏎", label: "send" },
-  { keys: "⇧⏎", label: "newline" },
   { keys: "⇧⭾", label: "mode" },
-  { keys: "⌃b", label: "panels" },
+  { keys: "⌃k", label: "cmds" },
+  { keys: "/", label: "command" },
+  { keys: "@", label: "file" },
   { keys: "⌃c", label: "quit" },
 ]
 

@@ -95,8 +95,11 @@ export function createAppStore(engine: Engine) {
   const [busy, setBusy] = createSignal(false)
   const [pending, setPending] = createSignal<PendingPermission | null>(null)
   const [askPending, setAskPending] = createSignal<PendingAsk | null>(null)
+  const [paletteOpen, setPaletteOpen] = createSignal(false)
+  const [composerText, setComposerText] = createSignal("")
 
   const [items, setItems] = createStore<ViewItem[]>([])
+  const [contextFiles] = createSignal<string[]>(engine.contextInfo().files)
   const [sessions, setSessions] = createSignal<SessionItem[]>(engine.listSessions())
   const [activeSession, setActiveSession] = createSignal(engine.currentSessionId())
   const refreshSessions = () => setSessions(engine.listSessions())
@@ -218,21 +221,51 @@ export function createAppStore(engine: Engine) {
     engine.send({ type: "set-effort", effort: e })
   }
 
+  const BUILTIN_COMMANDS: { name: string; description: string }[] = [
+    { name: "model", description: "connect a provider / pick a model" },
+    { name: "new", description: "start a new session" },
+    { name: "clear", description: "clear the conversation (new session)" },
+    { name: "sessions", description: "focus the sessions panel" },
+    { name: "help", description: "show the keymap" },
+    { name: "exit", description: "quit Friday (clean exit)" },
+  ]
+
+  function listCommands(): { name: string; description: string }[] {
+    return [...BUILTIN_COMMANDS, ...engine.listCommands().map((c) => ({ name: c.name, description: c.description }))]
+  }
+
+  function runCommand(name: string, args = "") {
+    switch (name) {
+      case "model":
+        return setModelModalOpen(true)
+      case "new":
+      case "clear":
+        return newSession()
+      case "sessions":
+        return setLeftOpen(true)
+      case "help":
+        return setOverlayOpen(true)
+      case "exit":
+      case "quit":
+        return quit()
+    }
+    const custom = engine.listCommands().find((c) => c.name === name)
+    if (custom) return submitRaw(args ? `${custom.template}\n\n${args}` : custom.template)
+  }
+
+  function submitRaw(text: string) {
+    setItems(items.length, { kind: "user", id: nextLocalId(), text })
+    engine.send({ type: "prompt", text })
+  }
+
   function submit(text: string) {
     const t = text.trim()
     if (!t) return
     if (t.startsWith("/")) {
-      const cmd = t.slice(1).split(/\s+/)[0]
-      if (cmd === "model") return setModelModalOpen(true)
-      if (cmd === "new" || cmd === "clear") {
-        engine.send({ type: "new-session" })
-        return
-      }
-      if (cmd === "help") return setOverlayOpen(true)
-      // unknown slash: fall through as a normal prompt
+      const [name, ...rest] = t.slice(1).split(/\s+/)
+      return runCommand(name!, rest.join(" "))
     }
-    setItems(items.length, { kind: "user", id: nextLocalId(), text: t })
-    engine.send({ type: "prompt", text: t })
+    submitRaw(t)
   }
 
   function abort() {
@@ -333,6 +366,13 @@ export function createAppStore(engine: Engine) {
     switchSessionByIndex,
     quit,
     exitStats,
+    paletteOpen,
+    setPaletteOpen,
+    composerText,
+    setComposerText,
+    listCommands,
+    runCommand,
+    contextFiles,
   }
 }
 

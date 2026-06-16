@@ -16,6 +16,7 @@ import { KeymapOverlay } from "./components/KeymapOverlay.tsx"
 import { PermissionCard } from "./components/PermissionCard.tsx"
 import { AskCard } from "./components/AskCard.tsx"
 import { ModelModal } from "./components/ModelModal.tsx"
+import { CommandPalette } from "./components/CommandPalette.tsx"
 import { ExitScreen } from "./components/ExitScreen.tsx"
 
 function Shell() {
@@ -63,6 +64,9 @@ function Shell() {
       <Show when={app.modelModalOpen()}>
         <ModelModal />
       </Show>
+      <Show when={app.paletteOpen()}>
+        <CommandPalette />
+      </Show>
     </box>
   )
 }
@@ -81,6 +85,7 @@ function AppRoot() {
       return
     }
     if (app.modelModalOpen()) return // ModelModal owns keys while open
+    if (app.paletteOpen()) return // CommandPalette owns keys while open
     if (app.askPending()) return // AskCard owns keys while open
 
     if (app.pending()) {
@@ -97,6 +102,7 @@ function AppRoot() {
     if (key.ctrl && key.name === "b") return app.setLeftOpen(!app.leftOpen())
     if (key.ctrl && key.name === "g") return app.setRightOpen(!app.rightOpen())
     if (key.ctrl && /^[1-9]$/.test(key.name)) return app.switchSessionByIndex(Number(key.name) - 1)
+    if (key.ctrl && key.name === "k") return app.setPaletteOpen(true)
     if (key.name?.toLowerCase() === "f1" || (key.ctrl && key.name === "/")) return app.setOverlayOpen(true)
     if (key.name === "escape" && app.busy()) return app.abort()
   })

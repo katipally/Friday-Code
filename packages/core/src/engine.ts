@@ -24,6 +24,9 @@ import { ASK_USER, buildRegistry, type Tool, type ToolResult } from "@friday/too
 import { loadConfig, saveConfig } from "./config.ts"
 import { systemPrompt } from "./prompt.ts"
 import { SessionStore } from "./sessions.ts"
+import { loadProjectContext, type ProjectContext } from "./context.ts"
+import { expandMentions } from "./mentions.ts"
+import { loadCommands, type CustomCommand } from "./commands.ts"
 
 let now = () => Date.now()
 
@@ -71,6 +74,7 @@ export class Engine {
   private cwd: string
   private streamFn: StreamFn
   private store: SessionStore
+  private context: ProjectContext
 
   private sessionId!: string
   private sessionTitle!: string
@@ -94,6 +98,7 @@ export class Engine {
     this.cwd = opts.cwd
     this.streamFn = opts.streamFn ?? (streamProvider as StreamFn)
     this.store = opts.store ?? new SessionStore()
+    this.context = loadProjectContext(opts.cwd)
     const cfg = loadConfig()
     this.mode = cfg.mode ?? DEFAULT_MODE
     this.effort = cfg.effort ?? "medium"
@@ -207,6 +212,15 @@ export class Engine {
   selection(): { providerId?: string; model?: string; effort: Effort; mode: ModeId } {
     return { providerId: this.providerId, model: this.model, effort: this.effort, mode: this.mode }
   }
+  contextInfo(): { files: string[] } {
+    return { files: this.context.files }
+  }
+  listCommands(): CustomCommand[] {
+    return loadCommands(this.cwd)
+  }
+  cwdPath(): string {
+    return this.cwd
+  }
 
   connectProvider(providerId: string, apiKey: string, baseURL?: string): void {
     setProviderKey(providerId, apiKey, baseURL)
@@ -288,7 +302,8 @@ export class Engine {
     }
     this.busy = true
     this.abort = new AbortController()
-    this.addMessage({ role: "user", text })
+    const { text: expanded } = expandMentions(text, this.cwd)
+    this.addMessage({ role: "user", text: expanded })
     const start = Date.now()
     try {
       await this.loop(start)
@@ -323,7 +338,10 @@ export class Engine {
 
       const req = {
         model: this.model!,
-        messages: [{ role: "system", text: systemPrompt({ cwd: this.cwd, mode: this.mode }) } as Message, ...this.messages],
+        messages: [
+          { role: "system", text: systemPrompt({ cwd: this.cwd, mode: this.mode, context: this.context.content }) } as Message,
+          ...this.messages,
+        ],
         tools: this.registry.defs,
         effort: this.effort,
         maxTokens: 8192,

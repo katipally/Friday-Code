@@ -1,10 +1,11 @@
 import os from "node:os"
 import { getMode, type ModeId } from "@friday/shared"
 
-/** Assemble the system prompt: identity + environment + behavior + mode posture. */
-export function systemPrompt(opts: { cwd: string; mode: ModeId }): string {
+/** Assemble the system prompt: identity + environment + behavior + mode posture + project context. */
+export function systemPrompt(opts: { cwd: string; mode: ModeId; context?: string }): string {
   const mode = getMode(opts.mode)
   return [
+    opts.context ? `# Project context\n${opts.context}\n` : "",
     "You are Friday, an expert AI software engineer working inside Friday Code, a terminal coding agent.",
     "",
     "# Behavior",
