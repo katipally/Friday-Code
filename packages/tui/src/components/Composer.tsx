@@ -85,6 +85,15 @@ export function Composer() {
     setSel(0)
   })
 
+  // Image attachments — @-mentioned image files become vision input on submit.
+  const imageChips = createMemo<string[]>(() => {
+    const out: string[] = []
+    const re = /(?:^|\s)@([^\s@]+\.(?:png|jpe?g|gif|webp))/gi
+    let m: RegExpExecArray | null
+    while ((m = re.exec(text()))) out.push(m[1]!.split("/").pop()!)
+    return out
+  })
+
   function submit() {
     const value: string = ta?.plainText ?? ""
     if (value.trim()) app.submit(value)
@@ -127,6 +136,18 @@ export function Composer() {
             )}
           </For>
           <text fg={theme.textFaint}>↑↓ move · ⭾ complete</text>
+        </box>
+      </Show>
+
+      <Show when={imageChips().length > 0}>
+        <box flexDirection="row" gap={1} marginBottom={1} flexShrink={0}>
+          <For each={imageChips()}>
+            {(name) => (
+              <box border borderStyle="rounded" borderColor={mode().accent} paddingLeft={1} paddingRight={1}>
+                <text fg={theme.text}>🖼 {truncate(name, 24)}</text>
+              </box>
+            )}
+          </For>
         </box>
       </Show>
 

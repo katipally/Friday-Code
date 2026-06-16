@@ -6,8 +6,14 @@ function toMessages(messages: Message[]): unknown[] {
   const out: Record<string, unknown>[] = []
   for (const m of messages) {
     if (m.role === "system") out.push({ role: "system", content: m.text })
-    else if (m.role === "user") out.push({ role: "user", content: m.text })
-    else if (m.role === "assistant") {
+    else if (m.role === "user") {
+      if (m.images?.length) {
+        const content: Record<string, unknown>[] = []
+        if (m.text) content.push({ type: "text", text: m.text })
+        for (const img of m.images) content.push({ type: "image_url", image_url: { url: `data:${img.mime};base64,${img.data}` } })
+        out.push({ role: "user", content })
+      } else out.push({ role: "user", content: m.text })
+    } else if (m.role === "assistant") {
       const msg: Record<string, unknown> = { role: "assistant", content: m.text ?? "" }
       if (m.toolCalls?.length) {
         msg.tool_calls = m.toolCalls.map((tc) => ({

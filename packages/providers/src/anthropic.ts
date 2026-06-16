@@ -9,7 +9,12 @@ function toAnthropic(messages: Message[]): { system?: string; messages: unknown[
     if (m.role === "system") {
       system = system ? `${system}\n\n${m.text}` : m.text
     } else if (m.role === "user") {
-      out.push({ role: "user", content: [{ type: "text", text: m.text }] })
+      const content: Record<string, unknown>[] = []
+      if (m.text) content.push({ type: "text", text: m.text })
+      for (const img of m.images ?? []) {
+        content.push({ type: "image", source: { type: "base64", media_type: img.mime, data: img.data } })
+      }
+      out.push({ role: "user", content: content.length ? content : [{ type: "text", text: m.text }] })
     } else if (m.role === "assistant") {
       const content: Record<string, unknown>[] = []
       // Replay the signed thinking block first (required by Anthropic when thinking + tools are used).
@@ -32,7 +37,13 @@ function toAnthropic(messages: Message[]): { system?: string; messages: unknown[
 }
 
 function toTools(tools: ToolDef[]): unknown[] {
-  return tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters }))
+  return tools.map((t, i) => ({
+    name: t.name,
+    description: t.description,
+    input_schema: t.parameters,
+    // Cache the (stable) tool list prefix — marking the last tool caches all of them.
+    ...(i === tools.length - 1 ? { cache_control: { type: "ephemeral" } } : {}),
+  }))
 }
 
 export async function* streamAnthropic(opts: {
@@ -50,7 +61,8 @@ export async function* streamAnthropic(opts: {
     messages,
     stream: true,
   }
-  if (system) body.system = system
+  // Send the system prompt as a cacheable block (prompt caching → ~cheaper/faster repeats).
+  if (system) body.system = [{ type: "text", text: system, cache_control: { type: "ephemeral" } }]
   if (req.tools.length) body.tools = toTools(req.tools)
   // Extended thinking: enable when a reasoning effort is requested. max_tokens must exceed the budget.
   if (req.effort) {
@@ -85,11 +97,14 @@ export async function* streamAnthropic(opts: {
       continue
     }
     switch (json.type) {
-      case "message_start":
-        if (json.message?.usage?.input_tokens) {
-          yield { type: "usage", input: json.message.usage.input_tokens, output: 0 }
+      case "message_start": {
+        const u = json.message?.usage
+        if (u) {
+          const input = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
+          if (input) yield { type: "usage", input, output: 0 }
         }
         break
+      }
       case "content_block_start": {
         const block = json.content_block
         if (block?.type === "tool_use") {

@@ -9,7 +9,12 @@ function toResponsesInput(messages: Message[]): { instructions?: string; input: 
     if (m.role === "system") {
       instructions = instructions ? `${instructions}\n\n${m.text}` : m.text
     } else if (m.role === "user") {
-      input.push({ role: "user", content: m.text })
+      if (m.images?.length) {
+        const content: Record<string, unknown>[] = []
+        if (m.text) content.push({ type: "input_text", text: m.text })
+        for (const img of m.images) content.push({ type: "input_image", image_url: `data:${img.mime};base64,${img.data}` })
+        input.push({ role: "user", content })
+      } else input.push({ role: "user", content: m.text })
     } else if (m.role === "assistant") {
       if (m.text) input.push({ role: "assistant", content: m.text })
       for (const tc of m.toolCalls ?? []) {

@@ -31,7 +31,7 @@ import { bashRisk, matchesList } from "./safety.ts"
 import { subagentPrompt, systemPrompt } from "./prompt.ts"
 import type { SessionStore } from "./sessions.ts"
 import { loadProjectContext, type ProjectContext } from "./context.ts"
-import { expandMentions } from "./mentions.ts"
+import { expandMentions, collectImages } from "./mentions.ts"
 import { loadCommands, type CustomCommand } from "./commands.ts"
 import { loadSkills, type Skill } from "./skills.ts"
 import { applyFiles, readOrNull, snapshotFile, type Checkpoint } from "./checkpoints.ts"
@@ -304,7 +304,8 @@ export class SessionRunner {
     const { text: expanded, files } = expandMentions(text, this.roots)
     let promptText = await this.augmentSymbols(text, expanded, files)
     if (pre.context) promptText += `\n\n<hook_context>\n${pre.context}\n</hook_context>`
-    this.addMessage({ role: "user", text: promptText })
+    const images = collectImages(text, this.roots)
+    this.addMessage({ role: "user", text: promptText, images: images.length ? images : undefined })
     this.setTitleFromPrompt(text)
     const start = now()
     try {
