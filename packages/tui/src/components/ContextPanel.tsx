@@ -89,9 +89,14 @@ export function ContextPanel() {
               </Show>
             </Section>
 
-            {/* Modified files — populated by git status (M12) / LSP diagnostics (M11). */}
-            <Section label="files" count={app.changedFiles().length} open={filesOpen()} onToggle={() => setFilesOpen(!filesOpen())}>
-              <Show when={app.changedFiles().length} fallback={<text fg={theme.textFaint}>no changes</text>}>
+            {/* Modified files (git, M12) + LSP diagnostics (M11). */}
+            <Section
+              label="files"
+              count={app.changedFiles().length + app.diagnostics().length}
+              open={filesOpen()}
+              onToggle={() => setFilesOpen(!filesOpen())}
+            >
+              <Show when={app.changedFiles().length || app.diagnostics().length} fallback={<text fg={theme.textFaint}>no changes</text>}>
                 <For each={app.changedFiles()}>
                   {(f) => (
                     <box flexDirection="row" gap={1}>
@@ -100,6 +105,20 @@ export function ContextPanel() {
                       <Show when={f.added || f.removed}>
                         <text fg={theme.success}>+{f.added}</text>
                         <text fg={theme.error}>−{f.removed}</text>
+                      </Show>
+                    </box>
+                  )}
+                </For>
+                <For each={app.diagnostics()}>
+                  {(d) => (
+                    <box flexDirection="row" gap={1}>
+                      <text fg={d.errors ? theme.error : theme.warning}>{d.errors ? "✗" : "⚠"}</text>
+                      <text fg={theme.textMuted}>{d.path}</text>
+                      <Show when={d.errors}>
+                        <text fg={theme.error}>{d.errors}e</text>
+                      </Show>
+                      <Show when={d.warnings}>
+                        <text fg={theme.warning}>{d.warnings}w</text>
                       </Show>
                     </box>
                   )}

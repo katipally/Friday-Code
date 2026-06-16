@@ -11,7 +11,20 @@ import {
   type TodoStatus,
 } from "@friday/shared"
 import { getProviderKey } from "@friday/providers"
-import { ASK_USER, SKILL_TOOL, TASK_TOOL, TODO_WRITE, toToolDef, type Tool, type ToolResult } from "@friday/tools"
+import {
+  ASK_USER,
+  SKILL_TOOL,
+  TASK_TOOL,
+  TODO_WRITE,
+  LSP_HOVER,
+  LSP_DEFINITION,
+  LSP_SYMBOLS,
+  LSP_TOOLS,
+  toToolDef,
+  type Tool,
+  type ToolResult,
+} from "@friday/tools"
+import { LspManager, formatDiagnostics } from "@friday/lsp"
 import { subagentPrompt, systemPrompt } from "./prompt.ts"
 import type { SessionStore } from "./sessions.ts"
 import { loadProjectContext, type ProjectContext } from "./context.ts"
@@ -80,6 +93,9 @@ export class SessionRunner {
 
   private context: ProjectContext
   private skills: Skill[]
+  private lsp: LspManager
+  /** files with outstanding diagnostics, for the Files panel */
+  private diag = new Map<string, { errors: number; warnings: number }>()
 
   private abort?: AbortController
   busy = false
@@ -109,6 +125,7 @@ export class SessionRunner {
     this.seq = this.messages.length
     this.context = loadProjectContext(this.roots)
     this.skills = loadSkills(this.roots)
+    this.lsp = new LspManager(this.cwd)
   }
 
   private emit(body: EngineEventBody): void {
@@ -167,6 +184,7 @@ export class SessionRunner {
   }
   dispose(): void {
     this.abort?.abort()
+    this.lsp.dispose()
   }
   handlePermissionReply(requestId: string, decision: "allow-once" | "allow-always" | "deny"): boolean {
     const p = this.pending.get(requestId)
@@ -260,8 +278,8 @@ export class SessionRunner {
     }
     this.checkpoints.push(this.currentCheckpoint)
     this.redoState = undefined
-    const { text: expanded } = expandMentions(text, this.roots)
-    this.addMessage({ role: "user", text: expanded })
+    const { text: expanded, files } = expandMentions(text, this.roots)
+    this.addMessage({ role: "user", text: await this.augmentSymbols(text, expanded, files) })
     this.setTitleFromPrompt(text)
     const start = now()
     try {
@@ -529,6 +547,13 @@ export class SessionRunner {
           continue
         }
 
+        if (LSP_TOOLS.has(tc.name)) {
+          const output = await this.runLspTool(tc.name, safeParse(tc.arguments))
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output })
+          this.emit({ type: "tool-result", callId: tc.id, ok: true, output, title: tc.name })
+          continue
+        }
+
         const tool = registry.get(tc.name)
         if (!tool) {
           const msg = `Unknown tool: ${tc.name}`
@@ -550,12 +575,20 @@ export class SessionRunner {
           if (typeof a.path === "string") snapshotFile(this.currentCheckpoint, path.resolve(this.cwd, a.path))
         }
 
+        const args = safeParse(tc.arguments)
         let result: ToolResult
         try {
-          result = await tool.execute(safeParse(tc.arguments), { cwd: this.cwd, roots: this.roots, signal })
+          result = await tool.execute(args, { cwd: this.cwd, roots: this.roots, signal })
         } catch (e: any) {
           result = { output: `Error: ${e?.message ?? e}`, isError: true }
         }
+
+        // Ground edits in real compiler output: feed back LSP diagnostics for the changed file.
+        if (tool.permission === "edit" && !result.isError && typeof (args as any)?.path === "string") {
+          const diag = await this.diagnoseEdited(path.resolve(this.cwd, (args as any).path))
+          if (diag) result = { ...result, output: result.output + diag }
+        }
+
         this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: result.output, isError: result.isError })
         this.emit({ type: "tool-result", callId: tc.id, ok: !result.isError, output: result.output, title: result.title, diff: result.diff })
       }
@@ -569,7 +602,9 @@ export class SessionRunner {
     const signal = this.abort!.signal
     const tools = this.host
       .registry()
-      .list.filter((t) => t.permission === "read" && t.name !== SKILL_TOOL && t.name !== TASK_TOOL && t.name !== ASK_USER && t.name !== TODO_WRITE)
+      .list.filter(
+        (t) => t.permission === "read" && t.name !== SKILL_TOOL && t.name !== TASK_TOOL && t.name !== ASK_USER && t.name !== TODO_WRITE && !LSP_TOOLS.has(t.name),
+      )
     const defs = tools.map(toToolDef)
     const get = (n: string) => tools.find((t) => t.name === n)
     const messages: Message[] = [
@@ -610,6 +645,70 @@ export class SessionRunner {
       }
     }
     return lastText || "(subagent reached its step limit)"
+  }
+
+  // ---- LSP grounding ----
+  private rel(p: string): string {
+    const r = path.relative(this.cwd, p)
+    return r && !r.startsWith("..") ? r : p
+  }
+
+  /** Resolve bare `@Symbol` mentions (no slash/dot) to workspace symbol locations. */
+  private async augmentSymbols(original: string, expanded: string, files: string[]): Promise<string> {
+    const tokens = [...original.matchAll(/(?:^|\s)@([A-Za-z_][A-Za-z0-9_]+)(?![/.])/g)]
+      .map((m) => m[1]!)
+      .filter((t) => !files.includes(t))
+    const uniq = [...new Set(tokens)].slice(0, 3)
+    if (!uniq.length) return expanded
+    const blocks: string[] = []
+    for (const t of uniq) {
+      const hits = await this.lsp.workspaceSymbols(t).catch(() => [])
+      if (hits.length) blocks.push(`<symbol name="${t}">\n${hits.map((h) => `${h.name} — ${this.rel(h.path)}:${h.line}`).join("\n")}\n</symbol>`)
+    }
+    return blocks.length ? `${expanded}\n\n${blocks.join("\n\n")}` : expanded
+  }
+
+  private async diagnoseEdited(file: string): Promise<string> {
+    try {
+      const diags = await this.lsp.diagnose(file)
+      const errors = diags.filter((d) => d.severity === 1).length
+      const warnings = diags.filter((d) => d.severity === 2).length
+      if (errors || warnings) this.diag.set(file, { errors, warnings })
+      else this.diag.delete(file)
+      this.emit({
+        type: "diagnostics",
+        items: [...this.diag.entries()].map(([p, v]) => ({ path: this.rel(p), errors: v.errors, warnings: v.warnings })),
+      })
+      return formatDiagnostics(file, diags)
+    } catch {
+      return ""
+    }
+  }
+
+  private async runLspTool(name: string, args: unknown): Promise<string> {
+    const a = args as { path?: string; line?: number; character?: number; query?: string }
+    const file = a.path ? path.resolve(this.cwd, a.path) : undefined
+    if (name === LSP_HOVER) {
+      if (!file) return "lsp_hover needs a path."
+      return (await this.lsp.hover(file, (a.line ?? 1) - 1, (a.character ?? 1) - 1)) ?? "No hover info (no language server, or nothing there)."
+    }
+    if (name === LSP_DEFINITION) {
+      if (!file) return "lsp_definition needs a path."
+      const defs = await this.lsp.definition(file, (a.line ?? 1) - 1, (a.character ?? 1) - 1)
+      return defs.length ? defs.map((d) => this.rel(d)).join("\n") : "No definition found (or no language server)."
+    }
+    if (name === LSP_SYMBOLS) {
+      if (a.query) {
+        const syms = await this.lsp.workspaceSymbols(a.query, file ?? "x.ts")
+        return syms.length ? syms.map((s) => `${s.name} — ${this.rel(s.path)}:${s.line}`).join("\n") : "No matching symbols (or no language server)."
+      }
+      if (file) {
+        const syms = await this.lsp.documentSymbols(file)
+        return syms.length ? syms.join("\n") : "No symbols (or no language server)."
+      }
+      return "lsp_symbols needs `query` or `path`."
+    }
+    return "Unknown LSP tool."
   }
 
   private async checkPermission(tool: Tool, tc: ToolCall, mode: ModeId): Promise<"allow" | "deny"> {

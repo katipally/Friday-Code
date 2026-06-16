@@ -105,6 +105,7 @@ export function createAppStore(engine: Engine) {
   const [sessionTodos, setSessionTodos] = createSignal<Record<string, TodoItem[]>>({})
   const [sessionPending, setSessionPending] = createSignal<Record<string, PendingPermission>>({})
   const [sessionAsk, setSessionAsk] = createSignal<Record<string, PendingAsk>>({})
+  const [sessionDiag, setSessionDiag] = createSignal<Record<string, { path: string; errors: number; warnings: number }[]>>({})
   const setKey = <T,>(set: (fn: (m: Record<string, T>) => Record<string, T>) => void, sid: string, v: T) =>
     set((m) => ({ ...m, [sid]: v }))
   const delKey = <T,>(set: (fn: (m: Record<string, T>) => Record<string, T>) => void, sid: string) =>
@@ -139,6 +140,7 @@ export function createAppStore(engine: Engine) {
   const todos = () => sessionTodos()[activeSession()] ?? []
   const pending = () => sessionPending()[activeSession()] ?? null
   const askPending = () => sessionAsk()[activeSession()] ?? null
+  const diagnostics = () => sessionDiag()[activeSession()] ?? []
   const sessionRunning = (id: string) => !!sessionBusy()[id]
   const sessionNeedsInput = (id: string) => !!sessionNeeds()[id]
 
@@ -229,6 +231,9 @@ export function createAppStore(engine: Engine) {
         break
       case "todos":
         setKey(setSessionTodos, sid, e.items)
+        break
+      case "diagnostics":
+        setKey(setSessionDiag, sid, e.items)
         break
       case "compaction":
         if (focused) {
@@ -526,6 +531,7 @@ export function createAppStore(engine: Engine) {
     todos,
     changedFiles,
     setChangedFiles,
+    diagnostics,
     sendEngineCommand,
   }
 }

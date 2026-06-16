@@ -28,6 +28,7 @@ export type EngineEventBody =
   | { type: "session-changed"; sessionId: string; title: string; cwd: string; roots: string[] }
   | { type: "session-loaded"; sessionId: string; title: string; cwd: string; roots: string[]; messages: Message[] }
   | { type: "todos"; items: TodoItem[] }
+  | { type: "diagnostics"; items: { path: string; errors: number; warnings: number }[] }
   | { type: "compaction"; turnsCompacted: number; kept: number; tokensBefore: number; tokensAfter: number }
   | { type: "error"; message: string }
 
