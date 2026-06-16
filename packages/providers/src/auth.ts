@@ -1,6 +1,7 @@
 import fs from "node:fs"
 import type { ProviderInfo } from "@friday/shared"
 import { authPath, fridayDir } from "./paths.ts"
+import { BUILTIN_PROVIDERS } from "./registry.ts"
 
 export interface AuthFile {
   providers: Record<string, { apiKey?: string; baseURL?: string }>
@@ -28,5 +29,12 @@ export function setProviderKey(id: string, apiKey: string, baseURL?: string): vo
 }
 
 export function getProviderKey(id: string): string | undefined {
-  return loadAuth().providers[id]?.apiKey
+  const stored = loadAuth().providers[id]?.apiKey
+  if (stored) return stored
+  // Fall back to an environment variable (e.g. ANTHROPIC_API_KEY) if the provider declares one.
+  const provider = BUILTIN_PROVIDERS.find((p) => p.id === id)
+  for (const envKey of provider?.envKeys ?? []) {
+    if (process.env[envKey]) return process.env[envKey]
+  }
+  return undefined
 }

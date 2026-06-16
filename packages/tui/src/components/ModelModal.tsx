@@ -38,6 +38,7 @@ export function ModelModal() {
   const [mIndex, setMIndex] = createSignal(0)
   const [query, setQuery] = createSignal("")
   const [chosenModel, setChosenModel] = createSignal("")
+  const [chosenReasoning, setChosenReasoning] = createSignal(false)
   const [eIndex, setEIndex] = createSignal(1)
   const [keyField, setKeyField] = createSignal<"key" | "url">("key")
   let scrollRef: any
@@ -83,16 +84,23 @@ export function ModelModal() {
     if (!modelId) return
     setChosenModel(modelId)
     const m = modelList().find((x) => x.id === modelId)
-    if (m && m.reasoning === false) finalize() // non-reasoning model — no effort step
-    else setStep("effort")
+    const reasoning = !!m?.reasoning // custom / unknown models default to non-reasoning (safe)
+    setChosenReasoning(reasoning)
+    if (reasoning) setStep("effort")
+    else finalize() // non-reasoning model — no effort step, and effort won't be sent
   }
 
   function finalize() {
     const p = provider()
     if (!p) return
-    const eff = EFFORTS[eIndex()] ?? "medium"
-    app.setEffort(eff)
-    app.connectAndSelect(p.id, chosenModel(), apiKey() || undefined, baseURL() && baseURL() !== p.baseURL ? baseURL() : undefined)
+    if (chosenReasoning()) app.setEffort(EFFORTS[eIndex()] ?? "medium")
+    app.connectAndSelect(
+      p.id,
+      chosenModel(),
+      chosenReasoning(),
+      apiKey() || undefined,
+      baseURL() && baseURL() !== p.baseURL ? baseURL() : undefined,
+    )
   }
 
   useKeyboard((key) => {

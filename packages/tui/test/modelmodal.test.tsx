@@ -30,11 +30,8 @@ test("model modal: pick keyless provider, filter models, select", async () => {
   await t.flush()
   expect(t.captureCharFrame()).toContain("qwen2.5-coder")
 
-  t.mockInput.pressEnter() // select highlighted model -> effort step (snapshot model: no reasoning flag)
-  await t.flush()
-  expect(t.captureCharFrame()).toContain("reasoning effort")
-
-  t.mockInput.pressEnter() // confirm effort -> finalize
+  // snapshot model has no reasoning flag -> effort step is skipped, selection finalizes immediately
+  t.mockInput.pressEnter()
   await t.flush()
   expect(e.selection().model).toBe("qwen2.5-coder:7b")
   expect(e.selection().providerId).toBe("ollama")

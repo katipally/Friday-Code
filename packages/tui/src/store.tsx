@@ -248,23 +248,33 @@ export function createAppStore(engine: Engine) {
     return [...BUILTIN_COMMANDS, ...engine.listCommands().map((c) => ({ name: c.name, description: c.description }))]
   }
 
-  function runCommand(name: string, args = "") {
+  /** Run a slash command; returns true if it matched a built-in or custom command. */
+  function runCommand(name: string, args = ""): boolean {
     switch (name) {
       case "model":
-        return setModelModalOpen(true)
+        setModelModalOpen(true)
+        return true
       case "new":
       case "clear":
-        return newSession()
+        newSession()
+        return true
       case "history":
-        return setHistoryOpen(true)
+        setHistoryOpen(true)
+        return true
       case "help":
-        return setOverlayOpen(true)
+        setOverlayOpen(true)
+        return true
       case "exit":
       case "quit":
-        return quit()
+        quit()
+        return true
     }
     const custom = engine.listCommands().find((c) => c.name === name)
-    if (custom) return submitRaw(args ? `${custom.template}\n\n${args}` : custom.template)
+    if (custom) {
+      submitRaw(args ? `${custom.template}\n\n${args}` : custom.template)
+      return true
+    }
+    return false
   }
 
   function submitRaw(text: string) {
@@ -277,7 +287,8 @@ export function createAppStore(engine: Engine) {
     if (!t) return
     if (t.startsWith("/")) {
       const [name, ...rest] = t.slice(1).split(/\s+/)
-      return runCommand(name!, rest.join(" "))
+      if (runCommand(name!, rest.join(" "))) return
+      // unknown slash command — fall through and send it as a normal prompt
     }
     submitRaw(t)
   }
@@ -300,9 +311,9 @@ export function createAppStore(engine: Engine) {
     setAskPending(null)
   }
 
-  function connectAndSelect(providerId: string, model: string, apiKey?: string, baseURL?: string) {
+  function connectAndSelect(providerId: string, model: string, reasoning: boolean, apiKey?: string, baseURL?: string) {
     if (apiKey) engine.connectProvider(providerId, apiKey, baseURL)
-    engine.selectModel(providerId, model)
+    engine.selectModel(providerId, model, reasoning)
     setModelModalOpen(false)
   }
 

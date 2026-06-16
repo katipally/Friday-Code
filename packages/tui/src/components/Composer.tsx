@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { theme, getMode } from "@friday/shared"
 import { useApp } from "../store.tsx"
@@ -36,8 +36,7 @@ export function Composer() {
   const [files, setFiles] = createSignal<string[]>([])
   const [sel, setSel] = createSignal(0)
 
-  onMount(() => listProjectFiles(app.engine.cwdPath()).then(setFiles))
-  // reload the file list when the working directory changes (session switch)
+  // Load (and reload when the working directory changes via a session switch) the file list.
   createEffect(() => {
     app.currentCwd()
     listProjectFiles(app.engine.cwdPath()).then(setFiles)

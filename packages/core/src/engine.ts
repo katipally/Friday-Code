@@ -92,6 +92,7 @@ export class Engine {
   private effort: Effort
   private providerId?: string
   private model?: string
+  private modelReasoning = false
 
   private abort?: AbortController
   private busy = false
@@ -111,6 +112,7 @@ export class Engine {
     this.effort = cfg.effort ?? "medium"
     this.providerId = cfg.providerId
     this.model = cfg.model
+    this.modelReasoning = cfg.reasoning ?? false
 
     const resumed = opts.resumeId
       ? this.store.get(opts.resumeId)
@@ -294,10 +296,11 @@ export class Engine {
   connectProvider(providerId: string, apiKey: string, baseURL?: string): void {
     setProviderKey(providerId, apiKey, baseURL)
   }
-  selectModel(providerId: string, model: string): void {
+  selectModel(providerId: string, model: string, reasoning = false): void {
     this.providerId = providerId
     this.model = model
-    saveConfig({ providerId, model })
+    this.modelReasoning = reasoning
+    saveConfig({ providerId, model, reasoning })
     this.emit({ type: "model-changed", model, provider: providerId })
   }
 
@@ -465,7 +468,8 @@ export class Engine {
           ...this.messages,
         ],
         tools: this.registry.defs,
-        effort: this.effort,
+        // Only send reasoning effort for models that actually support it (avoids 400s on e.g. gpt-4o).
+        effort: this.modelReasoning ? this.effort : undefined,
         maxTokens: 8192,
       }
 
@@ -605,7 +609,12 @@ export class Engine {
     for (let step = 0; step < 15; step++) {
       if (signal.aborted) break
       const { text, toolCalls } = await this.collectTurn(
-        this.streamFn(provider, apiKey, { model: this.model!, messages, tools: defs, effort: this.effort, maxTokens: 4096 }, signal),
+        this.streamFn(
+          provider,
+          apiKey,
+          { model: this.model!, messages, tools: defs, effort: this.modelReasoning ? this.effort : undefined, maxTokens: 4096 },
+          signal,
+        ),
         signal,
         { usage: (i, o) => (this.totalTokens += i + o) },
       )

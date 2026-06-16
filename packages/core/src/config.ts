@@ -6,6 +6,8 @@ import type { Effort, ModeId } from "@friday/shared"
 export interface FridayConfig {
   providerId?: string
   model?: string
+  /** whether the selected model exposes a reasoning channel (gates reasoning_effort) */
+  reasoning?: boolean
   effort?: Effort
   mode?: ModeId
   mcp?: Record<string, McpServerConfig>
