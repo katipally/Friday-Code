@@ -20,6 +20,7 @@ import { CommandPalette } from "./components/CommandPalette.tsx"
 import { SessionHistory } from "./components/SessionHistory.tsx"
 import { DirectoryModal } from "./components/DirectoryModal.tsx"
 import { McpModal } from "./components/McpModal.tsx"
+import { CheckpointHistory } from "./components/CheckpointHistory.tsx"
 import { ExitScreen } from "./components/ExitScreen.tsx"
 
 function Shell() {
@@ -67,6 +68,9 @@ function Shell() {
       <Show when={app.mcpModalOpen()}>
         <McpModal />
       </Show>
+      <Show when={app.checkpointsOpen()}>
+        <CheckpointHistory />
+      </Show>
     </box>
   )
 }
@@ -77,6 +81,7 @@ function AppRoot() {
 
   onMount(() => app.engine.ready())
 
+  let lastEsc = 0
   useKeyboard((key) => {
     if (app.view() === "exit") return // ExitScreen owns keys
     if (key.ctrl && key.name === "c") return app.quit()
@@ -89,6 +94,7 @@ function AppRoot() {
     if (app.historyOpen()) return // SessionHistory owns keys while open
     if (app.dirModalOpen()) return // DirectoryModal owns keys while open
     if (app.mcpModalOpen()) return // McpModal owns keys while open
+    if (app.checkpointsOpen()) return // CheckpointHistory owns keys while open
     if (app.askPending()) return // AskCard owns keys while open
 
     if (app.pending()) {
@@ -108,7 +114,16 @@ function AppRoot() {
     if (key.ctrl && key.name === "k") return app.setPaletteOpen(true)
     if (key.ctrl && key.name === "y") return app.setHistoryOpen(true)
     if (key.name?.toLowerCase() === "f1" || (key.ctrl && key.name === "/")) return app.setOverlayOpen(true)
-    if (key.name === "escape" && app.busy()) return app.abort()
+    if (key.name === "escape") {
+      if (app.busy()) return app.abort()
+      // Double-tap Esc (within 500ms) opens the checkpoint / undo history.
+      const t = Date.now()
+      if (t - lastEsc < 500) {
+        lastEsc = 0
+        return app.setCheckpointsOpen(true)
+      }
+      lastEsc = t
+    }
   })
 
   useSelectionHandler((selection) => {

@@ -112,6 +112,7 @@ export function createAppStore(engine: Engine) {
   const [historyOpen, setHistoryOpen] = createSignal(false)
   const [dirModalOpen, setDirModalOpen] = createSignal(false)
   const [mcpModalOpen, setMcpModalOpen] = createSignal(false)
+  const [checkpointsOpen, setCheckpointsOpen] = createSignal(false)
   const refreshSessions = () => {
     setSessions(engine.listSessions())
     setAllSessions(engine.listAllSessions())
@@ -248,6 +249,7 @@ export function createAppStore(engine: Engine) {
     { name: "history", description: "browse all past sessions (by directory)" },
     { name: "dir", description: "change or add a working directory" },
     { name: "mcp", description: "view / add / remove MCP servers" },
+    { name: "undo", description: "rewind files + conversation to a checkpoint" },
     { name: "help", description: "show the keymap" },
     { name: "exit", description: "quit Friday (clean exit)" },
   ]
@@ -274,6 +276,9 @@ export function createAppStore(engine: Engine) {
         return true
       case "mcp":
         setMcpModalOpen(true)
+        return true
+      case "undo":
+        setCheckpointsOpen(true)
         return true
       case "help":
         setOverlayOpen(true)
@@ -379,6 +384,15 @@ export function createAppStore(engine: Engine) {
     engine.removeMcpServer(name)
     refreshMcp()
   }
+  function restoreCheckpoint(id: string) {
+    engine.restoreCheckpoint(id)
+    setCheckpointsOpen(false)
+    refreshSessions()
+  }
+  function redoLast() {
+    engine.redoLast()
+    setCheckpointsOpen(false)
+  }
 
   const [exitStats, setExitStats] = createSignal<SessionStats | null>(null)
   function quit() {
@@ -445,6 +459,10 @@ export function createAppStore(engine: Engine) {
     refreshMcp,
     addMcpServer,
     removeMcpServer,
+    checkpointsOpen,
+    setCheckpointsOpen,
+    restoreCheckpoint,
+    redoLast,
     quit,
     exitStats,
     paletteOpen,

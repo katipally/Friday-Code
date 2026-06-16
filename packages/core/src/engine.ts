@@ -29,6 +29,8 @@ import { loadProjectContext, type ProjectContext } from "./context.ts"
 import { expandMentions } from "./mentions.ts"
 import { loadCommands, type CustomCommand } from "./commands.ts"
 import { loadSkills, type Skill } from "./skills.ts"
+import { applyFiles, readOrNull, snapshotFile, type Checkpoint } from "./checkpoints.ts"
+import path from "node:path"
 
 const now = () => Date.now()
 
@@ -101,6 +103,10 @@ export class Engine {
   private pendingAsk = new Map<string, (answer: string) => void>()
   private sessionAllow = new Set<PermissionCategory>()
   private idc = 0
+
+  private checkpoints: Checkpoint[] = []
+  private currentCheckpoint?: Checkpoint
+  private redoState?: { files: Map<string, string | null>; messages: Message[] }
 
   constructor(opts: EngineOptions) {
     this.cwd = opts.cwd
@@ -187,6 +193,9 @@ export class Engine {
     this.messages = this.store.loadMessages(row.id)
     this.seq = this.messages.length
     this.sessionStartedAt = now()
+    this.checkpoints = []
+    this.currentCheckpoint = undefined
+    this.redoState = undefined
   }
 
   private addMessage(msg: Message): void {
@@ -309,6 +318,58 @@ export class Engine {
   private emitSessionState(messages: Message[]): void {
     this.emit({ type: "session-changed", sessionId: this.sessionId, title: this.sessionTitle, cwd: this.cwd, roots: this.roots })
     this.emit({ type: "session-loaded", sessionId: this.sessionId, title: this.sessionTitle, cwd: this.cwd, roots: this.roots, messages })
+  }
+
+  // ---- checkpoints / undo-rewind ----
+  listCheckpoints(): { id: string; label: string; createdAt: number; files: number }[] {
+    return this.checkpoints
+      .map((c) => ({ id: c.id, label: c.label, createdAt: c.createdAt, files: c.files.size }))
+      .reverse() // newest first
+  }
+  hasRedo(): boolean {
+    return !!this.redoState
+  }
+
+  /** Rewind files + conversation back to the start of the given checkpoint's turn. */
+  restoreCheckpoint(id: string): void {
+    if (this.busy) return
+    const idx = this.checkpoints.findIndex((c) => c.id === id)
+    if (idx < 0) return
+    const cp = this.checkpoints[idx]!
+    const tail = this.checkpoints.slice(idx)
+
+    // Capture redo state: current content of every file we're about to revert + current conversation.
+    const redoFiles = new Map<string, string | null>()
+    for (const c of tail) for (const p of c.files.keys()) if (!redoFiles.has(p)) redoFiles.set(p, readOrNull(p))
+    this.redoState = { files: redoFiles, messages: [...this.messages] }
+
+    // Revert files to their earliest recorded prior content (their state at the checkpoint's start).
+    const restore = new Map<string, string | null>()
+    for (const c of tail) for (const [p, prior] of c.files) if (!restore.has(p)) restore.set(p, prior)
+    applyFiles(restore)
+
+    // Rewind the conversation.
+    this.messages = this.messages.slice(0, cp.messageSeq)
+    this.seq = cp.messageSeq
+    this.store.truncateMessages(this.sessionId, cp.messageSeq)
+    this.checkpoints = this.checkpoints.slice(0, idx)
+    this.currentCheckpoint = undefined
+
+    this.emit({ type: "status", text: `rewound to “${cp.label}”` })
+    this.emit({ type: "session-loaded", sessionId: this.sessionId, title: this.sessionTitle, cwd: this.cwd, roots: this.roots, messages: this.messages })
+  }
+
+  /** Undo the last rewind (re-apply the files + conversation that were reverted). */
+  redoLast(): void {
+    if (this.busy || !this.redoState) return
+    applyFiles(this.redoState.files)
+    this.messages = [...this.redoState.messages]
+    this.seq = this.messages.length
+    this.store.truncateMessages(this.sessionId, 0)
+    this.messages.forEach((m, i) => this.store.appendMessage(this.sessionId, i, m))
+    this.redoState = undefined
+    this.emit({ type: "status", text: "redone" })
+    this.emit({ type: "session-loaded", sessionId: this.sessionId, title: this.sessionTitle, cwd: this.cwd, roots: this.roots, messages: this.messages })
   }
 
   // ---- queries for the /model modal ----
@@ -471,6 +532,16 @@ export class Engine {
     }
     this.busy = true
     this.abort = new AbortController()
+    // Open a checkpoint for this turn (files are snapshotted lazily as edits happen).
+    this.currentCheckpoint = {
+      id: this.nextId(),
+      label: text.replace(/\s+/g, " ").trim().slice(0, 60) || "turn",
+      createdAt: now(),
+      messageSeq: this.messages.length,
+      files: new Map(),
+    }
+    this.checkpoints.push(this.currentCheckpoint)
+    this.redoState = undefined // a fresh turn invalidates redo
     const { text: expanded } = expandMentions(text, this.roots)
     this.addMessage({ role: "user", text: expanded })
     this.setTitleFromPrompt(text)
@@ -620,6 +691,12 @@ export class Engine {
           this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: msg, isError: true })
           this.emit({ type: "tool-result", callId: tc.id, ok: false, output: msg })
           continue
+        }
+
+        // Snapshot the file for undo before an edit-category tool mutates it.
+        if (tool.permission === "edit" && this.currentCheckpoint) {
+          const a = safeParse(tc.arguments) as { path?: string }
+          if (typeof a.path === "string") snapshotFile(this.currentCheckpoint, path.resolve(this.cwd, a.path))
         }
 
         let result: ToolResult
