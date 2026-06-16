@@ -85,6 +85,32 @@ test("listAllSessions spans directories", async () => {
   expect(dirs.has("/dirB")).toBe(true)
 })
 
+test("empty sessions are reused by /new and discarded on switch", async () => {
+  const store = new SessionStore(path.join(tmp, "empty.db"))
+  const e = new Engine({ cwd: "/e", streamFn: textOnly, store })
+  e.selectModel("mock", "m")
+
+  // The initial session is empty — /new should reuse it instead of spawning a duplicate.
+  const a = e.currentSessionId()
+  e.newSession()
+  expect(e.currentSessionId()).toBe(a)
+  expect(e.listSessions().length).toBe(1)
+
+  // Once it has a message it's real; /new now creates a genuine second session.
+  e.send({ type: "prompt", text: "hi" })
+  await Bun.sleep(20)
+  e.newSession()
+  const b = e.currentSessionId()
+  expect(b).not.toBe(a)
+  expect(e.listSessions().length).toBe(2)
+
+  // Switching away from the still-empty `b` discards it (never reaches history).
+  e.switchSession(a)
+  expect(e.listSessions().length).toBe(1)
+  expect(e.listSessions()[0]!.id).toBe(a)
+  expect(store.get(b)).toBeUndefined()
+})
+
 test("Engine new + switch session", async () => {
   const store = new SessionStore(path.join(tmp, "switch.db"))
   const e = new Engine({ cwd: "/y", streamFn: textOnly, store })

@@ -14,7 +14,7 @@ import type { Message, TodoItem } from "./types.ts"
 export type EngineEventBody =
   | { type: "ready"; needsModel: boolean }
   | { type: "model-changed"; model: string; provider: string; reasoning: boolean; contextWindow?: number }
-  | { type: "message-start"; role: "assistant"; id: string }
+  | { type: "message-start"; role: "assistant"; id: string; mode: ModeId }
   | { type: "text"; id: string; delta: string }
   | { type: "reasoning"; id: string; delta: string }
   | { type: "tool-call"; id: string; callId: string; name: string; input: unknown }
@@ -52,3 +52,4 @@ export type UICommand =
   | { type: "switch-session"; sessionId: string }
   | { type: "new-session" }
   | { type: "run-command"; command: string }
+  | { type: "open-path"; path: string }

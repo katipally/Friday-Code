@@ -18,9 +18,10 @@ test("addRoot adds a directory to the session; the session appears under both ro
   expect(a.currentRoots()).toEqual([dirA, dirB])
   expect(store.get(sid)?.roots).toEqual([dirA, dirB])
 
-  // A fresh engine opened in dirB sees the shared session (its roots include dirB).
+  // A fresh engine opened in dirB sees the shared session in history (its roots include dirB).
+  // (listSessions is now this-run "live" sessions only; cross-run sessions live in listAllSessions.)
   const b = new Engine({ cwd: dirB, store })
-  expect(b.listSessions().some((s) => s.id === sid)).toBe(true)
+  expect(b.listAllSessions().some((s) => s.id === sid && s.roots.includes(dirB))).toBe(true)
 })
 
 test("setRoot starts a new session in the new directory (changing dir = new session)", () => {

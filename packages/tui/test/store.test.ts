@@ -33,7 +33,8 @@ test("switching mid-stream keeps each session's own transcript + status", async 
     await Bun.sleep(20)
     expect(app.busy()).toBe(true)
     expect(app.items().some((i) => i.kind === "assistant" && i.text.includes("task A"))).toBe(true)
-    expect(app.status()).toContain("thinking")
+    // Once text starts flowing the status is "streaming…" (phase labels: sent→connecting→thinking→streaming).
+    expect(app.status()).toContain("streaming")
 
     // Open a fresh session — it must NOT inherit s1's "thinking" status or transcript.
     engine.send({ type: "new-session" })

@@ -29,7 +29,7 @@ export const MODES: readonly Mode[] = [
     id: "default",
     label: "default",
     glyph: "⬡",
-    accent: "#2dd4bf", // teal/mint — Friday's signature
+    accent: "#9aa5ce", // slate blue-grey — neutral & calm, so default mode doesn't visually shout
     hint: "asks before edits & commands",
     policy: { edit: "ask", bash: "ask", network: "ask" },
   },

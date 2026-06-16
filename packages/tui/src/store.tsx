@@ -26,6 +26,8 @@ export type ViewItem =
       done: boolean
       startedAt: number
       durationMs?: number
+      /** the mode this reply ran in — colors its ⏺ marker so you can tell at a glance */
+      mode?: ModeId
     }
   | {
       kind: "tool"
@@ -43,7 +45,7 @@ export type ViewItem =
 
 export type PendingPermission = { requestId: string; tool: string; summary: string; detail?: string; risk?: string }
 export type PendingAsk = { requestId: string; questions: AskQuestion[] }
-export type SessionItem = { id: string; title: string }
+export type SessionItem = { id: string; title: string; cwd: string; roots: string[] }
 export type ChangedFile = { path: string; status: string; added: number; removed: number }
 
 /** Rebuild view items from stored messages (history replay on resume/switch). */
@@ -96,6 +98,8 @@ export function createAppStore(engine: Engine) {
   const [onboardingOpen, setOnboardingOpen] = createSignal(false)
 
   const [paletteOpen, setPaletteOpen] = createSignal(false)
+  // First Esc while busy "arms" the stop; a second Esc within the window actually aborts.
+  const [stopArmed, setStopArmed] = createSignal(false)
   // Highlighted action in the permission card (0 allow-once · 1 allow-always · 2 deny).
   const [permSel, setPermSel] = createSignal(0)
   // Transient toasts (e.g. a background session finished or needs input).
@@ -147,7 +151,8 @@ export function createAppStore(engine: Engine) {
   const [sessions, setSessions] = createSignal<SessionItem[]>(engine.listSessions())
   const [allSessions, setAllSessions] = createSignal(engine.listAllSessions())
   const changedFiles = () => sessionChanged()[activeSession()] ?? []
-  // Sessions shown in the left panel: those with a real first message, plus the focused one.
+  // Sessions shown in the left panel: live (this-run) sessions with a real first message,
+  // plus the focused one (so a freshly-opened empty session is still visible while you type).
   const activeSessions = () => sessions().filter((s) => s.title !== "new session" || s.id === activeSession())
   const runningTools = createMemo(() =>
     items().filter((i) => i.kind === "tool" && i.status === "running").map((i) => (i as any).title ?? (i as any).name),
@@ -237,6 +242,7 @@ export function createAppStore(engine: Engine) {
           thinkingOpen: true,
           done: false,
           startedAt: Date.now(),
+          mode: e.mode,
         })
         break
       case "text":
@@ -281,6 +287,9 @@ export function createAppStore(engine: Engine) {
       case "status":
         setKey(setSessionStatus, sid, e.text)
         if (e.tokens != null) setKey(setSessionTokens, sid, e.tokens)
+        // Defensive backstop: "ready"/"stopped" are terminal, so clear busy even if a turn-done
+        // was somehow missed — this is what stops a runaway elapsed timer after Esc.
+        if (e.text === "ready" || e.text === "stopped") setKey(setSessionBusy, sid, false)
         break
       case "mascot":
         setKey(setSessionMascot, sid, e.state)
@@ -410,7 +419,12 @@ export function createAppStore(engine: Engine) {
   }
 
   function submitRaw(text: string) {
-    appendItem(activeSession(), { kind: "user", id: nextLocalId(), text, mode: mode() })
+    const sid = activeSession()
+    appendItem(sid, { kind: "user", id: nextLocalId(), text, mode: mode() })
+    // Optimistically flip to busy so the status strip + timer appear the instant Enter is pressed,
+    // before the engine's first message-start arrives (closes the perceived "nothing happening" gap).
+    setKey(setSessionBusy, sid, true)
+    setKey(setSessionStatus, sid, "sent…")
     engine.send({ type: "prompt", text })
   }
 
@@ -424,7 +438,15 @@ export function createAppStore(engine: Engine) {
     submitRaw(t)
   }
 
+  function openPath(p: string) {
+    engine.send({ type: "open-path", path: p })
+  }
+
   function abort() {
+    setStopArmed(false)
+    // Optimistic "stopping…" so the strip reflects the interrupt instantly; the engine
+    // follows with "stopped" + a turn-done that clears busy and freezes the timer.
+    setKey(setSessionStatus, activeSession(), "stopping…")
     engine.send({ type: "abort" })
   }
 
@@ -565,6 +587,7 @@ export function createAppStore(engine: Engine) {
     toggleMode,
     submit,
     abort,
+    openPath,
     replyPermission,
     connectAndSelect,
     toggleThinking,
@@ -596,6 +619,8 @@ export function createAppStore(engine: Engine) {
     exitStats,
     paletteOpen,
     setPaletteOpen,
+    stopArmed,
+    setStopArmed,
     permSel,
     setPermSel,
     toasts,

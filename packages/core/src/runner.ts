@@ -55,6 +55,42 @@ function safeParse(s: string): unknown {
   }
 }
 
+/**
+ * Safety net for when the model writes choices into the question text instead of the `options`
+ * array (a common slip). Pulls out an inline `Options: [...]` / `Options: a, b, c` or a trailing
+ * bulleted/numbered list so the UI can still render them as real selectable options.
+ */
+export function extractInlineOptions(raw: string): { question: string; options?: string[] } {
+  const inline = raw.match(/\bOptions?\s*:\s*(.+?)\s*$/im)
+  if (inline) {
+    const body = inline[1]!.trim()
+    const bracket = body.match(/^\[(.*)\]$/s)
+    const opts = (bracket ? bracket[1]! : body)
+      .split(/\s*,\s*/)
+      .map((s) => s.replace(/^['"]|['"]$/g, "").trim())
+      .filter(Boolean)
+    if (opts.length >= 2) return { question: raw.slice(0, inline.index).trim() || "Pick one:", options: opts }
+  }
+  const lines = raw.split("\n")
+  const isBullet = (l: string) => /^\s*(?:[-*•]|\d+[.)])\s+\S/.test(l)
+  const start = lines.findIndex(isBullet)
+  if (start >= 0) {
+    const opts = lines
+      .slice(start)
+      .filter(isBullet)
+      .map((l) => l.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, "").trim())
+    if (opts.length >= 2) return { question: lines.slice(0, start).join("\n").trim() || "Pick one:", options: opts }
+  }
+  return { question: raw }
+}
+
+/** Build one AskQuestion, preferring explicit `options[]` but falling back to inline extraction. */
+function toAskQuestion(id: string, question: string, explicit: unknown, multi = false): AskQuestion {
+  if (Array.isArray(explicit) && explicit.length) return { id, question, options: explicit as string[], multi }
+  const parsed = extractInlineOptions(question)
+  return { id, question: parsed.question, options: parsed.options, multi }
+}
+
 /** Render ask_user answers back to the model: a single answer verbatim, or labeled Q/A pairs. */
 function formatAskAnswers(questions: AskQuestion[], answers: Record<string, string>): string {
   if (questions.length === 1) return answers[questions[0]!.id] ?? "(no answer)"
@@ -116,6 +152,8 @@ export class SessionRunner {
 
   private abort?: AbortController
   busy = false
+  /** id of the assistant message currently streaming — so we can always finalize it (even on abort/error). */
+  private activeAssistantId?: string
   /** set while a permission/ask card is awaiting the user for this session */
   needsInput = false
   private pending = new Map<string, Pending>()
@@ -182,6 +220,10 @@ export class SessionRunner {
   }
   currentRoots(): string[] {
     return this.roots
+  }
+  /** A session with no messages yet — a throwaway "new session" placeholder, safe to discard. */
+  isEmpty(): boolean {
+    return this.messages.length === 0
   }
   contextInfo(): { files: string[] } {
     return { files: this.context.files }
@@ -309,10 +351,16 @@ export class SessionRunner {
       this.emit({ type: "error", message: "No model selected — open /model to connect one." })
       return
     }
+    // Acknowledge the submit instantly so the UI never feels dead between Enter and first token.
+    this.emit({ type: "mascot", state: "thinking" })
+    this.emit({ type: "status", text: "sent…" })
+
     // UserPromptSubmit hook may block the prompt or inject extra context.
     const pre = await this.hook("UserPromptSubmit", { prompt: text })
     if (pre.block) {
       this.emit({ type: "error", message: pre.reason ?? "Prompt blocked by a hook." })
+      this.emit({ type: "mascot", state: "idle" })
+      this.emit({ type: "status", text: "ready" })
       return
     }
 
@@ -337,18 +385,22 @@ export class SessionRunner {
     try {
       await this.loop(start)
     } catch (e: any) {
-      if (this.abort.signal.aborted) this.emit({ type: "status", text: "stopped" })
-      else {
-        this.emit({ type: "error", message: e?.message ?? String(e) })
-        this.emit({ type: "mascot", state: "error" })
-      }
+      if (!this.abort.signal.aborted) this.emit({ type: "error", message: e?.message ?? String(e) })
     } finally {
+      const aborted = this.abort?.signal.aborted ?? false
       this.busy = false
       this.abort = undefined
+      // Always finalize the in-flight assistant item so the UI clears `busy` (stops the timer)
+      // and marks the bubble done — turn-done is the ONLY event the UI uses for this, and the
+      // normal path may not have emitted it (abort / error / step-limit).
+      if (this.activeAssistantId) {
+        this.emit({ type: "turn-done", id: this.activeAssistantId })
+        this.activeAssistantId = undefined
+      }
       void this.hook("Stop")
       this.emitSessionFiles()
       this.emit({ type: "mascot", state: "idle" })
-      this.emit({ type: "status", text: "ready" })
+      this.emit({ type: "status", text: aborted ? "stopped" : "ready" })
     }
   }
 
@@ -486,9 +538,10 @@ export class SessionRunner {
     for (let step = 0; step < MAX_STEPS; step++) {
       if (signal.aborted) return
       const id = this.host.nextId()
-      this.emit({ type: "message-start", role: "assistant", id })
+      this.activeAssistantId = id
+      this.emit({ type: "message-start", role: "assistant", id, mode: sel.mode })
       this.emit({ type: "mascot", state: "thinking" })
-      this.emit({ type: "status", text: "thinking…", elapsedMs: now() - start })
+      this.emit({ type: "status", text: "connecting…", elapsedMs: now() - start })
 
       await this.maybeCompact(provider, apiKey, signal, false)
 
@@ -513,22 +566,29 @@ export class SessionRunner {
       }
 
       let streamedText = false
+      let streamedReasoning = false
       const { text, reasoning, reasoningSignature, toolCalls } = await this.collectTurn(this.host.streamFn(provider, apiKey, req, signal), signal, {
         text: (d) => {
           if (!streamedText) {
             streamedText = true
             this.emit({ type: "mascot", state: "streaming" })
+            this.emit({ type: "status", text: "streaming…", elapsedMs: now() - start })
           }
           this.emit({ type: "text", id, delta: d })
         },
-        reasoning: (d) => this.emit({ type: "reasoning", id, delta: d }),
+        reasoning: (d) => {
+          if (!streamedReasoning) {
+            streamedReasoning = true
+            this.emit({ type: "status", text: "thinking…", elapsedMs: now() - start })
+          }
+          this.emit({ type: "reasoning", id, delta: d })
+        },
         usage: (i, o) => {
           inTok += i
           outTok += o
           this.totalTokens += i + o
           const cost = sel.cost ? (inTok / 1_000_000) * sel.cost.input + (outTok / 1_000_000) * sel.cost.output : undefined
           this.emit({ type: "usage", input: inTok, output: outTok, costUsd: cost })
-          this.emit({ type: "status", text: "thinking…", elapsedMs: now() - start, tokens: inTok + outTok })
         },
       })
       if (signal.aborted) return
@@ -543,6 +603,7 @@ export class SessionRunner {
 
       if (!toolCalls.length) {
         this.emit({ type: "turn-done", id })
+        this.activeAssistantId = undefined
         return
       }
 
@@ -593,13 +654,8 @@ export class SessionRunner {
             questions?: { question?: string; options?: unknown; multi?: boolean }[]
           }
           const questions: AskQuestion[] = Array.isArray(a.questions) && a.questions.length
-            ? a.questions.map((q, i) => ({
-                id: `q${i}`,
-                question: q.question ?? "",
-                options: Array.isArray(q.options) ? (q.options as string[]) : undefined,
-                multi: q.multi === true,
-              }))
-            : [{ id: "q0", question: a.question ?? "", options: Array.isArray(a.options) ? (a.options as string[]) : undefined }]
+            ? a.questions.map((q, i) => toAskQuestion(`q${i}`, q.question ?? "", q.options, q.multi === true))
+            : [toAskQuestion("q0", a.question ?? "", a.options)]
           const requestId = this.host.nextId()
           this.emit({ type: "ask-user", requestId, questions })
           this.emit({ type: "mascot", state: "idle" })

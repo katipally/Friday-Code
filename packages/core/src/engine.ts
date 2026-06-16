@@ -17,6 +17,8 @@ import { loadCommands, type CustomCommand } from "./commands.ts"
 import { SessionRunner, type RunnerHost, type SessionStats } from "./runner.ts"
 import type { StreamFn } from "./stream.ts"
 import { notify } from "./notify.ts"
+import fs from "node:fs"
+import path from "node:path"
 
 export type { StreamFn } from "./stream.ts"
 export type { SessionStats } from "./runner.ts"
@@ -182,7 +184,10 @@ export class Engine {
     this.mcpServers = [...this.mcpConnections.keys()]
   }
   dispose(): void {
-    for (const r of this.runners.values()) r.dispose()
+    for (const [id, r] of this.runners) {
+      if (r.isEmpty() && !r.busy) this.store.delete(id) // never persist empty placeholders
+      r.dispose()
+    }
     for (const c of this.mcpConnections.values()) c.close()
   }
 
@@ -201,8 +206,23 @@ export class Engine {
   }
 
   // ---- sessions ----
-  listSessions(): { id: string; title: string }[] {
-    return this.store.list(this.focused().currentCwd()).map((s) => ({ id: s.id, title: s.title }))
+  /**
+   * "Active" sessions = those opened in THIS process run (the live runners), tagged with their
+   * directory so the panel can group by it. They vanish when Friday closes; full persisted
+   * history lives in /history. Focused session first, then most-recently-touched.
+   */
+  listSessions(): { id: string; title: string; cwd: string; roots: string[] }[] {
+    return [...this.runners.values()]
+      .map((r) => ({ id: r.sessionId, title: r.currentTitle(), cwd: r.currentCwd(), roots: r.currentRoots() }))
+      .sort((a, b) => (a.id === this.focusedId ? -1 : b.id === this.focusedId ? 1 : 0))
+  }
+  /** Drop a session that never received a message so it never reaches persisted history. */
+  private discardIfEmpty(id: string): void {
+    const r = this.runners.get(id)
+    if (!r || r.busy || !r.isEmpty() || id === this.focusedId) return
+    r.dispose()
+    this.runners.delete(id)
+    this.store.delete(id)
   }
   listAllSessions(): { id: string; title: string; cwd: string; roots: string[]; updatedAt: number }[] {
     return this.store.list().map((s) => ({ id: s.id, title: s.title, cwd: s.cwd, roots: s.roots, updatedAt: s.updatedAt }))
@@ -219,6 +239,9 @@ export class Engine {
   }
   currentCwd(): string {
     return this.focused().currentCwd()
+  }
+  currentIsEmpty(): boolean {
+    return this.focused().isEmpty()
   }
   currentRoots(): string[] {
     return this.focused().currentRoots()
@@ -249,7 +272,14 @@ export class Engine {
   }
 
   newSession(): void {
-    const runner = this.makeRunner(this.store.create(this.focused().currentRoots(), crypto.randomUUID(), now()))
+    // If the current session is still empty, reuse it instead of spawning a duplicate
+    // "new session" row (the root cause of session pile-up).
+    const focused = this.focused()
+    if (focused.isEmpty() && !focused.busy) {
+      focused.emitState(true)
+      return
+    }
+    const runner = this.makeRunner(this.store.create(focused.currentRoots(), crypto.randomUUID(), now()))
     this.focusedId = runner.sessionId
     runner.emitState(true)
   }
@@ -257,7 +287,9 @@ export class Engine {
     if (id === this.focusedId) return
     const runner = this.runnerFor(id)
     if (!runner) return
+    const prev = this.focusedId
     this.focusedId = id
+    this.discardIfEmpty(prev) // throw away the empty session we just left
     runner.emitState(true)
   }
   /** Add a directory to the focused session's workspace (no new session). */
@@ -375,8 +407,50 @@ export class Engine {
       case "switch-session":
         this.switchSession(cmd.sessionId)
         break
+      case "open-path":
+        this.openPath(cmd.path)
+        break
       default:
         break
+    }
+  }
+
+  /** Open a file (in $EDITOR / OS default) or reveal a folder, resolved against the focused roots. */
+  private openPath(rel: string): void {
+    const roots = this.focused().currentRoots()
+    const expand = rel.startsWith("~/") && process.env.HOME ? process.env.HOME + rel.slice(1) : rel
+    let abs = expand
+    if (!path.isAbsolute(expand)) {
+      for (const root of roots) {
+        const full = path.join(root, expand)
+        if (fs.existsSync(full)) {
+          abs = full
+          break
+        }
+      }
+    }
+    let stat: fs.Stats
+    try {
+      stat = fs.statSync(abs)
+    } catch {
+      this.dispatch(this.focusedId, { type: "notice", text: `↗ could not find ${rel}` })
+      return
+    }
+    const mac = process.platform === "darwin"
+    const editor = process.env.VISUAL || process.env.EDITOR
+    const cmd: string[] = stat.isDirectory()
+      ? mac
+        ? ["open", "-R", abs] // reveal the folder in Finder
+        : ["xdg-open", abs]
+      : editor
+        ? [editor, abs]
+        : mac
+          ? ["open", abs]
+          : ["xdg-open", abs]
+    try {
+      Bun.spawn(cmd, { stdout: "ignore", stderr: "ignore", stdin: "ignore" })
+    } catch {
+      this.dispatch(this.focusedId, { type: "notice", text: `↗ could not open ${rel}` })
     }
   }
 

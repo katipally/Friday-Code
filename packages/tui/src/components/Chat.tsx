@@ -1,4 +1,4 @@
-import { For, Match, Show, Switch } from "solid-js"
+import { createMemo, For, Match, Show, Switch } from "solid-js"
 import { useKeyboard } from "@opentui/solid"
 import { theme, getMode, type ModeId } from "@friday/shared"
 import { useApp, type ViewItem } from "../store.tsx"
@@ -6,16 +6,19 @@ import { ThinkingCard } from "./ThinkingCard.tsx"
 import { ToolCard } from "./ToolCard.tsx"
 import { Markdown } from "./Markdown.tsx"
 import { Logo } from "./Logo.tsx"
+import { parseMentions, chipIcon } from "../util/mentions.ts"
 import { Appear } from "../motion/index.ts"
 
-/** User prompt: ❯ marker + a left accent bar colored by the mode it was sent in, with padding. */
+/** User prompt: a right-aligned rounded bubble whose border is colored by the mode it was sent in. */
 function UserBubble(props: { item: Extract<ViewItem, { kind: "user" }> }) {
   const app = useApp()
   const accent = () => getMode((props.item.mode as ModeId) ?? app.mode()).accent
+  // File references in the prompt show as click-to-open chips beneath the text.
+  const chips = createMemo(() => parseMentions(props.item.text, app.roots()))
   return (
     <box flexDirection="row" justifyContent="flex-end" marginBottom={1}>
       <box
-        flexDirection="row"
+        flexDirection="column"
         gap={1}
         maxWidth="85%"
         border
@@ -25,19 +28,39 @@ function UserBubble(props: { item: Extract<ViewItem, { kind: "user" }> }) {
         paddingLeft={1}
         paddingRight={1}
       >
-        <text fg={accent()}>❯</text>
         <text fg={theme.text} selectable>
           {props.item.text}
         </text>
+        <Show when={chips().length > 0}>
+          <box flexDirection="row" gap={1} flexWrap="wrap">
+            <For each={chips()}>
+              {(chip) => (
+                <box
+                  border
+                  borderStyle="rounded"
+                  borderColor={chip.abs ? accent() : theme.border}
+                  paddingLeft={1}
+                  paddingRight={1}
+                  onMouseDown={() => app.openPath(chip.rel)}
+                >
+                  <text fg={chip.abs ? theme.text : theme.textFaint}>
+                    {chipIcon(chip.kind)} {chip.rel.split("/").pop() || chip.rel}
+                  </text>
+                </box>
+              )}
+            </For>
+          </box>
+        </Show>
       </box>
     </box>
   )
 }
 
-/** Assistant reply: rendered flush on the background with a ⏺ marker; reasoning is a ⎿ branch. */
+/** Assistant reply: rendered flush on the background with a ⏺ marker tinted by the mode the reply
+ * ran in (so you can tell at a glance whether it was plan/default/accept/yolo); reasoning is a ╰ branch. */
 function AssistantMessage(props: { item: Extract<ViewItem, { kind: "assistant" }> }) {
   const app = useApp()
-  const accent = () => getMode(app.mode()).accent
+  const accent = () => getMode((props.item.mode as ModeId) ?? app.mode()).accent
   return (
     <box flexDirection="column" marginBottom={1}>
       <ThinkingCard item={props.item} />
@@ -89,6 +112,7 @@ export function Chat() {
     !app.historyOpen() &&
     !app.dirModalOpen() &&
     !app.mcpModalOpen() &&
+    !app.checkpointsOpen() &&
     !app.onboardingOpen()
 
   // Keyboard scroll-back through history (keys that don't collide with composer typing).

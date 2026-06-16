@@ -3,6 +3,7 @@ import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { theme, getMode } from "@friday/shared"
 import { useApp } from "../store.tsx"
 import { listProjectFiles } from "../util/files.ts"
+import { parseMentions, chipIcon } from "../util/mentions.ts"
 
 type Suggestion = { label: string; hint: string; apply: () => void }
 
@@ -30,6 +31,7 @@ export function Composer() {
     !app.historyOpen() &&
     !app.dirModalOpen() &&
     !app.mcpModalOpen() &&
+    !app.checkpointsOpen() &&
     !app.pending() &&
     !app.askPending()
   const maxHeight = () => Math.max(4, Math.floor(dims().height / 3))
@@ -86,14 +88,9 @@ export function Composer() {
     setSel(0)
   })
 
-  // Image attachments — @-mentioned image files become vision input on submit.
-  const imageChips = createMemo<string[]>(() => {
-    const out: string[] = []
-    const re = /(?:^|\s)@([^\s@]+\.(?:png|jpe?g|gif|webp))/gi
-    let m: RegExpExecArray | null
-    while ((m = re.exec(text()))) out.push(m[1]!.split("/").pop()!)
-    return out
-  })
+  // File/folder/image references in the prompt, shown as compact chips above the input.
+  // Images become vision input on submit; all chips are click-to-open.
+  const chips = createMemo(() => parseMentions(text(), app.roots()))
 
   function submit() {
     const value: string = ta?.plainText ?? ""
@@ -140,12 +137,21 @@ export function Composer() {
         </box>
       </Show>
 
-      <Show when={imageChips().length > 0}>
-        <box flexDirection="row" gap={1} marginBottom={1} flexShrink={0}>
-          <For each={imageChips()}>
-            {(name) => (
-              <box border borderStyle="rounded" borderColor={mode().accent} paddingLeft={1} paddingRight={1}>
-                <text fg={theme.text}>🖼 {truncate(name, 24)}</text>
+      <Show when={chips().length > 0}>
+        <box flexDirection="row" gap={1} marginBottom={1} flexShrink={0} flexWrap="wrap">
+          <For each={chips()}>
+            {(chip) => (
+              <box
+                border
+                borderStyle="rounded"
+                borderColor={chip.abs ? mode().accent : theme.border}
+                paddingLeft={1}
+                paddingRight={1}
+                onMouseDown={() => app.openPath(chip.rel)}
+              >
+                <text fg={chip.abs ? theme.text : theme.textFaint}>
+                  {chipIcon(chip.kind)} {truncate(chip.rel.split("/").pop() || chip.rel, 24)}
+                </text>
               </box>
             )}
           </For>

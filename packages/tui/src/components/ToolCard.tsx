@@ -1,12 +1,12 @@
 import { Show } from "solid-js"
-import { theme, getMode } from "@friday/shared"
+import { theme, getMode, GLYPH } from "@friday/shared"
 import { useApp, type ViewItem } from "../store.tsx"
 import { useSpinner } from "../util/useSpinner.ts"
 import { DiffCard } from "./DiffCard.tsx"
 
 const MAX_OUTPUT_LINES = 12
 
-/** A tool step on the timeline: ⏺ marker + title; output / diff hangs off a ⎿ branch. */
+/** A tool step on the timeline: ⏺ marker + title; output / diff hangs off a ╰ branch. */
 export function ToolCard(props: { item: Extract<ViewItem, { kind: "tool" }> }) {
   const app = useApp()
   const spin = useSpinner()
@@ -34,7 +34,7 @@ export function ToolCard(props: { item: Extract<ViewItem, { kind: "tool" }> }) {
 
       <Show when={props.item.diff}>
         <box flexDirection="row" gap={1}>
-          <text fg={theme.borderMuted}>⎿</text>
+          <text fg={theme.borderMuted}>{GLYPH.branch}</text>
           <box flexGrow={1}>
             <DiffCard diff={props.item.diff!} />
           </box>
@@ -43,7 +43,7 @@ export function ToolCard(props: { item: Extract<ViewItem, { kind: "tool" }> }) {
 
       <Show when={!props.item.diff && props.item.output}>
         <box flexDirection="row" gap={1}>
-          <text fg={theme.borderMuted}>⎿</text>
+          <text fg={theme.borderMuted}>{GLYPH.branch}</text>
           <text fg={props.item.status === "error" ? theme.error : theme.textMuted} selectable>
             {clippedOutput()}
           </text>

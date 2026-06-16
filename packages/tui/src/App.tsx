@@ -88,6 +88,7 @@ function AppRoot() {
   onMount(() => app.engine.ready())
 
   let lastEsc = 0
+  let stopArmedAt = 0
   useKeyboard((key) => {
     if (app.view() === "exit") return // ExitScreen owns keys
     if (key.ctrl && key.name === "c") return app.quit()
@@ -127,7 +128,22 @@ function AppRoot() {
     if (key.ctrl && key.name === "y") return app.setHistoryOpen(true)
     if (key.name?.toLowerCase() === "f1" || (key.ctrl && key.name === "/")) return app.setOverlayOpen(true)
     if (key.name === "escape") {
-      if (app.busy()) return app.abort()
+      if (app.busy()) {
+        // Double-Esc to stop: first Esc arms (shows a hint), a second within 1.5s aborts.
+        // A stray single Esc is a no-op, so the agent isn't killed by an accidental tap.
+        const t = Date.now()
+        if (app.stopArmed() && t - stopArmedAt < 1500) {
+          stopArmedAt = 0
+          app.setStopArmed(false)
+          return app.abort()
+        }
+        stopArmedAt = t
+        app.setStopArmed(true)
+        setTimeout(() => {
+          if (Date.now() - stopArmedAt >= 1450) app.setStopArmed(false)
+        }, 1500)
+        return
+      }
       // Double-tap Esc (within 500ms) opens the checkpoint / undo history.
       const t = Date.now()
       if (t - lastEsc < 500) {

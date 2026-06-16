@@ -22,14 +22,18 @@ export function ExitScreen() {
   const stats = app.exitStats()
   const id = app.engine.currentSessionId()
   const title = app.engine.currentTitle()
+  const empty = app.engine.currentIsEmpty()
 
   let done = false
   function finalize() {
     if (done) return
     done = true
+    app.engine.dispose() // close MCP + discard empty placeholder sessions so history stays clean
     renderer.destroy()
     // Printed to the normal screen so it stays in scrollback after the TUI exits.
-    process.stdout.write(`\n  friday — "${title}"\n  resume:  friday -s ${id}\n\n`)
+    // Skip the resume hint for an empty session — it's discarded on dispose.
+    const resume = empty ? "" : `\n  resume:  friday -s ${id}`
+    process.stdout.write(`\n  friday — "${title}"${resume}\n\n`)
   }
 
   onMount(() => {
