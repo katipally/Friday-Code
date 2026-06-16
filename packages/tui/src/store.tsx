@@ -3,6 +3,7 @@ import { createStore, produce } from "solid-js/store"
 import {
   DEFAULT_MODE,
   cycleMode,
+  type AskQuestion,
   type EngineEvent,
   type Effort,
   type MascotState,
@@ -41,7 +42,7 @@ export type ViewItem =
   | { kind: "notice"; id: string; text: string }
 
 export type PendingPermission = { requestId: string; tool: string; summary: string; detail?: string; risk?: string }
-export type PendingAsk = { requestId: string; question: string; options?: string[] }
+export type PendingAsk = { requestId: string; questions: AskQuestion[] }
 export type SessionItem = { id: string; title: string }
 export type ChangedFile = { path: string; status: string; added: number; removed: number }
 
@@ -94,9 +95,17 @@ export function createAppStore(engine: Engine) {
   const [modelModalOpen, setModelModalOpen] = createSignal(false)
   const [onboardingOpen, setOnboardingOpen] = createSignal(false)
 
-  const [mascot, setMascot] = createSignal<MascotState>("idle")
-  const [status, setStatus] = createSignal("ready")
   const [paletteOpen, setPaletteOpen] = createSignal(false)
+  // Highlighted action in the permission card (0 allow-once · 1 allow-always · 2 deny).
+  const [permSel, setPermSel] = createSignal(0)
+  // Transient toasts (e.g. a background session finished or needs input).
+  const [toasts, setToasts] = createSignal<{ id: number; text: string; kind: "done" | "input" | "error" }[]>([])
+  let toastId = 0
+  function pushToast(text: string, kind: "done" | "input" | "error") {
+    const id = ++toastId
+    setToasts((t) => [...t.slice(-3), { id, text, kind }])
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 5000)
+  }
 
   // Per-session state — keyed by sessionId so background sessions keep their own
   // busy/tokens/todos/pending while another session is focused on screen.
@@ -108,6 +117,13 @@ export function createAppStore(engine: Engine) {
   const [sessionAsk, setSessionAsk] = createSignal<Record<string, PendingAsk>>({})
   const [sessionDiag, setSessionDiag] = createSignal<Record<string, { path: string; errors: number; warnings: number }[]>>({})
   const [sessionCost, setSessionCost] = createSignal<Record<string, number>>({})
+  // Status / mascot / git are per-session too, so switching shows the focused
+  // session's real state instead of a stale global "thinking…".
+  const [sessionStatus, setSessionStatus] = createSignal<Record<string, string>>({})
+  const [sessionMascot, setSessionMascot] = createSignal<Record<string, MascotState>>({})
+  const [sessionChanged, setSessionChanged] = createSignal<Record<string, ChangedFile[]>>({})
+  // Per-session unread marker: the item count last seen while focused on a session.
+  const [sessionSeenLen, setSessionSeenLen] = createSignal<Record<string, number>>({})
   const [contextWindow, setContextWindow] = createSignal(0)
   const setKey = <T,>(set: (fn: (m: Record<string, T>) => Record<string, T>) => void, sid: string, v: T) =>
     set((m) => ({ ...m, [sid]: v }))
@@ -119,18 +135,23 @@ export function createAppStore(engine: Engine) {
       return n
     })
 
-  const [items, setItems] = createStore<ViewItem[]>([])
+  const [activeSession, setActiveSession] = createSignal(engine.currentSessionId())
+  // View items, keyed by session. Background sessions keep building their own
+  // transcript so switching to a live session shows its in-flight turn.
+  const [sessionItems, setSessionItems] = createStore<Record<string, ViewItem[]>>({})
+  const seeded = new Set<string>()
+  const items = () => sessionItems[activeSession()] ?? []
   const [contextFiles, setContextFiles] = createSignal<string[]>(engine.contextInfo().files)
   const [skills, setSkills] = createSignal(engine.listSkills())
   const [mcpServers, setMcpServers] = createSignal(engine.listMcpServers())
   const [sessions, setSessions] = createSignal<SessionItem[]>(engine.listSessions())
   const [allSessions, setAllSessions] = createSignal(engine.listAllSessions())
-  const [changedFiles, setChangedFiles] = createSignal<ChangedFile[]>([])
-  const [branch, setBranch] = createSignal<string>("")
+  const changedFiles = () => sessionChanged()[activeSession()] ?? []
+  // Sessions shown in the left panel: those with a real first message, plus the focused one.
+  const activeSessions = () => sessions().filter((s) => s.title !== "new session" || s.id === activeSession())
   const runningTools = createMemo(() =>
-    items.filter((i) => i.kind === "tool" && i.status === "running").map((i) => (i as any).title ?? (i as any).name),
+    items().filter((i) => i.kind === "tool" && i.status === "running").map((i) => (i as any).title ?? (i as any).name),
   )
-  const [activeSession, setActiveSession] = createSignal(engine.currentSessionId())
   const [currentCwd, setCurrentCwd] = createSignal(engine.currentCwd())
   const [roots, setRoots] = createSignal<string[]>(engine.currentRoots())
   const [historyOpen, setHistoryOpen] = createSignal(false)
@@ -139,6 +160,8 @@ export function createAppStore(engine: Engine) {
   const [checkpointsOpen, setCheckpointsOpen] = createSignal(false)
 
   // Focused-session views of the per-session maps.
+  const status = () => sessionStatus()[activeSession()] ?? "ready"
+  const mascot = () => sessionMascot()[activeSession()] ?? ("idle" as MascotState)
   const busy = () => !!sessionBusy()[activeSession()]
   const tokens = () => sessionTokens()[activeSession()] ?? 0
   const todos = () => sessionTodos()[activeSession()] ?? []
@@ -148,6 +171,9 @@ export function createAppStore(engine: Engine) {
   const cost = () => sessionCost()[activeSession()] ?? 0
   const sessionRunning = (id: string) => !!sessionBusy()[id]
   const sessionNeedsInput = (id: string) => !!sessionNeeds()[id]
+
+  const titleOf = (id: string) =>
+    allSessions().find((s) => s.id === id)?.title ?? sessions().find((s) => s.id === id)?.title ?? "session"
 
   const refreshSessions = () => {
     setSessions(engine.listSessions())
@@ -159,9 +185,31 @@ export function createAppStore(engine: Engine) {
   let localId = 0
   const nextLocalId = () => `u${++localId}`
 
+  // True when a non-focused session has produced output since we last looked at it.
+  const sessionActivity = (id: string) =>
+    id !== activeSession() && (sessionItems[id]?.length ?? 0) > (sessionSeenLen()[id] ?? 0)
+
+  function appendItem(sid: string, item: ViewItem) {
+    seeded.add(sid)
+    setSessionItems(produce((m) => void (m[sid] ??= []).push(item)))
+  }
+  function patchItemIn(sid: string, id: string, fn: (it: ViewItem) => void) {
+    setSessionItems(
+      produce((m) => {
+        const it = m[sid]?.find((i) => i.id === id)
+        if (it) fn(it)
+      }),
+    )
+  }
+  /** Patch an item in the focused session (used by toggle handlers). */
   function patchItem(id: string, fn: (it: ViewItem) => void) {
-    const idx = items.findIndex((i) => i.id === id)
-    if (idx >= 0) setItems(idx, produce(fn))
+    patchItemIn(activeSession(), id, fn)
+  }
+  /** Seed a session's transcript from stored messages, but never clobber a live buffer. */
+  function seedSession(sid: string, messages: Message[]) {
+    if (seeded.has(sid)) return
+    seeded.add(sid)
+    setSessionItems(sid, messagesToItems(messages))
   }
 
   // ---- engine event handling ----
@@ -181,60 +229,61 @@ export function createAppStore(engine: Engine) {
         break
       case "message-start":
         setKey(setSessionBusy, sid, true)
-        if (focused)
-          setItems(items.length, {
-            kind: "assistant",
-            id: e.id,
-            text: "",
-            reasoning: "",
-            thinkingOpen: true,
-            done: false,
-            startedAt: Date.now(),
-          })
+        appendItem(sid, {
+          kind: "assistant",
+          id: e.id,
+          text: "",
+          reasoning: "",
+          thinkingOpen: true,
+          done: false,
+          startedAt: Date.now(),
+        })
         break
       case "text":
-        if (focused) patchItem(e.id, (it) => it.kind === "assistant" && (it.text += e.delta))
+        patchItemIn(sid, e.id, (it) => it.kind === "assistant" && (it.text += e.delta))
         break
       case "reasoning":
-        if (focused) patchItem(e.id, (it) => it.kind === "assistant" && (it.reasoning += e.delta))
+        patchItemIn(sid, e.id, (it) => it.kind === "assistant" && (it.reasoning += e.delta))
         break
       case "tool-call":
-        if (focused)
-          setItems(items.length, { kind: "tool", id: e.callId, name: e.name, input: e.input, status: "running", output: "", open: false })
+        appendItem(sid, { kind: "tool", id: e.callId, name: e.name, input: e.input, status: "running", output: "", open: false })
         break
       case "tool-result":
-        if (focused)
-          patchItem(e.callId, (it) => {
-            if (it.kind === "tool") {
-              it.status = e.ok ? "done" : "error"
-              it.output = e.output
-              it.title = e.title
-              it.diff = e.diff
-            }
-          })
+        patchItemIn(sid, e.callId, (it) => {
+          if (it.kind === "tool") {
+            it.status = e.ok ? "done" : "error"
+            it.output = e.output
+            it.title = e.title
+            it.diff = e.diff
+          }
+        })
         break
       case "permission-request":
         setKey(setSessionPending, sid, { requestId: e.requestId, tool: e.tool, summary: e.summary, detail: e.detail, risk: e.risk })
         setKey(setSessionNeeds, sid, true)
+        if (focused) setPermSel(0)
+        else pushToast(`⚠ ${titleOf(sid)} needs input`, "input")
         break
       case "ask-user":
-        setKey(setSessionAsk, sid, { requestId: e.requestId, question: e.question, options: e.options })
+        setKey(setSessionAsk, sid, { requestId: e.requestId, questions: e.questions })
         setKey(setSessionNeeds, sid, true)
+        if (!focused) pushToast(`⚠ ${titleOf(sid)} asks a question`, "input")
         break
       case "turn-done":
+        if (sessionBusy()[sid] && !focused) pushToast(`✓ ${titleOf(sid)} finished`, "done")
         setKey(setSessionBusy, sid, false)
-        if (focused) patchItem(e.id, (it) => it.kind === "assistant" && ((it.done = true), (it.thinkingOpen = false), (it.durationMs = Date.now() - it.startedAt)))
+        patchItemIn(sid, e.id, (it) => it.kind === "assistant" && ((it.done = true), (it.thinkingOpen = false), (it.durationMs = Date.now() - it.startedAt)))
         break
       case "usage":
         setKey(setSessionTokens, sid, e.input + e.output)
         if (e.costUsd != null) setKey(setSessionCost, sid, e.costUsd)
         break
       case "status":
-        if (focused) setStatus(e.text)
+        setKey(setSessionStatus, sid, e.text)
         if (e.tokens != null) setKey(setSessionTokens, sid, e.tokens)
         break
       case "mascot":
-        if (focused) setMascot(e.state)
+        setKey(setSessionMascot, sid, e.state)
         break
       case "todos":
         setKey(setSessionTodos, sid, e.items)
@@ -242,30 +291,24 @@ export function createAppStore(engine: Engine) {
       case "diagnostics":
         setKey(setSessionDiag, sid, e.items)
         break
-      case "changed-files":
-        if (focused) {
-          setChangedFiles(e.items)
-          setBranch(e.branch ?? "")
-        }
+      case "session-files":
+        setKey(setSessionChanged, sid, e.items)
         break
       case "notice":
-        if (focused) setItems(items.length, { kind: "notice", id: nextLocalId(), text: e.text })
+        appendItem(sid, { kind: "notice", id: nextLocalId(), text: e.text })
         break
-      case "compaction":
-        if (focused) {
-          const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
-          setItems(items.length, {
-            kind: "notice",
-            id: nextLocalId(),
-            text: `↻ compacted ${e.turnsCompacted} earlier messages · kept ${e.kept} recent · ~${k(e.tokensBefore)} → ${k(e.tokensAfter)} tokens`,
-          })
-        }
+      case "compaction": {
+        const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
+        appendItem(sid, {
+          kind: "notice",
+          id: nextLocalId(),
+          text: `↻ compacted ${e.turnsCompacted} earlier messages · kept ${e.kept} recent · ~${k(e.tokensBefore)} → ${k(e.tokensAfter)} tokens`,
+        })
         break
+      }
       case "error":
-        if (focused) {
-          setItems(items.length, { kind: "error", id: nextLocalId(), text: e.message })
-          setKey(setSessionBusy, sid, false)
-        }
+        appendItem(sid, { kind: "error", id: nextLocalId(), text: e.message })
+        setKey(setSessionBusy, sid, false)
         break
       case "session-changed":
         // Metadata/list refresh — NOT a focus change (that's session-loaded).
@@ -278,7 +321,8 @@ export function createAppStore(engine: Engine) {
       case "session-loaded":
         // The focus signal: this session is now on screen.
         setActiveSession(sid)
-        setItems(messagesToItems(e.messages))
+        seedSession(sid, e.messages)
+        setKey(setSessionSeenLen, sid, sessionItems[sid]?.length ?? 0)
         setCurrentCwd(e.cwd)
         setRoots(e.roots)
         refreshSessions()
@@ -366,7 +410,7 @@ export function createAppStore(engine: Engine) {
   }
 
   function submitRaw(text: string) {
-    setItems(items.length, { kind: "user", id: nextLocalId(), text, mode: mode() })
+    appendItem(activeSession(), { kind: "user", id: nextLocalId(), text, mode: mode() })
     engine.send({ type: "prompt", text })
   }
 
@@ -392,10 +436,10 @@ export function createAppStore(engine: Engine) {
     delKey(setSessionNeeds, activeSession())
   }
 
-  function replyAsk(answer: string) {
+  function replyAsk(answers: Record<string, string>) {
     const a = askPending()
     if (!a) return
-    engine.send({ type: "ask-reply", requestId: a.requestId, answer })
+    engine.send({ type: "ask-reply", requestId: a.requestId, answers })
     delKey(setSessionAsk, activeSession())
     delKey(setSessionNeeds, activeSession())
   }
@@ -428,11 +472,16 @@ export function createAppStore(engine: Engine) {
     engine.send({ type: "switch-session", sessionId: id })
   }
   function switchSessionByIndex(i: number) {
-    const s = sessions()[i]
+    const s = activeSessions()[i]
     if (s) switchSession(s.id)
   }
   function deleteSession(id: string) {
     engine.deleteSession(id)
+    seeded.delete(id)
+    setSessionItems(produce((m) => void delete m[id]))
+    delKey(setSessionStatus, id)
+    delKey(setSessionMascot, id)
+    delKey(setSessionChanged, id)
     refreshSessions()
   }
   function setRoot(dir: string) {
@@ -507,10 +556,12 @@ export function createAppStore(engine: Engine) {
     replyAsk,
     items,
     sessions,
+    activeSessions,
     activeSession,
     setActiveSession,
     sessionRunning,
     sessionNeedsInput,
+    sessionActivity,
     toggleMode,
     submit,
     abort,
@@ -545,6 +596,9 @@ export function createAppStore(engine: Engine) {
     exitStats,
     paletteOpen,
     setPaletteOpen,
+    permSel,
+    setPermSel,
+    toasts,
     listCommands,
     runCommand,
     contextFiles,
@@ -553,8 +607,6 @@ export function createAppStore(engine: Engine) {
     runningTools,
     todos,
     changedFiles,
-    setChangedFiles,
-    branch,
     diagnostics,
     cost,
     contextWindow,

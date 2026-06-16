@@ -1,18 +1,15 @@
 import { Show } from "solid-js"
 import { theme } from "@friday/shared"
 import { useApp, type PendingPermission } from "../store.tsx"
+import { SelectList, type SelectItem } from "./SelectList.tsx"
 
-/** A keycap-style action button: [k] label, tinted by intent. */
-function Action(props: { keycap: string; label: string; color: string; onClick: () => void }) {
-  return (
-    <box flexDirection="row" gap={1} onMouseDown={props.onClick}>
-      <box border borderStyle="rounded" borderColor={props.color} paddingLeft={1} paddingRight={1}>
-        <text fg={props.color}>{props.keycap}</text>
-      </box>
-      <text fg={theme.textMuted}>{props.label}</text>
-    </box>
-  )
-}
+const DECISIONS = ["allow-once", "allow-always", "deny"] as const
+
+const ACTIONS: SelectItem[] = [
+  { id: "allow-once", label: "allow once", key: "a", color: theme.success },
+  { id: "allow-always", label: "allow always", key: "s", color: theme.info },
+  { id: "deny", label: "deny · esc", key: "d", color: theme.error },
+]
 
 /** Inline HITL card shown above the composer when the engine asks for permission. */
 export function PermissionCard() {
@@ -34,7 +31,7 @@ export function PermissionCard() {
           gap={1}
         >
           <box flexDirection="row" gap={1}>
-            <text fg={theme.warning}>⚠ permission required</text>
+            <text fg={theme.warning}>⚠ permission</text>
             <box flexGrow={1} />
             <text fg={theme.textFaint}>{p().tool}</text>
           </box>
@@ -57,16 +54,18 @@ export function PermissionCard() {
             </box>
           </Show>
 
-          {/* Risk warning for dangerous shell commands. */}
           <Show when={p().risk}>
             <text fg={theme.error}>⚠ risky — {p().risk}</text>
           </Show>
 
-          <box flexDirection="row" gap={3} marginTop={1}>
-            <Action keycap="a" label="allow once" color={theme.success} onClick={() => app.replyPermission("allow-once")} />
-            <Action keycap="s" label="allow always" color={theme.info} onClick={() => app.replyPermission("allow-always")} />
-            <Action keycap="d" label="deny · esc" color={theme.error} onClick={() => app.replyPermission("deny")} />
-          </box>
+          <SelectList
+            items={ACTIONS}
+            selected={app.permSel()}
+            accent={theme.warning}
+            onHover={(i) => app.setPermSel(i)}
+            onChoose={(i) => app.replyPermission(DECISIONS[i]!)}
+          />
+          <text fg={theme.textFaint}>↑↓ move · ⏎ choose · a/s/d shortcuts · esc deny</text>
         </box>
       )}
     </Show>

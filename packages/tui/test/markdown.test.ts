@@ -5,9 +5,22 @@ import { highlightLine } from "../src/util/highlight.ts"
 test("parseMarkdown splits headings, lists, code fences, paragraphs", () => {
   const blocks = parseMarkdown("# Title\n\n- one\n- two\n\n```ts\nconst x = 1\n```\n\nHello world.")
   expect(blocks[0]).toEqual({ type: "heading", level: 1, text: "Title" })
-  expect(blocks[1]).toMatchObject({ type: "list", ordered: false, items: ["one", "two"] })
+  expect(blocks[1]).toMatchObject({ type: "list" })
+  expect((blocks[1] as any).items.map((i: any) => i.text)).toEqual(["one", "two"])
   expect(blocks[2]).toMatchObject({ type: "code", lang: "ts", lines: ["const x = 1"] })
   expect(blocks[3]).toMatchObject({ type: "para", text: "Hello world." })
+})
+
+test("parseMarkdown handles tables, nested lists, task items and strikethrough", () => {
+  const blocks = parseMarkdown("| a | b |\n| --- | --- |\n| 1 | 2 |\n\n- [ ] todo\n- [x] done\n  - nested")
+  const table = blocks.find((b) => b.type === "table") as any
+  expect(table.headers).toEqual(["a", "b"])
+  expect(table.rows).toEqual([["1", "2"]])
+  const list = blocks.find((b) => b.type === "list") as any
+  expect(list.items[0]).toMatchObject({ task: true, checked: false, text: "todo" })
+  expect(list.items[1]).toMatchObject({ task: true, checked: true, text: "done" })
+  expect(list.items[2]).toMatchObject({ depth: 1, text: "nested" })
+  expect(parseInline("~~gone~~").find((s) => s.strike)?.text).toBe("gone")
 })
 
 test("parseInline extracts bold / italic / code / links", () => {

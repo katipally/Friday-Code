@@ -1,4 +1,5 @@
 export * from "./theme.ts"
+export * from "./brand.ts"
 export * from "./modes.ts"
 export * from "./mascot.ts"
 export * from "./types.ts"

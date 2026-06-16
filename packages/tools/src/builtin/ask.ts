@@ -7,14 +7,26 @@ import { obj, type Tool } from "../tool.ts"
 export const askUserTool: Tool = {
   name: "ask_user",
   description:
-    "Ask the user a clarifying question and wait for their answer. Optionally provide a few short options.",
+    "Ask the user one or more clarifying questions and wait for their answers. Provide either a single `question` (with optional `options`), or `questions` to ask several at once — the user can switch between them and confirm all answers together.",
   permission: "read",
   parameters: obj(
     {
-      question: { type: "string", description: "the question to ask" },
-      options: { type: "array", items: { type: "string" }, description: "(optional) short choices" },
+      question: { type: "string", description: "the question to ask (for a single question)" },
+      options: { type: "array", items: { type: "string" }, description: "(optional) short choices for the single question" },
+      questions: {
+        type: "array",
+        description: "(optional) ask several questions at once instead of `question`",
+        items: obj(
+          {
+            question: { type: "string", description: "the question text" },
+            options: { type: "array", items: { type: "string" }, description: "(optional) short choices" },
+            multi: { type: "boolean", description: "(optional) allow selecting multiple options" },
+          },
+          ["question"],
+        ),
+      },
     },
-    ["question"],
+    [],
   ),
   async execute() {
     return { output: "" }

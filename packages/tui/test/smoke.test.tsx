@@ -32,7 +32,7 @@ test("App mounts, splash, then the shell; first-run shows onboarding", async () 
   await t.flush()
   const bare = t.captureCharFrame()
   expect(bare).toContain("sessions")
-  expect(bare).toContain("context")
+  expect(bare).toContain("stats")
 
   t.renderer.destroy()
 })

@@ -367,7 +367,7 @@ export class Engine {
         for (const r of this.runners.values()) if (r.handlePermissionReply(cmd.requestId, cmd.decision)) break
         break
       case "ask-reply":
-        for (const r of this.runners.values()) if (r.handleAskReply(cmd.requestId, cmd.answer)) break
+        for (const r of this.runners.values()) if (r.handleAskReply(cmd.requestId, cmd.answers)) break
         break
       case "new-session":
         this.newSession()

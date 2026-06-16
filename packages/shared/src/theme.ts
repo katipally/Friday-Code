@@ -5,23 +5,23 @@
  * current mode's color (see modes.ts) and applies to the frame border + active focus rings.
  */
 export const theme = {
-  // surfaces (darkest -> lightest)
-  bg: "#1a1b1e",
-  bgComposer: "#16161a",
-  bgPanel: "#1e2024",
-  bgElevated: "#24262b",
-  bgHover: "#2a2d33",
+  // surfaces — monotonic, clearly-separated layers (darkest base -> lightest pop)
+  bg: "#141519", // chat / base canvas
+  bgComposer: "#1b1d23", // the input box, a step above the canvas
+  bgPanel: "#1f2229", // side panels, clearly lighter than the canvas
+  bgElevated: "#272b34", // cards / modals pop above everything
+  bgHover: "#333947", // selection / hover — clearly visible
 
   // text
-  text: "#e6e6e6",
-  textMuted: "#8a8f98",
-  textFaint: "#565b64",
+  text: "#edeff3",
+  textMuted: "#9aa0ab",
+  textFaint: "#6b7280",
 
   // lines
-  border: "#2c2f36",
-  borderMuted: "#23262c",
-  /** the single outermost frame around the whole app — kept black, not accent */
-  frame: "#000000",
+  border: "#3a404b", // panel / card edges read clearly
+  borderMuted: "#2a2f38",
+  /** the single outermost frame around the whole app — a subtle visible outline */
+  frame: "#2f343d",
 
   // roles
   user: "#9aa5ce", // user message accent (calm)

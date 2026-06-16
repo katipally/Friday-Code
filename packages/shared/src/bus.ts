@@ -20,7 +20,7 @@ export type EngineEventBody =
   | { type: "tool-call"; id: string; callId: string; name: string; input: unknown }
   | { type: "tool-result"; callId: string; ok: boolean; output: string; title?: string; diff?: string }
   | { type: "permission-request"; requestId: string; tool: string; summary: string; detail?: string; risk?: string }
-  | { type: "ask-user"; requestId: string; question: string; options?: string[] }
+  | { type: "ask-user"; requestId: string; questions: AskQuestion[] }
   | { type: "turn-done"; id: string }
   | { type: "usage"; input: number; output: number; costUsd?: number }
   | { type: "mascot"; state: MascotState }
@@ -30,9 +30,13 @@ export type EngineEventBody =
   | { type: "todos"; items: TodoItem[] }
   | { type: "diagnostics"; items: { path: string; errors: number; warnings: number }[] }
   | { type: "changed-files"; items: { path: string; status: string; added: number; removed: number }[]; branch?: string }
+  | { type: "session-files"; items: { path: string; status: string; added: number; removed: number }[] }
   | { type: "compaction"; turnsCompacted: number; kept: number; tokensBefore: number; tokensAfter: number }
   | { type: "notice"; text: string }
   | { type: "error"; message: string }
+
+/** One question in an ask_user request. The agent may pose several at once. */
+export type AskQuestion = { id: string; question: string; options?: string[]; multi?: boolean }
 
 /** A bus event, tagged with the session it originates from. */
 export type EngineEvent = EngineEventBody & { sessionId: string }
@@ -44,7 +48,7 @@ export type UICommand =
   | { type: "set-model"; model: string }
   | { type: "set-effort"; effort: string }
   | { type: "permission-reply"; requestId: string; decision: "allow-once" | "allow-always" | "deny" }
-  | { type: "ask-reply"; requestId: string; answer: string }
+  | { type: "ask-reply"; requestId: string; answers: Record<string, string> }
   | { type: "switch-session"; sessionId: string }
   | { type: "new-session" }
   | { type: "run-command"; command: string }

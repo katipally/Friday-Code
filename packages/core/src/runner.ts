@@ -1,5 +1,6 @@
 import {
   getMode,
+  type AskQuestion,
   type EngineEventBody,
   type Effort,
   type Message,
@@ -21,6 +22,8 @@ import {
   LSP_SYMBOLS,
   LSP_TOOLS,
   toToolDef,
+  unifiedDiff,
+  diffStats,
   type Tool,
   type ToolResult,
 } from "@friday/tools"
@@ -50,6 +53,12 @@ function safeParse(s: string): unknown {
   } catch {
     return {}
   }
+}
+
+/** Render ask_user answers back to the model: a single answer verbatim, or labeled Q/A pairs. */
+function formatAskAnswers(questions: AskQuestion[], answers: Record<string, string>): string {
+  if (questions.length === 1) return answers[questions[0]!.id] ?? "(no answer)"
+  return questions.map((q) => `Q: ${q.question}\nA: ${answers[q.id] ?? "(no answer)"}`).join("\n\n")
 }
 
 export interface SessionStats {
@@ -110,7 +119,7 @@ export class SessionRunner {
   /** set while a permission/ask card is awaiting the user for this session */
   needsInput = false
   private pending = new Map<string, Pending>()
-  private pendingAsk = new Map<string, (answer: string) => void>()
+  private pendingAsk = new Map<string, (answers: Record<string, string>) => void>()
   private sessionAllow = new Set<PermissionCategory>()
 
   private checkpoints: Checkpoint[] = []
@@ -145,14 +154,23 @@ export class SessionRunner {
     return runHooks(event, this.host.hooks(), { event, session_id: this.sessionId, cwd: this.cwd, ...extra }, matchKey)
   }
 
-  /** Refresh the git working-tree state for the Files panel. */
-  private async refreshGit(): Promise<void> {
-    try {
-      const st = await gitStatus(this.cwd)
-      if (st.repo) this.emit({ type: "changed-files", items: st.files, branch: st.branch })
-    } catch {
-      /* not a repo / no git */
+  /**
+   * Files this session has modified, derived from its own checkpoint snapshots
+   * (not git) — so the panel reflects exactly what THIS session touched.
+   */
+  private emitSessionFiles(): void {
+    const prior = new Map<string, string | null>() // path -> content before this session first touched it
+    for (const cp of this.checkpoints) for (const [abs, before] of cp.files) if (!prior.has(abs)) prior.set(abs, before)
+    const items: { path: string; status: string; added: number; removed: number }[] = []
+    for (const [abs, before] of prior) {
+      const cur = readOrNull(abs)
+      if (before === cur) continue // touched but reverted to original — no net change
+      const status = before === null ? "A" : cur === null ? "D" : "M"
+      const { added, removed } = diffStats(unifiedDiff(before ?? "", cur ?? ""))
+      items.push({ path: path.relative(this.cwd, abs) || abs, status, added, removed })
     }
+    items.sort((a, b) => a.path.localeCompare(b.path))
+    this.emit({ type: "session-files", items })
   }
 
   // ---- public accessors (used by the manager / UI) ----
@@ -191,7 +209,7 @@ export class SessionRunner {
     if (includeMessages)
       this.emit({ type: "session-loaded", sessionId: this.sessionId, title: this.title, cwd: this.cwd, roots: this.roots, messages: this.messages })
     this.emit({ type: "todos", items: this.todos })
-    void this.refreshGit()
+    this.emitSessionFiles()
   }
 
   addRoot(dir: string): void {
@@ -219,12 +237,12 @@ export class SessionRunner {
     p.resolve(decision === "deny" ? "deny" : "allow")
     return true
   }
-  handleAskReply(requestId: string, answer: string): boolean {
+  handleAskReply(requestId: string, answers: Record<string, string>): boolean {
     const r = this.pendingAsk.get(requestId)
     if (!r) return false
     this.pendingAsk.delete(requestId)
     this.needsInput = this.pending.size > 0 || this.pendingAsk.size > 0
-    r(answer)
+    r(answers)
     return true
   }
 
@@ -328,7 +346,7 @@ export class SessionRunner {
       this.busy = false
       this.abort = undefined
       void this.hook("Stop")
-      void this.refreshGit()
+      this.emitSessionFiles()
       this.emit({ type: "mascot", state: "idle" })
       this.emit({ type: "status", text: "ready" })
     }
@@ -569,20 +587,28 @@ export class SessionRunner {
         }
 
         if (tc.name === ASK_USER) {
-          const a = safeParse(tc.arguments) as { question?: string; options?: unknown }
+          const a = safeParse(tc.arguments) as {
+            question?: string
+            options?: unknown
+            questions?: { question?: string; options?: unknown; multi?: boolean }[]
+          }
+          const questions: AskQuestion[] = Array.isArray(a.questions) && a.questions.length
+            ? a.questions.map((q, i) => ({
+                id: `q${i}`,
+                question: q.question ?? "",
+                options: Array.isArray(q.options) ? (q.options as string[]) : undefined,
+                multi: q.multi === true,
+              }))
+            : [{ id: "q0", question: a.question ?? "", options: Array.isArray(a.options) ? (a.options as string[]) : undefined }]
           const requestId = this.host.nextId()
-          this.emit({
-            type: "ask-user",
-            requestId,
-            question: a.question ?? "",
-            options: Array.isArray(a.options) ? (a.options as string[]) : undefined,
-          })
+          this.emit({ type: "ask-user", requestId, questions })
           this.emit({ type: "mascot", state: "idle" })
           this.emit({ type: "status", text: "waiting for you…" })
           this.needsInput = true
-          const answer = await new Promise<string>((resolve) => this.pendingAsk.set(requestId, resolve))
-          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: answer })
-          this.emit({ type: "tool-result", callId: tc.id, ok: true, output: answer })
+          const answers = await new Promise<Record<string, string>>((resolve) => this.pendingAsk.set(requestId, resolve))
+          const result = formatAskAnswers(questions, answers)
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result })
+          this.emit({ type: "tool-result", callId: tc.id, ok: true, output: result })
           continue
         }
 
@@ -800,17 +826,22 @@ export class SessionRunner {
     const drafted = await this.draftCommit(await gitDiff(this.cwd))
 
     const requestId = this.host.nextId()
-    this.emit({ type: "ask-user", requestId, question: `Commit message (Enter to accept, or type your own):\n\n${drafted}` })
+    this.emit({
+      type: "ask-user",
+      requestId,
+      questions: [{ id: "q0", question: `Commit message (Enter to accept, or type your own):\n\n${drafted}` }],
+    })
     this.needsInput = true
-    const answer = await new Promise<string>((resolve) => this.pendingAsk.set(requestId, resolve))
+    const answers = await new Promise<Record<string, string>>((resolve) => this.pendingAsk.set(requestId, resolve))
     this.needsInput = this.pending.size > 0 || this.pendingAsk.size > 0
+    const answer = answers.q0
     const message = answer && answer !== "(no answer)" ? answer : drafted
 
     const res = await gitCommitAll(this.cwd, message)
     this.emit({ type: "mascot", state: "idle" })
     if (res.ok) {
       this.emit({ type: "notice", text: `✓ committed ${res.info} — ${message}` })
-      void this.refreshGit()
+      this.emitSessionFiles()
     } else {
       this.emit({ type: "error", message: `Commit failed: ${res.info}` })
     }
