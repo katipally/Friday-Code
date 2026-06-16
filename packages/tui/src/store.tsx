@@ -1,73 +1,231 @@
 import { createContext, createSignal, useContext, type JSX } from "solid-js"
-import { DEFAULT_MODE, cycleMode, type MascotState, type ModeId } from "@friday/shared"
+import { createStore, produce } from "solid-js/store"
+import {
+  DEFAULT_MODE,
+  cycleMode,
+  type EngineEvent,
+  type Effort,
+  type MascotState,
+  type ModeId,
+} from "@friday/shared"
+import type { Engine } from "@friday/core"
 
-export type ChatMsg = { id: string; role: "user" | "assistant"; text: string }
+export type ToolStatus = "running" | "done" | "error"
+
+export type ViewItem =
+  | { kind: "user"; id: string; text: string }
+  | {
+      kind: "assistant"
+      id: string
+      text: string
+      reasoning: string
+      thinkingOpen: boolean
+      done: boolean
+      startedAt: number
+      durationMs?: number
+    }
+  | {
+      kind: "tool"
+      id: string
+      name: string
+      input: unknown
+      status: ToolStatus
+      output: string
+      title?: string
+      diff?: string
+      open: boolean
+    }
+  | { kind: "error"; id: string; text: string }
+
+export type PendingPermission = { requestId: string; tool: string; summary: string; detail?: string }
 export type SessionItem = { id: string; title: string }
 
-const WELCOME =
-  "Hey — I'm Friday. This is the M0 shell: the real engine arrives in M1.\n" +
-  "Try it out: Shift+Tab cycles modes (watch the frame recolor), Ctrl+B toggles the sessions " +
-  "panel, drag a panel's edge to resize it, and press ? for the full keymap."
-
-const CANNED =
-  "Got it. The agent loop, providers and tools land in M1 — for now I'm just showing off the " +
-  "interface. Notice the mascot reacting and the status strip updating above the composer. ✦"
-
-/** All UI state + actions for the M0 shell, shared via context. */
-export function createAppStore() {
+export function createAppStore(engine: Engine) {
   const [view, setView] = createSignal<"splash" | "shell">("splash")
-  const [mode, setMode] = createSignal<ModeId>(DEFAULT_MODE)
-  const [model] = createSignal("no model — open /model")
+  const [mode, setModeSig] = createSignal<ModeId>(engine.selection().mode ?? DEFAULT_MODE)
+  const [effort, setEffortSig] = createSignal<Effort>(engine.selection().effort ?? "medium")
+  const [model, setModel] = createSignal<string>(engine.selection().model ?? "no model — open /model")
+  const [needsModel, setNeedsModel] = createSignal(false)
+
   const [leftOpen, setLeftOpen] = createSignal(true)
   const [rightOpen, setRightOpen] = createSignal(true)
   const [leftWidth, setLeftWidth] = createSignal(22)
   const [rightWidth, setRightWidth] = createSignal(28)
   const [overlayOpen, setOverlayOpen] = createSignal(false)
+  const [modelModalOpen, setModelModalOpen] = createSignal(false)
+
   const [mascot, setMascot] = createSignal<MascotState>("idle")
   const [status, setStatus] = createSignal("ready")
+  const [tokens, setTokens] = createSignal(0)
   const [dragging, setDragging] = createSignal<null | "left" | "right">(null)
+  const [busy, setBusy] = createSignal(false)
+  const [pending, setPending] = createSignal<PendingPermission | null>(null)
+
+  const [items, setItems] = createStore<ViewItem[]>([])
+  const sessions: SessionItem[] = [{ id: "s1", title: "session" }]
   const [activeSession, setActiveSession] = createSignal("s1")
-  const [messages, setMessages] = createSignal<ChatMsg[]>([
-    { id: "m0", role: "assistant", text: WELCOME },
-  ])
 
-  const sessions: SessionItem[] = [
-    { id: "s1", title: "friday code shell" },
-    { id: "s2", title: "scratch" },
-  ]
+  let localId = 0
+  const nextLocalId = () => `u${++localId}`
 
-  let counter = 0
-  const nextId = () => `m${++counter}`
-
-  function toggleMode(dir: 1 | -1 = 1) {
-    setMode((m) => cycleMode(m, dir))
+  function patchItem(id: string, fn: (it: ViewItem) => void) {
+    const idx = items.findIndex((i) => i.id === id)
+    if (idx >= 0) setItems(idx, produce(fn))
   }
 
-  let replyTimer: ReturnType<typeof setTimeout> | null = null
-  let idleTimer: ReturnType<typeof setTimeout> | null = null
+  // ---- engine event handling ----
+  engine.subscribe((e: EngineEvent) => {
+    switch (e.type) {
+      case "ready":
+        setNeedsModel(e.needsModel)
+        if (e.needsModel) setModelModalOpen(true)
+        break
+      case "model-changed":
+        setModel(e.model)
+        setNeedsModel(false)
+        break
+      case "message-start":
+        setItems(items.length, {
+          kind: "assistant",
+          id: e.id,
+          text: "",
+          reasoning: "",
+          thinkingOpen: true,
+          done: false,
+          startedAt: Date.now(),
+        })
+        setBusy(true)
+        break
+      case "text":
+        patchItem(e.id, (it) => {
+          if (it.kind === "assistant") it.text += e.delta
+        })
+        break
+      case "reasoning":
+        patchItem(e.id, (it) => {
+          if (it.kind === "assistant") it.reasoning += e.delta
+        })
+        break
+      case "tool-call":
+        setItems(items.length, {
+          kind: "tool",
+          id: e.callId,
+          name: e.name,
+          input: e.input,
+          status: "running",
+          output: "",
+          open: false,
+        })
+        break
+      case "tool-result":
+        patchItem(e.callId, (it) => {
+          if (it.kind === "tool") {
+            it.status = e.ok ? "done" : "error"
+            it.output = e.output
+            it.title = e.title
+            it.diff = e.diff
+          }
+        })
+        break
+      case "permission-request":
+        setPending({ requestId: e.requestId, tool: e.tool, summary: e.summary, detail: e.detail })
+        break
+      case "turn-done":
+        patchItem(e.id, (it) => {
+          if (it.kind === "assistant") {
+            it.done = true
+            it.thinkingOpen = false
+            it.durationMs = Date.now() - it.startedAt
+          }
+        })
+        setBusy(false)
+        break
+      case "usage":
+        setTokens(e.input + e.output)
+        break
+      case "status":
+        setStatus(e.text)
+        if (e.tokens != null) setTokens(e.tokens)
+        break
+      case "mascot":
+        setMascot(e.state)
+        break
+      case "error":
+        setItems(items.length, { kind: "error", id: nextLocalId(), text: e.message })
+        setBusy(false)
+        break
+      case "session-changed":
+        setItems([])
+        break
+    }
+  })
+
+  // ---- actions ----
+  function toggleMode(dir: 1 | -1 = 1) {
+    const next = cycleMode(mode(), dir)
+    setModeSig(next)
+    engine.setMode(next)
+    engine.send({ type: "set-mode", mode: next })
+  }
+  function setEffort(e: Effort) {
+    setEffortSig(e)
+    engine.send({ type: "set-effort", effort: e })
+  }
+
   function submit(text: string) {
     const t = text.trim()
     if (!t) return
-    setMessages((prev) => [...prev, { id: nextId(), role: "user", text: t }])
-    setMascot("thinking")
-    setStatus("drafting a reply…")
-    if (replyTimer) clearTimeout(replyTimer)
-    if (idleTimer) clearTimeout(idleTimer)
-    replyTimer = setTimeout(() => {
-      setMascot("streaming")
-      setMessages((prev) => [...prev, { id: nextId(), role: "assistant", text: CANNED }])
-      setStatus("ready")
-      setMascot("done")
-      idleTimer = setTimeout(() => setMascot("idle"), 1200)
-    }, 700)
+    if (t.startsWith("/")) {
+      const cmd = t.slice(1).split(/\s+/)[0]
+      if (cmd === "model") return setModelModalOpen(true)
+      if (cmd === "new" || cmd === "clear") {
+        engine.send({ type: "new-session" })
+        return
+      }
+      if (cmd === "help") return setOverlayOpen(true)
+      // unknown slash: fall through as a normal prompt
+    }
+    setItems(items.length, { kind: "user", id: nextLocalId(), text: t })
+    engine.send({ type: "prompt", text: t })
+  }
+
+  function abort() {
+    engine.send({ type: "abort" })
+  }
+
+  function replyPermission(decision: "allow-once" | "allow-always" | "deny") {
+    const p = pending()
+    if (!p) return
+    engine.send({ type: "permission-reply", requestId: p.requestId, decision })
+    setPending(null)
+  }
+
+  function connectAndSelect(providerId: string, model: string, apiKey?: string, baseURL?: string) {
+    if (apiKey) engine.connectProvider(providerId, apiKey, baseURL)
+    engine.selectModel(providerId, model)
+    setModelModalOpen(false)
+  }
+
+  function toggleThinking(id: string) {
+    patchItem(id, (it) => {
+      if (it.kind === "assistant") it.thinkingOpen = !it.thinkingOpen
+    })
+  }
+  function toggleToolOpen(id: string) {
+    patchItem(id, (it) => {
+      if (it.kind === "tool") it.open = !it.open
+    })
   }
 
   return {
+    engine,
     view,
     setView,
     mode,
-    setMode,
+    effort,
+    setEffort,
     model,
+    needsModel,
     leftOpen,
     setLeftOpen,
     rightOpen,
@@ -78,18 +236,26 @@ export function createAppStore() {
     setRightWidth,
     overlayOpen,
     setOverlayOpen,
+    modelModalOpen,
+    setModelModalOpen,
     mascot,
-    setMascot,
     status,
-    setStatus,
+    tokens,
     dragging,
     setDragging,
+    busy,
+    pending,
+    items,
+    sessions,
     activeSession,
     setActiveSession,
-    messages,
-    sessions,
     toggleMode,
     submit,
+    abort,
+    replyPermission,
+    connectAndSelect,
+    toggleThinking,
+    toggleToolOpen,
   }
 }
 

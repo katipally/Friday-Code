@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@friday/shared": "workspace:*",
+    "@friday/core": "workspace:*",
     "@opentui/core": "latest",
     "@opentui/solid": "latest",
     "solid-js": "latest"

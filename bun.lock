@@ -21,6 +21,7 @@
         "friday": "src/index.tsx",
       },
       "dependencies": {
+        "@friday/core": "workspace:*",
         "@friday/tui": "workspace:*",
       },
     },
@@ -28,7 +29,9 @@
       "name": "@friday/core",
       "version": "0.0.0",
       "dependencies": {
+        "@friday/providers": "workspace:*",
         "@friday/shared": "workspace:*",
+        "@friday/tools": "workspace:*",
       },
     },
     "packages/mcp": {
@@ -60,6 +63,7 @@
       "name": "@friday/tui",
       "version": "0.0.0",
       "dependencies": {
+        "@friday/core": "workspace:*",
         "@friday/shared": "workspace:*",
         "@opentui/core": "latest",
         "@opentui/solid": "latest",

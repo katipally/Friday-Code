@@ -1,0 +1,353 @@
+import {
+  DEFAULT_MODE,
+  getMode,
+  type EngineEvent,
+  type Effort,
+  type Message,
+  type ModeId,
+  type ModelInfo,
+  type PermissionCategory,
+  type ProviderEvent,
+  type ProviderInfo,
+  type ToolCall,
+  type UICommand,
+} from "@friday/shared"
+import {
+  BUILTIN_PROVIDERS,
+  getModels,
+  getProviderKey,
+  loadAuth,
+  setProviderKey,
+  streamProvider,
+} from "@friday/providers"
+import { buildRegistry, type Tool, type ToolResult } from "@friday/tools"
+import { loadConfig, saveConfig } from "./config.ts"
+import { systemPrompt } from "./prompt.ts"
+
+export type StreamFn = (
+  provider: ProviderInfo,
+  apiKey: string | undefined,
+  req: Parameters<typeof streamProvider>[2],
+  signal: AbortSignal,
+) => AsyncGenerator<ProviderEvent>
+
+export interface EngineOptions {
+  cwd: string
+  /** override the provider streamer (for tests) */
+  streamFn?: StreamFn
+}
+
+const MAX_STEPS = 50
+
+type Pending = { resolve: (d: "allow" | "deny") => void; category: PermissionCategory }
+
+function safeParse(s: string): unknown {
+  try {
+    return JSON.parse(s || "{}")
+  } catch {
+    return {}
+  }
+}
+
+export class Engine {
+  private listeners = new Set<(e: EngineEvent) => void>()
+  private messages: Message[] = []
+  private registry = buildRegistry()
+  private cwd: string
+  private streamFn: StreamFn
+
+  private mode: ModeId
+  private effort: Effort
+  private providerId?: string
+  private model?: string
+
+  private abort?: AbortController
+  private busy = false
+  private pending = new Map<string, Pending>()
+  private sessionAllow = new Set<PermissionCategory>()
+  private idc = 0
+
+  constructor(opts: EngineOptions) {
+    this.cwd = opts.cwd
+    this.streamFn = opts.streamFn ?? (streamProvider as StreamFn)
+    const cfg = loadConfig()
+    this.mode = cfg.mode ?? DEFAULT_MODE
+    this.effort = cfg.effort ?? "medium"
+    this.providerId = cfg.providerId
+    this.model = cfg.model
+  }
+
+  // ---- subscription ----
+  subscribe(fn: (e: EngineEvent) => void): () => void {
+    this.listeners.add(fn)
+    return () => this.listeners.delete(fn)
+  }
+  private emit(e: EngineEvent): void {
+    for (const l of this.listeners) l(e)
+  }
+  private nextId(): string {
+    return `e${++this.idc}`
+  }
+
+  /** Announce initial state (used right after the UI subscribes). */
+  ready(): void {
+    if (this.model && this.providerId) this.emit({ type: "model-changed", model: this.model, provider: this.providerId })
+    this.emit({ type: "ready", needsModel: !this.model || !this.providerId })
+  }
+
+  // ---- queries for the /model modal ----
+  listProviders(): ProviderInfo[] {
+    const custom = loadAuth().custom ?? []
+    return [...BUILTIN_PROVIDERS, ...custom]
+  }
+  async listModels(providerId: string): Promise<ModelInfo[]> {
+    const p = this.listProviders().find((x) => x.id === providerId)
+    const catalogId = (p as any)?.catalogId as string | undefined
+    return getModels(providerId, catalogId)
+  }
+  authState(): Record<string, { hasKey: boolean }> {
+    const auth = loadAuth()
+    const out: Record<string, { hasKey: boolean }> = {}
+    for (const p of this.listProviders()) {
+      const envHit = (p.envKeys ?? []).some((k) => !!process.env[k])
+      out[p.id] = { hasKey: p.keyless === true || envHit || !!auth.providers[p.id]?.apiKey }
+    }
+    return out
+  }
+  selection(): { providerId?: string; model?: string; effort: Effort; mode: ModeId } {
+    return { providerId: this.providerId, model: this.model, effort: this.effort, mode: this.mode }
+  }
+
+  connectProvider(providerId: string, apiKey: string, baseURL?: string): void {
+    setProviderKey(providerId, apiKey, baseURL)
+  }
+  selectModel(providerId: string, model: string): void {
+    this.providerId = providerId
+    this.model = model
+    saveConfig({ providerId, model })
+    this.emit({ type: "model-changed", model, provider: providerId })
+  }
+
+  // ---- command intake ----
+  send(cmd: UICommand): void {
+    switch (cmd.type) {
+      case "prompt":
+        void this.runPrompt(cmd.text)
+        break
+      case "abort":
+        this.abort?.abort()
+        break
+      case "set-mode":
+        this.mode = cmd.mode
+        saveConfig({ mode: cmd.mode })
+        break
+      case "set-effort":
+        this.effort = cmd.effort as Effort
+        saveConfig({ effort: cmd.effort as Effort })
+        break
+      case "set-model":
+        // model id may be "providerId/model" — handled by selectModel via UI
+        break
+      case "permission-reply": {
+        const p = this.pending.get(cmd.requestId)
+        if (p) {
+          this.pending.delete(cmd.requestId)
+          if (cmd.decision === "allow-always") this.sessionAllow.add(p.category)
+          p.resolve(cmd.decision === "deny" ? "deny" : "allow")
+        }
+        break
+      }
+      case "new-session":
+        this.messages = []
+        this.emit({ type: "session-changed", sessionId: "default" })
+        break
+      default:
+        break
+    }
+  }
+
+  setMode(m: ModeId): void {
+    this.mode = m
+  }
+
+  // ---- the agentic loop ----
+  private resolveProvider(): ProviderInfo {
+    const found = this.listProviders().find((p) => p.id === this.providerId)
+    if (found) {
+      const override = loadAuth().providers[found.id]?.baseURL
+      return override ? { ...found, baseURL: override } : found
+    }
+    return { id: this.providerId ?? "unknown", name: "unknown", protocol: "openai", baseURL: "" }
+  }
+
+  private async runPrompt(text: string): Promise<void> {
+    if (this.busy) return
+    if (!this.model || !this.providerId) {
+      this.emit({ type: "error", message: "No model selected — open /model to connect one." })
+      return
+    }
+    this.busy = true
+    this.abort = new AbortController()
+    this.messages.push({ role: "user", text })
+    const start = Date.now()
+    try {
+      await this.loop(start)
+    } catch (e: any) {
+      if (this.abort.signal.aborted) {
+        this.emit({ type: "status", text: "stopped" })
+      } else {
+        this.emit({ type: "error", message: e?.message ?? String(e) })
+        this.emit({ type: "mascot", state: "error" })
+      }
+    } finally {
+      this.busy = false
+      this.abort = undefined
+      this.emit({ type: "mascot", state: "idle" })
+      this.emit({ type: "status", text: "ready" })
+    }
+  }
+
+  private async loop(start: number): Promise<void> {
+    const provider = this.resolveProvider()
+    const apiKey = getProviderKey(provider.id)
+    const signal = this.abort!.signal
+    let inTok = 0
+    let outTok = 0
+
+    for (let step = 0; step < MAX_STEPS; step++) {
+      if (signal.aborted) return
+      const id = this.nextId()
+      this.emit({ type: "message-start", role: "assistant", id })
+      this.emit({ type: "mascot", state: "thinking" })
+      this.emit({ type: "status", text: "thinking…", elapsedMs: Date.now() - start })
+
+      const req = {
+        model: this.model!,
+        messages: [{ role: "system", text: systemPrompt({ cwd: this.cwd, mode: this.mode }) } as Message, ...this.messages],
+        tools: this.registry.defs,
+        effort: this.effort,
+        maxTokens: 8192,
+      }
+
+      let text = ""
+      let reasoning = ""
+      const calls = new Map<number, { id: string; name: string; args: string }>()
+      let streamedText = false
+
+      for await (const ev of this.streamFn(provider, apiKey, req, signal)) {
+        if (signal.aborted) return
+        switch (ev.type) {
+          case "text":
+            if (!streamedText) {
+              streamedText = true
+              this.emit({ type: "mascot", state: "streaming" })
+            }
+            text += ev.delta
+            this.emit({ type: "text", id, delta: ev.delta })
+            break
+          case "reasoning":
+            reasoning += ev.delta
+            this.emit({ type: "reasoning", id, delta: ev.delta })
+            break
+          case "tool_start": {
+            const c = calls.get(ev.index) ?? { id: "", name: "", args: "" }
+            if (ev.id) c.id = ev.id
+            if (ev.name) c.name = ev.name
+            calls.set(ev.index, c)
+            break
+          }
+          case "tool_delta": {
+            const c = calls.get(ev.index) ?? { id: "", name: "", args: "" }
+            c.args += ev.argsDelta
+            calls.set(ev.index, c)
+            break
+          }
+          case "usage":
+            inTok += ev.input
+            outTok += ev.output
+            this.emit({ type: "usage", input: inTok, output: outTok })
+            this.emit({ type: "status", text: "thinking…", elapsedMs: Date.now() - start, tokens: inTok + outTok })
+            break
+        }
+      }
+
+      const toolCalls: ToolCall[] = [...calls.values()]
+        .filter((c) => c.name)
+        .map((c) => ({ id: c.id || this.nextId(), name: c.name, arguments: c.args || "{}" }))
+
+      this.messages.push({
+        role: "assistant",
+        text: text || undefined,
+        reasoning: reasoning || undefined,
+        toolCalls: toolCalls.length ? toolCalls : undefined,
+      })
+
+      if (!toolCalls.length) {
+        this.emit({ type: "turn-done", id })
+        return
+      }
+
+      for (const tc of toolCalls) {
+        if (signal.aborted) return
+        this.emit({ type: "tool-call", id, callId: tc.id, name: tc.name, input: safeParse(tc.arguments) })
+        this.emit({ type: "mascot", state: "working" })
+        this.emit({ type: "status", text: `running ${tc.name}…`, elapsedMs: Date.now() - start })
+
+        const tool = this.registry.get(tc.name)
+        if (!tool) {
+          const msg = `Unknown tool: ${tc.name}`
+          this.messages.push({ role: "tool", callId: tc.id, name: tc.name, result: msg, isError: true })
+          this.emit({ type: "tool-result", callId: tc.id, ok: false, output: msg })
+          continue
+        }
+
+        const decision = await this.checkPermission(tool, tc)
+        if (decision === "deny") {
+          const msg = `User denied permission to run ${tool.name}.`
+          this.messages.push({ role: "tool", callId: tc.id, name: tc.name, result: msg, isError: true })
+          this.emit({ type: "tool-result", callId: tc.id, ok: false, output: msg })
+          continue
+        }
+
+        let result: ToolResult
+        try {
+          result = await tool.execute(safeParse(tc.arguments), { cwd: this.cwd, signal })
+        } catch (e: any) {
+          result = { output: `Error: ${e?.message ?? e}`, isError: true }
+        }
+        this.messages.push({ role: "tool", callId: tc.id, name: tc.name, result: result.output, isError: result.isError })
+        this.emit({
+          type: "tool-result",
+          callId: tc.id,
+          ok: !result.isError,
+          output: result.output,
+          title: result.title,
+          diff: result.diff,
+        })
+      }
+    }
+  }
+
+  private async checkPermission(tool: Tool, tc: ToolCall): Promise<"allow" | "deny"> {
+    const cat = tool.permission
+    if (cat === "read") return "allow"
+    if (this.sessionAllow.has(cat)) return "allow"
+    const verdict = getMode(this.mode).policy[cat]
+    if (verdict === "allow") return "allow"
+    if (verdict === "deny") return "deny"
+
+    const requestId = this.nextId()
+    const detail = summarizeCall(tc)
+    this.emit({ type: "permission-request", requestId, tool: tool.name, summary: `Allow ${tool.name}?`, detail })
+    this.emit({ type: "mascot", state: "idle" })
+    this.emit({ type: "status", text: "waiting for you…" })
+    return new Promise<"allow" | "deny">((resolve) => this.pending.set(requestId, { resolve, category: cat }))
+  }
+}
+
+function summarizeCall(tc: ToolCall): string {
+  const args = safeParse(tc.arguments) as Record<string, unknown>
+  if (typeof args.command === "string") return args.command
+  if (typeof args.path === "string") return String(args.path)
+  return tc.arguments.slice(0, 120)
+}

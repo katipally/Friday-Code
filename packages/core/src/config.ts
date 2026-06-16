@@ -1,0 +1,29 @@
+import fs from "node:fs"
+import { configPath, fridayDir } from "@friday/providers"
+import type { Effort, ModeId } from "@friday/shared"
+
+export interface FridayConfig {
+  providerId?: string
+  model?: string
+  effort?: Effort
+  mode?: ModeId
+}
+
+export function loadConfig(): FridayConfig {
+  try {
+    return JSON.parse(fs.readFileSync(configPath(), "utf8"))
+  } catch {
+    return {}
+  }
+}
+
+export function saveConfig(patch: Partial<FridayConfig>): FridayConfig {
+  const next = { ...loadConfig(), ...patch }
+  try {
+    fs.mkdirSync(fridayDir(), { recursive: true })
+    fs.writeFileSync(configPath(), JSON.stringify(next, null, 2))
+  } catch {
+    /* ignore */
+  }
+  return next
+}

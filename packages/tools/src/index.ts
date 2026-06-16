@@ -1,3 +1,32 @@
-// @friday/tools — built-in agent tools (read/write/edit/multi-edit/ls/glob/grep/bash/web*/todo/task).
-// Implemented in M1+. Placeholder export keeps the workspace graph valid.
-export const TOOLS_PLACEHOLDER = true
+import type { ToolDef } from "@friday/shared"
+import { toToolDef, type Tool } from "./tool.ts"
+import { editTool, lsTool, multiEditTool, readTool, writeTool } from "./builtin/file.ts"
+import { globTool, grepTool } from "./builtin/search.ts"
+import { bashTool } from "./builtin/bash.ts"
+
+export * from "./tool.ts"
+export * from "./diff.ts"
+
+export const BUILTIN_TOOLS: Tool[] = [
+  readTool,
+  writeTool,
+  editTool,
+  multiEditTool,
+  lsTool,
+  globTool,
+  grepTool,
+  bashTool,
+]
+
+export function buildRegistry(tools: Tool[] = BUILTIN_TOOLS): {
+  list: Tool[]
+  defs: ToolDef[]
+  get(name: string): Tool | undefined
+} {
+  const byName = new Map(tools.map((t) => [t.name, t]))
+  return {
+    list: tools,
+    defs: tools.map(toToolDef),
+    get: (name) => byName.get(name),
+  }
+}

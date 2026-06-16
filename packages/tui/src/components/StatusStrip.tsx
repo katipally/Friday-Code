@@ -1,3 +1,4 @@
+import { Show } from "solid-js"
 import { theme, getMode } from "@friday/shared"
 import { useApp } from "../store.tsx"
 import { useMascotFrame } from "../util/useMascot.ts"
@@ -15,6 +16,13 @@ export function StatusStrip() {
     <box flexDirection="row" height={1} paddingLeft={1} paddingRight={1} gap={1} alignItems="center">
       <text fg={accent()}>{frame()}</text>
       <text fg={theme.textMuted}>{app.status()}</text>
+      <Show when={app.tokens() > 0}>
+        <text fg={theme.textFaint}>· {app.tokens()} tok</text>
+      </Show>
+      <box flexGrow={1} />
+      <Show when={app.busy()}>
+        <text fg={theme.textFaint}>esc to stop</text>
+      </Show>
     </box>
   )
 }

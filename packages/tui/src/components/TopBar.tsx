@@ -19,7 +19,9 @@ export function TopBar() {
         <text fg={mode().accent}>{mode().label}</text>
       </box>
       <text fg={theme.textFaint}> · </text>
-      <text fg={theme.textMuted}>{app.model()}</text>
+      <box onMouseDown={() => app.setModelModalOpen(true)}>
+        <text fg={theme.textMuted}>{app.model()}</text>
+      </box>
     </box>
   )
 }

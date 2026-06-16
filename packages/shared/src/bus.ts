@@ -6,12 +6,14 @@ import type { ModeId } from "./modes.ts"
 import type { MascotState } from "./mascot.ts"
 
 export type EngineEvent =
+  | { type: "ready"; needsModel: boolean }
+  | { type: "model-changed"; model: string; provider: string }
   | { type: "message-start"; role: "assistant"; id: string }
   | { type: "text"; id: string; delta: string }
   | { type: "reasoning"; id: string; delta: string }
   | { type: "tool-call"; id: string; callId: string; name: string; input: unknown }
-  | { type: "tool-result"; callId: string; ok: boolean; output: string }
-  | { type: "permission-request"; requestId: string; tool: string; summary: string }
+  | { type: "tool-result"; callId: string; ok: boolean; output: string; title?: string; diff?: string }
+  | { type: "permission-request"; requestId: string; tool: string; summary: string; detail?: string }
   | { type: "ask-user"; requestId: string; question: string; options?: string[] }
   | { type: "turn-done"; id: string }
   | { type: "usage"; input: number; output: number; costUsd?: number }

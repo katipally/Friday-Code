@@ -4,6 +4,7 @@
   "type": "module",
   "bin": { "friday": "src/index.tsx" },
   "dependencies": {
+    "@friday/core": "workspace:*",
     "@friday/tui": "workspace:*"
   }
 }
