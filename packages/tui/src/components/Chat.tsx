@@ -3,6 +3,7 @@ import { theme, getMode } from "@friday/shared"
 import { useApp, type ViewItem } from "../store.tsx"
 import { ThinkingCard } from "./ThinkingCard.tsx"
 import { ToolCard } from "./ToolCard.tsx"
+import { Logo } from "./Logo.tsx"
 
 function UserBubble(props: { item: Extract<ViewItem, { kind: "user" }> }) {
   return (
@@ -72,9 +73,10 @@ function ErrorBubble(props: { item: Extract<ViewItem, { kind: "error" }> }) {
 export function Chat() {
   const app = useApp()
   return (
-    <scrollbox flexGrow={1} stickyScroll stickyStart="bottom" paddingTop={1}>
+    <scrollbox flexGrow={1} minHeight={0} stickyScroll stickyStart="bottom" paddingTop={1}>
       <Show when={app.items.length === 0}>
-        <box paddingLeft={1}>
+        <box flexDirection="column" alignItems="center" justifyContent="center" paddingTop={2} gap={1}>
+          <Logo />
           <text fg={theme.textFaint}>
             Ask Friday anything. Press ? for shortcuts, or /model to connect a provider.
           </text>

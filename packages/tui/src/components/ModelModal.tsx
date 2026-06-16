@@ -2,6 +2,7 @@ import { createMemo, createResource, createSignal, For, Match, Show, Switch } fr
 import { useKeyboard } from "@opentui/solid"
 import { EFFORTS, theme, getMode, type ProviderInfo } from "@friday/shared"
 import { useApp } from "../store.tsx"
+import { Scrim } from "./Scrim.tsx"
 
 type Step = "provider" | "key" | "model" | "effort"
 
@@ -104,17 +105,7 @@ export function ModelModal() {
   })
 
   return (
-    <box
-      position="absolute"
-      top={0}
-      left={0}
-      width="100%"
-      height="100%"
-      backgroundColor={theme.bg}
-      justifyContent="center"
-      alignItems="center"
-      onMouseDown={() => app.setModelModalOpen(false)}
-    >
+    <Scrim onClose={() => app.setModelModalOpen(false)}>
       <box
         flexDirection="column"
         width={64}
@@ -127,7 +118,6 @@ export function ModelModal() {
         paddingTop={1}
         paddingBottom={1}
         gap={1}
-        onMouseDown={(e: any) => e?.stopPropagation?.()}
       >
         <box flexDirection="row" gap={1}>
           <text fg={accent()}>/model</text>
@@ -235,6 +225,6 @@ export function ModelModal() {
           </Match>
         </Switch>
       </box>
-    </box>
+    </Scrim>
   )
 }

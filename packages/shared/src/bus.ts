@@ -20,8 +20,8 @@ export type EngineEvent =
   | { type: "usage"; input: number; output: number; costUsd?: number }
   | { type: "mascot"; state: MascotState }
   | { type: "status"; text: string; elapsedMs?: number; tokens?: number }
-  | { type: "session-changed"; sessionId: string; title: string }
-  | { type: "session-loaded"; sessionId: string; title: string; messages: Message[] }
+  | { type: "session-changed"; sessionId: string; title: string; cwd: string }
+  | { type: "session-loaded"; sessionId: string; title: string; cwd: string; messages: Message[] }
   | { type: "error"; message: string }
 
 export type UICommand =

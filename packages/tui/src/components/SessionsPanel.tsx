@@ -39,17 +39,22 @@ export function SessionsPanel() {
             <text fg={theme.textFaint}>‹</text>
           </box>
         </box>
-        <scrollbox flexGrow={1} paddingLeft={1} paddingRight={1} paddingTop={1}>
+        <scrollbox flexGrow={1} minHeight={0} paddingLeft={1} paddingRight={1} paddingTop={1}>
           <For each={app.sessions()}>
             {(s, i) => {
               const isActive = () => app.activeSession() === s.id
               return (
-                <box flexDirection="row" gap={1} onMouseDown={() => app.switchSession(s.id)}>
-                  <text fg={isActive() ? accent() : theme.textFaint}>{isActive() ? "●" : "○"}</text>
-                  <text fg={isActive() ? theme.text : theme.textMuted}>
-                    {i() < 9 ? `${i() + 1} ` : "  "}
-                    {s.title}
-                  </text>
+                <box flexDirection="row" gap={1}>
+                  <box flexGrow={1} flexDirection="row" gap={1} onMouseDown={() => app.switchSession(s.id)}>
+                    <text fg={isActive() ? accent() : theme.textFaint}>{isActive() ? "●" : "○"}</text>
+                    <text fg={isActive() ? theme.text : theme.textMuted}>
+                      {i() < 9 ? `${i() + 1} ` : "  "}
+                      {s.title}
+                    </text>
+                  </box>
+                  <box onMouseDown={() => app.deleteSession(s.id)}>
+                    <text fg={theme.textFaint}>✗</text>
+                  </box>
                 </box>
               )
             }}
@@ -59,6 +64,9 @@ export function SessionsPanel() {
             <text fg={theme.textFaint}>+ new</text>
           </box>
         </scrollbox>
+        <box paddingLeft={1} paddingRight={1} onMouseDown={() => app.setHistoryOpen(true)}>
+          <text fg={theme.textFaint}>⏲ history</text>
+        </box>
         <box paddingLeft={1} paddingRight={1}>
           <text fg={theme.textFaint}>⌃1–9 switch</text>
         </box>

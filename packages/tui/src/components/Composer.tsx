@@ -6,6 +6,12 @@ import { listProjectFiles } from "../util/files.ts"
 
 type Suggestion = { label: string; hint: string; apply: () => void }
 
+const MAX_SUGGESTIONS = 6
+
+function truncate(s: string, n: number): string {
+  return s.length > n ? s.slice(0, n - 1) + "…" : s
+}
+
 /**
  * The prompt composer (uncontrolled textarea via `plainText`/`setText`). Enter submits,
  * Shift+Enter newlines, Tab applies the highlighted autocomplete suggestion.
@@ -19,9 +25,9 @@ export function Composer() {
     app.view() === "shell" &&
     !app.overlayOpen() &&
     !app.modelModalOpen() &&
+    !app.paletteOpen() &&
     !app.pending() &&
-    !app.askPending() &&
-    !app.paletteOpen()
+    !app.askPending()
   const maxHeight = () => Math.max(4, Math.floor(dims().height / 3))
 
   let ta: any
@@ -29,7 +35,10 @@ export function Composer() {
   const [files, setFiles] = createSignal<string[]>([])
   const [sel, setSel] = createSignal(0)
 
-  onMount(() => {
+  onMount(() => listProjectFiles(app.engine.cwdPath()).then(setFiles))
+  // reload the file list when the working directory changes (session switch)
+  createEffect(() => {
+    app.currentCwd()
     listProjectFiles(app.engine.cwdPath()).then(setFiles)
   })
 
@@ -37,51 +46,41 @@ export function Composer() {
     queueMicrotask(() => setText(ta?.plainText ?? ""))
   }
 
+  /** Replace the composer text and keep the cursor at the end (fixes cursor jumping to front). */
   function setComposer(value: string) {
     ta?.setText?.(value)
-    refresh()
+    if (ta) ta.cursorOffset = value.length
+    setText(value)
   }
 
-  const suggestions = createMemo<{ items: Suggestion[]; kind: "slash" | "file" | null }>(() => {
+  const suggestions = createMemo<Suggestion[]>(() => {
     const t = text()
-    if (!focused() || !t) return { items: [], kind: null }
+    if (!focused() || !t) return []
 
-    // slash commands: "/" then command name, no space yet
     const slash = t.match(/^\/(\S*)$/)
     if (slash) {
       const token = slash[1]!.toLowerCase()
-      const items = app
+      return app
         .listCommands()
         .filter((c) => c.name.toLowerCase().includes(token))
-        .slice(0, 8)
-        .map<Suggestion>((c) => ({
-          label: `/${c.name}`,
-          hint: c.description,
-          apply: () => setComposer(`/${c.name} `),
-        }))
-      return { items, kind: "slash" }
+        .slice(0, MAX_SUGGESTIONS)
+        .map((c) => ({ label: `/${c.name}`, hint: c.description, apply: () => setComposer(`/${c.name} `) }))
     }
 
-    // file mentions: trailing "@token"
     const at = t.match(/(^|\s)@(\S*)$/)
     if (at) {
       const token = at[2]!.toLowerCase()
       const start = t.length - at[2]!.length
-      const items = files()
+      return files()
         .filter((f) => f.toLowerCase().includes(token))
-        .slice(0, 8)
-        .map<Suggestion>((f) => ({
-          label: f,
-          hint: "file",
-          apply: () => setComposer(t.slice(0, start) + f + " "),
-        }))
-      return { items, kind: "file" }
+        .slice(0, MAX_SUGGESTIONS)
+        .map((f) => ({ label: truncate(f, 40), hint: "file", apply: () => setComposer(t.slice(0, start) + f + " ") }))
     }
-    return { items: [], kind: null }
+    return []
   })
 
   createEffect(() => {
-    suggestions().items.length // track
+    suggestions().length
     setSel(0)
   })
 
@@ -89,54 +88,40 @@ export function Composer() {
     const value: string = ta?.plainText ?? ""
     if (value.trim()) app.submit(value)
     ta?.clear?.()
-    refresh()
+    setText("")
   }
 
   useKeyboard((key) => {
     if (!focused()) return
-    const items = suggestions().items
+    const items = suggestions()
     if (items.length) {
-      if (key.name === "up") {
-        setSel((s) => (s - 1 + items.length) % items.length)
-        return
-      }
-      if (key.name === "down") {
-        setSel((s) => (s + 1) % items.length)
-        return
-      }
-      if (key.name === "tab" && !key.shift) {
-        items[sel()]?.apply()
-        return
-      }
+      if (key.name === "up") return setSel((s) => (s - 1 + items.length) % items.length)
+      if (key.name === "down") return setSel((s) => (s + 1) % items.length)
+      if (key.name === "tab" && !key.shift) return items[sel()]?.apply()
     }
     refresh()
   })
 
   return (
-    <box flexDirection="column">
-      <Show when={suggestions().items.length > 0}>
+    <box flexDirection="column" flexShrink={0}>
+      <Show when={suggestions().length > 0}>
         <box
           flexDirection="column"
+          flexShrink={0}
           border
           borderStyle="rounded"
           borderColor={theme.border}
           backgroundColor={theme.bgElevated}
           paddingLeft={1}
           paddingRight={1}
-          marginBottom={0}
+          marginBottom={1}
         >
-          <For each={suggestions().items}>
+          <For each={suggestions()}>
             {(s, i) => (
-              <box
-                flexDirection="row"
-                gap={1}
-                backgroundColor={sel() === i() ? theme.bgHover : "transparent"}
-                onMouseDown={() => s.apply()}
-              >
-                <box width={28}>
-                  <text fg={sel() === i() ? mode().accent : theme.text}>{s.label}</text>
-                </box>
-                <text fg={theme.textFaint}>{s.hint}</text>
+              <box flexDirection="row" gap={2} backgroundColor={sel() === i() ? theme.bgHover : "transparent"}>
+                <text fg={sel() === i() ? mode().accent : theme.text}>{s.label}</text>
+                <box flexGrow={1} />
+                <text fg={theme.textFaint}>{truncate(s.hint, 28)}</text>
               </box>
             )}
           </For>
@@ -146,6 +131,7 @@ export function Composer() {
 
       <box
         flexDirection="row"
+        flexShrink={0}
         border
         borderStyle="rounded"
         borderColor={focused() ? mode().accent : theme.border}
@@ -171,7 +157,7 @@ export function Composer() {
             maxHeight={maxHeight()}
           />
         </box>
-        <box flexDirection="row" gap={1} marginLeft={1} alignItems="center">
+        <box flexDirection="row" gap={1} marginLeft={1} alignItems="center" flexShrink={0}>
           <text fg={mode().accent}>{mode().glyph}</text>
           <text fg={theme.textFaint}>{mode().label}</text>
         </box>

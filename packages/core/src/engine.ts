@@ -158,16 +158,22 @@ export class Engine {
     this.messages.push(msg)
     this.store.appendMessage(this.sessionId, this.seq++, msg)
     this.store.touch(this.sessionId, now())
-    this.maybeTitleFromMessage(msg)
   }
 
-  private maybeTitleFromMessage(msg: Message): void {
-    if (msg.role !== "user") return
+  /** Derive a clean session title from the first user prompt (heuristic, not the expanded text). */
+  private setTitleFromPrompt(typed: string): void {
     if (this.sessionTitle && this.sessionTitle !== "new session") return
-    const title = msg.text.replace(/\s+/g, " ").trim().slice(0, 48) || "session"
+    const cleaned = typed
+      .replace(/@\S+/g, "") // drop file mentions
+      .replace(/`+/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+    if (!cleaned) return
+    let title = cleaned.slice(0, 48).replace(/[.,;:!?]+$/, "")
+    title = title.charAt(0).toUpperCase() + title.slice(1)
     this.sessionTitle = title
     this.store.rename(this.sessionId, title, now())
-    this.emit({ type: "session-changed", sessionId: this.sessionId, title })
+    this.emit({ type: "session-changed", sessionId: this.sessionId, title, cwd: this.cwd })
   }
 
   // ---- subscription ----
@@ -185,21 +191,29 @@ export class Engine {
   /** Announce initial state (used right after the UI subscribes). */
   ready(): void {
     if (this.model && this.providerId) this.emit({ type: "model-changed", model: this.model, provider: this.providerId })
-    this.emit({ type: "session-changed", sessionId: this.sessionId, title: this.sessionTitle })
+    this.emit({ type: "session-changed", sessionId: this.sessionId, title: this.sessionTitle, cwd: this.cwd })
     if (this.messages.length)
-      this.emit({ type: "session-loaded", sessionId: this.sessionId, title: this.sessionTitle, messages: this.messages })
+      this.emit({ type: "session-loaded", sessionId: this.sessionId, title: this.sessionTitle, cwd: this.cwd, messages: this.messages })
     this.emit({ type: "ready", needsModel: !this.model || !this.providerId })
   }
 
   // ---- sessions ----
+  /** Working ("parallel") sessions for the current directory, newest first. */
   listSessions(): { id: string; title: string }[] {
     return this.store.list(this.cwd).map((s) => ({ id: s.id, title: s.title }))
+  }
+  /** Full history across all directories (for the history view). */
+  listAllSessions(): { id: string; title: string; cwd: string; updatedAt: number }[] {
+    return this.store.list().map((s) => ({ id: s.id, title: s.title, cwd: s.cwd, updatedAt: s.updatedAt }))
   }
   currentSessionId(): string {
     return this.sessionId
   }
   currentTitle(): string {
     return this.sessionTitle
+  }
+  currentCwd(): string {
+    return this.cwd
   }
   stats(): SessionStats {
     const messages = this.messages.filter((m) => m.role === "user" || m.role === "assistant").length
@@ -209,17 +223,39 @@ export class Engine {
     if (this.busy) return
     this.adoptSession(this.store.create(this.cwd, crypto.randomUUID(), now()))
     this.totalTokens = 0
-    this.emit({ type: "session-changed", sessionId: this.sessionId, title: this.sessionTitle })
-    this.emit({ type: "session-loaded", sessionId: this.sessionId, title: this.sessionTitle, messages: [] })
+    this.emitSessionState([])
   }
   switchSession(id: string): void {
     if (this.busy || id === this.sessionId) return
     const row = this.store.get(id)
     if (!row) return
+    // Resuming a session from another directory switches the working directory + project context.
+    if (row.cwd !== this.cwd) {
+      this.cwd = row.cwd
+      this.context = loadProjectContext(this.cwd)
+      this.skills = loadSkills(this.cwd)
+    }
     this.adoptSession(row)
     this.totalTokens = 0
-    this.emit({ type: "session-changed", sessionId: this.sessionId, title: this.sessionTitle })
-    this.emit({ type: "session-loaded", sessionId: this.sessionId, title: this.sessionTitle, messages: this.messages })
+    this.emitSessionState(this.messages)
+  }
+  deleteSession(id: string): void {
+    this.store.delete(id)
+    if (id === this.sessionId) {
+      const next = this.store.latest(this.cwd)
+      if (next) this.adoptSession(next)
+      else this.adoptSession(this.store.create(this.cwd, crypto.randomUUID(), now()))
+      this.totalTokens = 0
+      this.emitSessionState(this.messages)
+    } else {
+      // Active session unchanged — just nudge the UI to refresh its lists.
+      this.emit({ type: "session-changed", sessionId: this.sessionId, title: this.sessionTitle, cwd: this.cwd })
+    }
+  }
+
+  private emitSessionState(messages: Message[]): void {
+    this.emit({ type: "session-changed", sessionId: this.sessionId, title: this.sessionTitle, cwd: this.cwd })
+    this.emit({ type: "session-loaded", sessionId: this.sessionId, title: this.sessionTitle, cwd: this.cwd, messages })
   }
 
   // ---- queries for the /model modal ----
@@ -380,6 +416,7 @@ export class Engine {
     this.abort = new AbortController()
     const { text: expanded } = expandMentions(text, this.cwd)
     this.addMessage({ role: "user", text: expanded })
+    this.setTitleFromPrompt(text)
     const start = Date.now()
     try {
       await this.loop(start)

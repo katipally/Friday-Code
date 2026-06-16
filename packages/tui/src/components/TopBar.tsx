@@ -7,8 +7,10 @@ export function TopBar() {
   const mode = () => getMode(app.mode())
 
   return (
-    <box flexDirection="row" height={1} paddingLeft={1} paddingRight={1} alignItems="center">
-      <text fg={theme.textFaint}>friday</text>
+    <box flexDirection="row" height={1} paddingLeft={1} paddingRight={1} alignItems="center" gap={1}>
+      <text fg={mode().accent}>⬡</text>
+      <text fg={theme.text}>friday</text>
+      <text fg={theme.textFaint}>code</text>
       <box flexGrow={1} />
       <box
         flexDirection="row"

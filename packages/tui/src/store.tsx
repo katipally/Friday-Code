@@ -98,15 +98,23 @@ export function createAppStore(engine: Engine) {
   const [paletteOpen, setPaletteOpen] = createSignal(false)
 
   const [items, setItems] = createStore<ViewItem[]>([])
-  const [contextFiles] = createSignal<string[]>(engine.contextInfo().files)
-  const [skills] = createSignal(engine.listSkills())
+  const [contextFiles, setContextFiles] = createSignal<string[]>(engine.contextInfo().files)
+  const [skills, setSkills] = createSignal(engine.listSkills())
   const [mcpServers] = createSignal(engine.listMcpServers())
   const [sessions, setSessions] = createSignal<SessionItem[]>(engine.listSessions())
+  const [allSessions, setAllSessions] = createSignal(engine.listAllSessions())
   const runningTools = createMemo(() =>
     items.filter((i) => i.kind === "tool" && i.status === "running").map((i) => (i as any).title ?? (i as any).name),
   )
   const [activeSession, setActiveSession] = createSignal(engine.currentSessionId())
-  const refreshSessions = () => setSessions(engine.listSessions())
+  const [currentCwd, setCurrentCwd] = createSignal(engine.currentCwd())
+  const [historyOpen, setHistoryOpen] = createSignal(false)
+  const refreshSessions = () => {
+    setSessions(engine.listSessions())
+    setAllSessions(engine.listAllSessions())
+    setContextFiles(engine.contextInfo().files)
+    setSkills(engine.listSkills())
+  }
 
   let localId = 0
   const nextLocalId = () => `u${++localId}`
@@ -202,10 +210,12 @@ export function createAppStore(engine: Engine) {
         break
       case "session-changed":
         setActiveSession(e.sessionId)
+        setCurrentCwd(e.cwd)
         refreshSessions()
         break
       case "session-loaded":
         setItems(messagesToItems(e.messages))
+        setCurrentCwd(e.cwd)
         setTokens(0)
         setPending(null)
         setAskPending(null)
@@ -229,7 +239,7 @@ export function createAppStore(engine: Engine) {
     { name: "model", description: "connect a provider / pick a model" },
     { name: "new", description: "start a new session" },
     { name: "clear", description: "clear the conversation (new session)" },
-    { name: "sessions", description: "focus the sessions panel" },
+    { name: "history", description: "browse all past sessions (by directory)" },
     { name: "help", description: "show the keymap" },
     { name: "exit", description: "quit Friday (clean exit)" },
   ]
@@ -245,8 +255,8 @@ export function createAppStore(engine: Engine) {
       case "new":
       case "clear":
         return newSession()
-      case "sessions":
-        return setLeftOpen(true)
+      case "history":
+        return setHistoryOpen(true)
       case "help":
         return setOverlayOpen(true)
       case "exit":
@@ -317,6 +327,10 @@ export function createAppStore(engine: Engine) {
     const s = sessions()[i]
     if (s) switchSession(s.id)
   }
+  function deleteSession(id: string) {
+    engine.deleteSession(id)
+    refreshSessions()
+  }
 
   const [exitStats, setExitStats] = createSignal<SessionStats | null>(null)
   function quit() {
@@ -368,6 +382,11 @@ export function createAppStore(engine: Engine) {
     newSession,
     switchSession,
     switchSessionByIndex,
+    deleteSession,
+    allSessions,
+    currentCwd,
+    historyOpen,
+    setHistoryOpen,
     quit,
     exitStats,
     paletteOpen,

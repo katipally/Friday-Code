@@ -23,7 +23,7 @@ async function loadCatalog(): Promise<Record<string, any> | null> {
   }
   // network
   try {
-    const res = await fetch("https://models.dev/api.json", { signal: AbortSignal.timeout(5000) })
+    const res = await fetch("https://models.dev/api.json", { signal: AbortSignal.timeout(12000) })
     if (res.ok) {
       const json = (await res.json()) as Record<string, any>
       fs.mkdirSync(cacheDir(), { recursive: true })

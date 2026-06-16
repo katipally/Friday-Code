@@ -2,6 +2,7 @@ import { createMemo, createSignal, For, onMount } from "solid-js"
 import { useKeyboard } from "@opentui/solid"
 import { theme, getMode } from "@friday/shared"
 import { useApp } from "../store.tsx"
+import { Scrim } from "./Scrim.tsx"
 
 /** Ctrl/Cmd+K fuzzy command palette over built-in + custom commands. */
 export function CommandPalette() {
@@ -40,17 +41,7 @@ export function CommandPalette() {
   onMount(() => setQuery(""))
 
   return (
-    <box
-      position="absolute"
-      top={0}
-      left={0}
-      width="100%"
-      height="100%"
-      backgroundColor={theme.bg}
-      justifyContent="center"
-      alignItems="center"
-      onMouseDown={() => app.setPaletteOpen(false)}
-    >
+    <Scrim onClose={() => app.setPaletteOpen(false)}>
       <box
         flexDirection="column"
         width={64}
@@ -63,7 +54,6 @@ export function CommandPalette() {
         paddingTop={1}
         paddingBottom={1}
         gap={1}
-        onMouseDown={(e: any) => e?.stopPropagation?.()}
       >
         <box flexDirection="row" gap={1} alignItems="center">
           <text fg={accent()}>⌘</text>
@@ -92,6 +82,6 @@ export function CommandPalette() {
         </box>
         <text fg={theme.textFaint}>↑↓ move · ⏎ run · esc close</text>
       </box>
-    </box>
+    </Scrim>
   )
 }

@@ -17,6 +17,7 @@ import { PermissionCard } from "./components/PermissionCard.tsx"
 import { AskCard } from "./components/AskCard.tsx"
 import { ModelModal } from "./components/ModelModal.tsx"
 import { CommandPalette } from "./components/CommandPalette.tsx"
+import { SessionHistory } from "./components/SessionHistory.tsx"
 import { ExitScreen } from "./components/ExitScreen.tsx"
 
 function Shell() {
@@ -39,12 +40,12 @@ function Shell() {
     <box width="100%" height="100%" backgroundColor={theme.bg} onMouseMove={onMove as any} onMouseUp={onUp}>
       <box flexGrow={1} flexDirection="column" border borderStyle="rounded" borderColor={accent()} backgroundColor={theme.bg}>
         <TopBar />
-        <box flexDirection="row" flexGrow={1}>
+        <box flexDirection="row" flexGrow={1} minHeight={0}>
           <SessionsPanel />
           <Show when={app.leftOpen()}>
             <Divider side="left" />
           </Show>
-          <box flexGrow={1} flexDirection="column" paddingLeft={1} paddingRight={1}>
+          <box flexGrow={1} minHeight={0} flexDirection="column" paddingLeft={1} paddingRight={1}>
             <Chat />
             <PermissionCard />
             <AskCard />
@@ -67,6 +68,9 @@ function Shell() {
       <Show when={app.paletteOpen()}>
         <CommandPalette />
       </Show>
+      <Show when={app.historyOpen()}>
+        <SessionHistory />
+      </Show>
     </box>
   )
 }
@@ -86,6 +90,7 @@ function AppRoot() {
     }
     if (app.modelModalOpen()) return // ModelModal owns keys while open
     if (app.paletteOpen()) return // CommandPalette owns keys while open
+    if (app.historyOpen()) return // SessionHistory owns keys while open
     if (app.askPending()) return // AskCard owns keys while open
 
     if (app.pending()) {
@@ -103,6 +108,7 @@ function AppRoot() {
     if (key.ctrl && key.name === "g") return app.setRightOpen(!app.rightOpen())
     if (key.ctrl && /^[1-9]$/.test(key.name)) return app.switchSessionByIndex(Number(key.name) - 1)
     if (key.ctrl && key.name === "k") return app.setPaletteOpen(true)
+    if (key.ctrl && key.name === "y") return app.setHistoryOpen(true)
     if (key.name?.toLowerCase() === "f1" || (key.ctrl && key.name === "/")) return app.setOverlayOpen(true)
     if (key.name === "escape" && app.busy()) return app.abort()
   })

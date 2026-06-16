@@ -1,6 +1,7 @@
 import { For } from "solid-js"
 import { theme, getMode, MODES } from "@friday/shared"
 import { useApp } from "../store.tsx"
+import { Scrim } from "./Scrim.tsx"
 
 const KEYS: { keys: string; label: string }[] = [
   { keys: "Enter", label: "send message" },
@@ -9,7 +10,8 @@ const KEYS: { keys: string; label: string }[] = [
   { keys: "Ctrl+B", label: "toggle sessions panel" },
   { keys: "Ctrl+G", label: "toggle context panel" },
   { keys: "Ctrl+K", label: "command palette" },
-  { keys: "Ctrl+1-9", label: "switch session" },
+  { keys: "Ctrl+Y", label: "session history (all directories)" },
+  { keys: "Ctrl+1-9", label: "switch working session" },
   { keys: "/ · @", label: "slash command · file mention" },
   { keys: "F1 / Ctrl+/", label: "this keymap (or click ? keys)" },
   { keys: "Esc", label: "close overlay / cancel" },
@@ -22,17 +24,7 @@ export function KeymapOverlay() {
   const accent = () => getMode(app.mode()).accent
 
   return (
-    <box
-      position="absolute"
-      top={0}
-      left={0}
-      width="100%"
-      height="100%"
-      backgroundColor={theme.bg}
-      justifyContent="center"
-      alignItems="center"
-      onMouseDown={() => app.setOverlayOpen(false)}
-    >
+    <Scrim onClose={() => app.setOverlayOpen(false)}>
       <box
         flexDirection="column"
         border
@@ -76,6 +68,6 @@ export function KeymapOverlay() {
         <box height={1} />
         <text fg={theme.textFaint}>esc or click to close</text>
       </box>
-    </box>
+    </Scrim>
   )
 }

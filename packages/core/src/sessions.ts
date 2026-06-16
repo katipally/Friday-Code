@@ -69,6 +69,11 @@ export class SessionStore {
     this.db.query("UPDATE sessions SET updated_at = ? WHERE id = ?").run(now, id)
   }
 
+  delete(id: string): void {
+    this.db.query("DELETE FROM messages WHERE session_id = ?").run(id)
+    this.db.query("DELETE FROM sessions WHERE id = ?").run(id)
+  }
+
   appendMessage(sessionId: string, seq: number, msg: Message): void {
     this.db.query("INSERT INTO messages (session_id, seq, json) VALUES (?, ?, ?)").run(sessionId, seq, JSON.stringify(msg))
   }

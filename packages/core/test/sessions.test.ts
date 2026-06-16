@@ -31,7 +31,7 @@ test("Engine resumes a persisted session", async () => {
   e1.send({ type: "prompt", text: "remember this" })
   await Bun.sleep(20)
   const id = e1.currentSessionId()
-  expect(e1.currentTitle()).toBe("remember this")
+  expect(e1.currentTitle()).toBe("Remember this")
 
   const e2 = new Engine({ cwd: "/x", streamFn: textOnly, store, resumeId: id })
   const events: EngineEvent[] = []
@@ -40,6 +40,49 @@ test("Engine resumes a persisted session", async () => {
   const loaded = events.find((e) => e.type === "session-loaded") as Extract<EngineEvent, { type: "session-loaded" }>
   expect(loaded).toBeTruthy()
   expect(loaded.messages.some((m) => m.role === "user" && m.text === "remember this")).toBe(true)
+})
+
+test("title is derived cleanly from the first prompt (mentions stripped)", async () => {
+  const store = new SessionStore(path.join(tmp, "title.db"))
+  const e = new Engine({ cwd: "/z", streamFn: textOnly, store })
+  e.selectModel("mock", "m")
+  e.send({ type: "prompt", text: "add a dark theme toggle @src/app.ts please." })
+  await Bun.sleep(20)
+  expect(e.currentTitle()).toBe("Add a dark theme toggle please")
+})
+
+test("delete session removes it; deleting the active one falls back", async () => {
+  const store = new SessionStore(path.join(tmp, "del.db"))
+  const e = new Engine({ cwd: "/d", streamFn: textOnly, store })
+  e.selectModel("mock", "m")
+  e.send({ type: "prompt", text: "one" })
+  await Bun.sleep(20)
+  const first = e.currentSessionId()
+  e.newSession()
+  const second = e.currentSessionId()
+  expect(e.listSessions().length).toBe(2)
+  // delete the non-active one
+  e.deleteSession(first)
+  expect(e.listSessions().length).toBe(1)
+  expect(e.currentSessionId()).toBe(second)
+  // delete the active one -> falls back to a fresh session
+  e.deleteSession(second)
+  expect(e.currentSessionId()).not.toBe(second)
+})
+
+test("listAllSessions spans directories", async () => {
+  const store = new SessionStore(path.join(tmp, "all.db"))
+  const a = new Engine({ cwd: "/dirA", streamFn: textOnly, store })
+  a.selectModel("mock", "m")
+  a.send({ type: "prompt", text: "in A" })
+  await Bun.sleep(20)
+  const b = new Engine({ cwd: "/dirB", streamFn: textOnly, store })
+  b.send({ type: "prompt", text: "in B" })
+  await Bun.sleep(20)
+  const all = b.listAllSessions()
+  const dirs = new Set(all.map((s) => s.cwd))
+  expect(dirs.has("/dirA")).toBe(true)
+  expect(dirs.has("/dirB")).toBe(true)
 })
 
 test("Engine new + switch session", async () => {
