@@ -1,7 +1,9 @@
 import { createSignal, createEffect, on, onCleanup, onMount, type Accessor } from "solid-js"
+import { theme } from "@friday/shared"
 import { animate, type AnimateOpts } from "./animate.ts"
+import { easeOutQuad } from "./easing.ts"
 import { motion } from "./config.ts"
-import { lighten } from "../util/colors.ts"
+import { lighten, mix } from "../util/colors.ts"
 
 /**
  * Animate a signal toward a reactive target whenever the target changes.
@@ -75,5 +77,42 @@ export function useBreathe(accent: Accessor<string>, active: Accessor<boolean>, 
     if (!active() || motion.reduced()) return accent()
     const wave = (Math.sin(phase() * Math.PI * 2) + 1) / 2 // 0..1
     return lighten(accent(), wave * 0.35)
+  }
+}
+
+/**
+ * Pointer-hover state with a smooth background fade. Returns a tweened `bg` color
+ * (base → hover over ~120ms), the raw `hovered` flag, and the mouse handlers to wire
+ * onto a box. Snaps when reduced-motion. The unified near-black palette means fading
+ * from `theme.bg` reads fine even when the real surface is a hair lighter.
+ */
+export function useHover(opts: { hover?: string; base?: string; duration?: number } = {}): {
+  bg: Accessor<string>
+  hovered: Accessor<boolean>
+  onMouseOver: () => void
+  onMouseOut: () => void
+} {
+  const hover = opts.hover ?? theme.bgHover
+  const base = opts.base ?? theme.bg
+  const [p, setP] = createSignal(0)
+  const [hovered, setHovered] = createSignal(false)
+  let stop: (() => void) | undefined
+  const go = (to: number) => {
+    if (motion.reduced()) return setP(to)
+    stop?.()
+    stop = animate(p(), to, setP, { duration: opts.duration ?? 120, ease: easeOutQuad })
+  }
+  onCleanup(() => stop?.())
+  return {
+    bg: () => (p() <= 0.001 ? base : mix(base, hover, p())),
+    hovered,
+    onMouseOver: () => {
+      setHovered(true)
+      go(1)
+    },
+    onMouseOut: () => {
+      setHovered(false)
+      go(0)
+    },
   }
 }

@@ -1,7 +1,8 @@
 import { createEffect, createSignal, For, Show, type JSX } from "solid-js"
 import { theme, getMode } from "@friday/shared"
 import { useApp } from "../store.tsx"
-import { Reveal } from "../motion/index.ts"
+import { Reveal, shimmerAccent } from "../motion/index.ts"
+import { CloseButton, ReopenStub } from "./PanelChrome.tsx"
 
 function fmtTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
@@ -44,7 +45,7 @@ function Section(props: {
  */
 export function ContextPanel() {
   const app = useApp()
-  const accent = () => getMode(app.mode()).accent
+  const accent = () => shimmerAccent(getMode(app.mode()).accent)
   const [todosOpen, setTodosOpen] = createSignal(false)
   const [todosNew, setTodosNew] = createSignal(false)
   const [filesOpen, setFilesOpen] = createSignal(false)
@@ -87,18 +88,7 @@ export function ContextPanel() {
   return (
     <Show
       when={app.rightOpen()}
-      fallback={
-        <box
-          width={3}
-          height="100%"
-          backgroundColor={theme.bgPanel}
-          alignItems="center"
-          paddingTop={1}
-          onMouseDown={() => app.setRightOpen(true)}
-        >
-          <text fg={theme.textMuted}>‹</text>
-        </box>
-      }
+      fallback={<ReopenStub glyph="‹" onOpen={() => app.setRightOpen(true)} />}
     >
       <box
         width={app.rightWidth()}
@@ -109,10 +99,8 @@ export function ContextPanel() {
         borderColor={theme.border}
         backgroundColor={theme.bgPanel}
       >
-        <box flexDirection="row" paddingLeft={1} paddingRight={1} alignItems="center">
-          <box onMouseDown={() => app.setRightOpen(false)}>
-            <text fg={theme.textFaint}>›</text>
-          </box>
+        <box flexDirection="row" paddingRight={1} alignItems="center">
+          <CloseButton hint="⌃G" onClose={() => app.setRightOpen(false)} />
           <box flexGrow={1} />
           <text fg={theme.textMuted}>stats</text>
         </box>

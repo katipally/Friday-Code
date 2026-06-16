@@ -48,10 +48,9 @@ export function SelectList(props: {
               <Show when={props.multi}>
                 <text fg={isChecked() ? theme.success : theme.textFaint}>{isChecked() ? "◉" : "○"}</text>
               </Show>
+              {/* Hotkey as a simple tinted glyph — no box, so every row is exactly one line tall. */}
               <Show when={it.key}>
-                <box border borderStyle="rounded" borderColor={tint()} paddingLeft={1} paddingRight={1}>
-                  <text fg={tint()}>{it.key}</text>
-                </box>
+                <text fg={on() ? tint() : theme.textFaint}>{it.key}</text>
               </Show>
               <text fg={on() ? theme.text : theme.textMuted}>{it.label}</text>
               <Show when={it.hint}>

@@ -7,12 +7,12 @@ import { ToolCard } from "./ToolCard.tsx"
 import { Markdown } from "./Markdown.tsx"
 import { Logo } from "./Logo.tsx"
 import { parseMentions, chipIcon } from "../util/mentions.ts"
-import { Appear } from "../motion/index.ts"
+import { Appear, shimmerAccent } from "../motion/index.ts"
 
 /** User prompt: a right-aligned rounded bubble whose border is colored by the mode it was sent in. */
 function UserBubble(props: { item: Extract<ViewItem, { kind: "user" }> }) {
   const app = useApp()
-  const accent = () => getMode((props.item.mode as ModeId) ?? app.mode()).accent
+  const accent = () => shimmerAccent(getMode((props.item.mode as ModeId) ?? app.mode()).accent)
   // File references in the prompt show as click-to-open chips beneath the text.
   const chips = createMemo(() => parseMentions(props.item.text, app.roots()))
   return (
@@ -60,7 +60,7 @@ function UserBubble(props: { item: Extract<ViewItem, { kind: "user" }> }) {
  * ran in (so you can tell at a glance whether it was plan/default/accept/yolo); reasoning is a ╰ branch. */
 function AssistantMessage(props: { item: Extract<ViewItem, { kind: "assistant" }> }) {
   const app = useApp()
-  const accent = () => getMode((props.item.mode as ModeId) ?? app.mode()).accent
+  const accent = () => shimmerAccent(getMode((props.item.mode as ModeId) ?? app.mode()).accent)
   return (
     <box flexDirection="column" marginBottom={1}>
       <ThinkingCard item={props.item} />
@@ -113,7 +113,9 @@ export function Chat() {
     !app.dirModalOpen() &&
     !app.mcpModalOpen() &&
     !app.checkpointsOpen() &&
-    !app.onboardingOpen()
+    !app.onboardingOpen() &&
+    !app.askPending() &&
+    !app.pending()
 
   // Keyboard scroll-back through history (keys that don't collide with composer typing).
   useKeyboard((key) => {
@@ -127,38 +129,40 @@ export function Chat() {
   })
 
   return (
-    <scrollbox ref={(r: any) => (sb = r)} flexGrow={1} minHeight={0} stickyScroll stickyStart="bottom" paddingTop={1}>
-      <Show when={app.items().length === 0}>
-        <box flexDirection="column" alignItems="center" justifyContent="center" paddingTop={2} gap={1}>
+    <Show
+      when={app.items().length > 0}
+      fallback={
+        // Empty state: the logo, dead-center on both axes — nothing else.
+        <box flexGrow={1} minHeight={0} flexDirection="column" justifyContent="center" alignItems="center">
           <Logo />
-          <text fg={theme.textFaint}>
-            Ask Friday anything. Press ? for shortcuts, or /model to connect a provider.
-          </text>
         </box>
-      </Show>
-      <For each={app.items()}>
-        {(item) => (
-          <Appear distance={1} duration={170}>
-            <Switch>
-              <Match when={item.kind === "user"}>
-                <UserBubble item={item as any} />
-              </Match>
-              <Match when={item.kind === "assistant"}>
-                <AssistantMessage item={item as any} />
-              </Match>
-              <Match when={item.kind === "tool"}>
-                <ToolCard item={item as any} />
-              </Match>
-              <Match when={item.kind === "error"}>
-                <ErrorBubble item={item as any} />
-              </Match>
-              <Match when={item.kind === "notice"}>
-                <NoticeBubble item={item as any} />
-              </Match>
-            </Switch>
-          </Appear>
-        )}
-      </For>
-    </scrollbox>
+      }
+    >
+      <scrollbox ref={(r: any) => (sb = r)} flexGrow={1} minHeight={0} stickyScroll stickyStart="bottom" paddingTop={1}>
+        <For each={app.items()}>
+          {(item) => (
+            <Appear distance={1} duration={170}>
+              <Switch>
+                <Match when={item.kind === "user"}>
+                  <UserBubble item={item as any} />
+                </Match>
+                <Match when={item.kind === "assistant"}>
+                  <AssistantMessage item={item as any} />
+                </Match>
+                <Match when={item.kind === "tool"}>
+                  <ToolCard item={item as any} />
+                </Match>
+                <Match when={item.kind === "error"}>
+                  <ErrorBubble item={item as any} />
+                </Match>
+                <Match when={item.kind === "notice"}>
+                  <NoticeBubble item={item as any} />
+                </Match>
+              </Switch>
+            </Appear>
+          )}
+        </For>
+      </scrollbox>
+    </Show>
   )
 }

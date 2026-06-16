@@ -1,5 +1,5 @@
-import { Match, onMount, Show, Switch } from "solid-js"
-import { useKeyboard, useRenderer, useSelectionHandler } from "@opentui/solid"
+import { createSignal, Match, onMount, Show, Switch } from "solid-js"
+import { useKeyboard, useRenderer, useSelectionHandler, useTerminalDimensions } from "@opentui/solid"
 import { theme } from "@friday/shared"
 import type { Engine } from "@friday/core"
 import { AppProvider, createAppStore, useApp } from "./store.tsx"
@@ -27,26 +27,46 @@ import { Toasts } from "./components/Toasts.tsx"
 
 function Shell() {
   const app = useApp()
+  const dims = useTerminalDimensions()
+
+  // Panel resize is driven from this row (not the divider) so drag events keep landing even when
+  // the handle reflows out from under the cursor — the bug that made the right panel glitch.
+  // Width math is absolute (startW + delta), so a double-delivered event is idempotent.
+  const [dragSide, setDragSide] = createSignal<null | "left" | "right">(null)
+  let startX = 0
+  let startW = 0
+  function grab(side: "left" | "right", e: any) {
+    setDragSide(side)
+    startX = typeof e?.x === "number" ? e.x : 0
+    startW = side === "left" ? app.leftWidth() : app.rightWidth()
+  }
+  function onRowDrag(e: any) {
+    const side = dragSide()
+    if (!side || typeof e?.x !== "number") return
+    const max = Math.floor(dims().width / 2)
+    const delta = e.x - startX
+    if (side === "left") app.setLeftWidth(Math.max(14, Math.min(max, startW + delta)))
+    else app.setRightWidth(Math.max(16, Math.min(max, startW - delta)))
+  }
+  const endDrag = () => setDragSide(null)
 
   return (
     <box width="100%" height="100%" backgroundColor={theme.bg}>
       {/* The single outermost frame stays black; mode accent lives on badges, panels and focus rings. */}
       <box flexGrow={1} flexDirection="column" border borderStyle="rounded" borderColor={theme.frame} backgroundColor={theme.bg}>
         <TopBar />
-        <box flexDirection="row" flexGrow={1} minHeight={0}>
+        <box flexDirection="row" flexGrow={1} minHeight={0} onMouseDrag={onRowDrag} onMouseUp={endDrag} onMouseDragEnd={endDrag}>
           <SessionsPanel />
           <Show when={app.leftOpen()}>
-            <Divider side="left" />
+            <Divider side="left" active={dragSide() === "left"} onGrab={(e) => grab("left", e)} onDrag={onRowDrag} onEnd={endDrag} />
           </Show>
           <box flexGrow={1} minHeight={0} flexDirection="column" paddingLeft={1} paddingRight={1}>
             <Chat />
-            <PermissionCard />
-            <AskCard />
             <StatusStrip />
             <Composer />
           </box>
           <Show when={app.rightOpen()}>
-            <Divider side="right" />
+            <Divider side="right" active={dragSide() === "right"} onGrab={(e) => grab("right", e)} onDrag={onRowDrag} onEnd={endDrag} />
           </Show>
           <ContextPanel />
         </box>
@@ -76,6 +96,9 @@ function Shell() {
       <Show when={app.onboardingOpen()}>
         <Onboarding />
       </Show>
+      {/* HITL prompts render as centered overlays above the (dimmed) shell. */}
+      <PermissionCard />
+      <AskCard />
       <Toasts />
     </box>
   )

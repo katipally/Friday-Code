@@ -2,7 +2,8 @@ import { createMemo, For, Show } from "solid-js"
 import { theme, getMode } from "@friday/shared"
 import { useApp, type SessionItem } from "../store.tsx"
 import { useSpinner } from "../util/useSpinner.ts"
-import { useBreathe } from "../motion/index.ts"
+import { useBreathe, shimmerAccent } from "../motion/index.ts"
+import { CloseButton, ReopenStub } from "./PanelChrome.tsx"
 
 function shortDir(p: string): string {
   const h = process.env.HOME
@@ -37,18 +38,7 @@ export function SessionsPanel() {
   return (
     <Show
       when={app.leftOpen()}
-      fallback={
-        <box
-          width={3}
-          height="100%"
-          backgroundColor={theme.bgPanel}
-          alignItems="center"
-          paddingTop={1}
-          onMouseDown={() => app.setLeftOpen(true)}
-        >
-          <text fg={theme.textMuted}>›</text>
-        </box>
-      }
+      fallback={<ReopenStub glyph="›" onOpen={() => app.setLeftOpen(true)} />}
     >
       <box
         width={app.leftWidth()}
@@ -59,12 +49,10 @@ export function SessionsPanel() {
         borderColor={theme.border}
         backgroundColor={theme.bgPanel}
       >
-        <box flexDirection="row" alignItems="center" paddingLeft={1} paddingRight={1}>
+        <box flexDirection="row" alignItems="center" paddingLeft={1}>
           <text fg={theme.textMuted}>sessions</text>
           <box flexGrow={1} />
-          <box onMouseDown={() => app.setLeftOpen(false)}>
-            <text fg={theme.textFaint}>‹</text>
-          </box>
+          <CloseButton hint="⌃B" onClose={() => app.setLeftOpen(false)} />
         </box>
 
         <scrollbox flexGrow={1} minHeight={0} paddingLeft={1} paddingRight={1} paddingTop={1}>
@@ -94,7 +82,7 @@ export function SessionsPanel() {
                             {s.title}
                           </text>
                           <Show when={unseen()}>
-                            <text fg={accent()}>•</text>
+                            <text fg={shimmerAccent(accent())}>•</text>
                           </Show>
                         </box>
                         <box onMouseDown={() => app.deleteSession(s.id)}>

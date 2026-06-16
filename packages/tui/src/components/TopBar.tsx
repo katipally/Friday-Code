@@ -1,6 +1,7 @@
 import { Show } from "solid-js"
 import { theme, getMode, BRAND } from "@friday/shared"
 import { useApp } from "../store.tsx"
+import { shimmerAccent } from "../motion/index.ts"
 
 function home(p: string): string {
   const h = process.env.HOME
@@ -11,7 +12,7 @@ function home(p: string): string {
 /** Top rail: a single clean row — the `friday code` wordmark + version + working directory. */
 export function TopBar() {
   const app = useApp()
-  const accent = () => getMode(app.mode()).accent
+  const accent = () => shimmerAccent(getMode(app.mode()).accent)
   const extra = () => app.roots().length - 1
 
   return (
