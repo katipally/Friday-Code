@@ -26,6 +26,7 @@ export function Composer() {
     !app.overlayOpen() &&
     !app.modelModalOpen() &&
     !app.paletteOpen() &&
+    !app.historyOpen() &&
     !app.pending() &&
     !app.askPending()
   const maxHeight = () => Math.max(4, Math.floor(dims().height / 3))

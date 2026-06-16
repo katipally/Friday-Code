@@ -43,11 +43,17 @@ async function loadCatalog(): Promise<Record<string, any> | null> {
   }
 }
 
+function snapshot(providerId: string): ModelInfo[] {
+  return (MODEL_SNAPSHOT[providerId] ?? []).map((id) => ({ id, name: id, providerId }))
+}
+
 /** Models for a provider, from models.dev when available, else the offline snapshot. */
 export async function getModels(providerId: string, catalogId?: string): Promise<ModelInfo[]> {
+  // Providers without a catalog id (local/keyless) skip the network entirely.
+  if (!catalogId) return snapshot(providerId)
   const cat = await loadCatalog()
   const out: ModelInfo[] = []
-  const entry = cat && catalogId ? cat[catalogId] : undefined
+  const entry = cat ? cat[catalogId] : undefined
   if (entry?.models) {
     for (const key of Object.keys(entry.models)) {
       const m = entry.models[key]
@@ -61,5 +67,5 @@ export async function getModels(providerId: string, catalogId?: string): Promise
     }
   }
   if (out.length) return out.sort((a, b) => a.name.localeCompare(b.name))
-  return (MODEL_SNAPSHOT[providerId] ?? []).map((id) => ({ id, name: id, providerId }))
+  return snapshot(providerId)
 }

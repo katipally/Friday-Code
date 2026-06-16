@@ -240,6 +240,7 @@ export class Engine {
     this.emitSessionState(this.messages)
   }
   deleteSession(id: string): void {
+    if (this.busy && id === this.sessionId) return // don't yank the session out from under a running turn
     this.store.delete(id)
     if (id === this.sessionId) {
       const next = this.store.latest(this.cwd)

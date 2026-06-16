@@ -1,4 +1,4 @@
-import { createMemo, createResource, createSignal, For, Match, Show, Switch } from "solid-js"
+import { createEffect, createMemo, createResource, createSignal, For, Match, Show, Switch } from "solid-js"
 import { useKeyboard } from "@opentui/solid"
 import { EFFORTS, theme, getMode, type ProviderInfo } from "@friday/shared"
 import { useApp } from "../store.tsx"
@@ -6,9 +6,10 @@ import { Scrim } from "./Scrim.tsx"
 
 type Step = "provider" | "key" | "model" | "effort"
 
-function Row(props: { active: boolean; accent: string; onClick: () => void; children: any }) {
+function Row(props: { active: boolean; accent: string; onClick: () => void; children: any; id?: string }) {
   return (
     <box
+      id={props.id}
       flexDirection="row"
       gap={1}
       paddingLeft={1}
@@ -35,9 +36,11 @@ export function ModelModal() {
   const [apiKey, setApiKey] = createSignal("")
   const [baseURL, setBaseURL] = createSignal("")
   const [mIndex, setMIndex] = createSignal(0)
-  const [customModel, setCustomModel] = createSignal("")
+  const [query, setQuery] = createSignal("")
+  const [chosenModel, setChosenModel] = createSignal("")
   const [eIndex, setEIndex] = createSignal(1)
-  const [field, setField] = createSignal<"list" | "input">("list")
+  const [keyField, setKeyField] = createSignal<"key" | "url">("key")
+  let scrollRef: any
 
   const [models] = createResource(
     () => (step() === "model" ? provider()?.id : undefined),
@@ -45,29 +48,43 @@ export function ModelModal() {
   )
 
   const modelList = createMemo(() => models() ?? [])
+  const filtered = createMemo(() => {
+    const q = query().toLowerCase()
+    return q ? modelList().filter((m) => m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q)) : modelList()
+  })
+
+  // reset + scroll the highlighted model into view
+  createEffect(() => {
+    filtered().length
+    setMIndex(0)
+  })
+  createEffect(() => {
+    if (step() === "model") scrollRef?.scrollChildIntoView?.(`m-${mIndex()}`)
+  })
 
   function chooseProvider(p: ProviderInfo) {
     setProvider(p)
+    setQuery("")
     const a = auth[p.id]
-    if (p.keyless || a?.hasKey) {
-      setStep("model")
-      setField("list")
-    } else {
+    if (p.keyless || a?.hasKey) setStep("model")
+    else {
       setApiKey("")
       setBaseURL(p.baseURL)
+      setKeyField("key")
       setStep("key")
     }
   }
 
   function confirmKey() {
     setStep("model")
-    setField("list")
   }
 
   function chooseModel(modelId: string) {
     if (!modelId) return
-    setCustomModel(modelId)
-    setStep("effort")
+    setChosenModel(modelId)
+    const m = modelList().find((x) => x.id === modelId)
+    if (m && m.reasoning === false) finalize() // non-reasoning model — no effort step
+    else setStep("effort")
   }
 
   function finalize() {
@@ -75,7 +92,7 @@ export function ModelModal() {
     if (!p) return
     const eff = EFFORTS[eIndex()] ?? "medium"
     app.setEffort(eff)
-    app.connectAndSelect(p.id, customModel(), apiKey() || undefined, baseURL() && baseURL() !== p.baseURL ? baseURL() : undefined)
+    app.connectAndSelect(p.id, chosenModel(), apiKey() || undefined, baseURL() && baseURL() !== p.baseURL ? baseURL() : undefined)
   }
 
   useKeyboard((key) => {
@@ -86,17 +103,23 @@ export function ModelModal() {
       if (step() === "effort") return setStep("model")
       return
     }
+    if (step() === "key") {
+      if (key.name === "tab") setKeyField((f) => (f === "key" ? "url" : "key"))
+      return
+    }
     if (step() === "provider") {
       if (key.name === "up") setPIndex((i) => Math.max(0, i - 1))
       else if (key.name === "down") setPIndex((i) => Math.min(providers.length - 1, i + 1))
       else if (key.name === "return" || key.name === "enter") chooseProvider(providers[pIndex()]!)
-    } else if (step() === "model" && field() === "list") {
+    } else if (step() === "model") {
+      const items = filtered()
       if (key.name === "up") setMIndex((i) => Math.max(0, i - 1))
-      else if (key.name === "down") setMIndex((i) => Math.min(modelList().length - 1, i + 1))
+      else if (key.name === "down") setMIndex((i) => Math.min(items.length - 1, i + 1))
       else if (key.name === "return" || key.name === "enter") {
-        const m = modelList()[mIndex()]
+        const m = items[mIndex()]
         if (m) chooseModel(m.id)
-      } else if (key.name === "tab") setField("input")
+        else if (query().trim()) chooseModel(query().trim()) // custom id when no match
+      }
     } else if (step() === "effort") {
       if (key.name === "up") setEIndex((i) => Math.max(0, i - 1))
       else if (key.name === "down") setEIndex((i) => Math.min(EFFORTS.length - 1, i + 1))
@@ -146,23 +169,29 @@ export function ModelModal() {
           <Match when={step() === "key"}>
             <box flexDirection="column" gap={1}>
               <text fg={theme.text}>Connect {provider()?.name}</text>
-              <box flexDirection="column">
+              <box flexDirection="column" onMouseDown={() => setKeyField("key")}>
                 <text fg={theme.textFaint}>API key</text>
-                <box border borderStyle="rounded" borderColor={theme.border} paddingLeft={1} paddingRight={1}>
+                <box border borderStyle="rounded" borderColor={keyField() === "key" ? accent() : theme.border} paddingLeft={1} paddingRight={1}>
                   <input
                     value={apiKey()}
                     onInput={setApiKey}
                     onSubmit={confirmKey}
-                    focused
+                    focused={keyField() === "key"}
                     placeholder="paste your API key…"
                     placeholderColor={theme.textFaint}
                   />
                 </box>
               </box>
-              <box flexDirection="column">
-                <text fg={theme.textFaint}>base URL (optional override)</text>
-                <box border borderStyle="rounded" borderColor={theme.border} paddingLeft={1} paddingRight={1}>
-                  <input value={baseURL()} onInput={setBaseURL} onSubmit={confirmKey} placeholderColor={theme.textFaint} />
+              <box flexDirection="column" onMouseDown={() => setKeyField("url")}>
+                <text fg={theme.textFaint}>base URL (optional override · tab)</text>
+                <box border borderStyle="rounded" borderColor={keyField() === "url" ? accent() : theme.border} paddingLeft={1} paddingRight={1}>
+                  <input
+                    value={baseURL()}
+                    onInput={setBaseURL}
+                    onSubmit={confirmKey}
+                    focused={keyField() === "url"}
+                    placeholderColor={theme.textFaint}
+                  />
                 </box>
               </box>
               <box flexDirection="row" gap={2}>
@@ -177,42 +206,42 @@ export function ModelModal() {
           </Match>
 
           <Match when={step() === "model"}>
-            <box flexDirection="column">
-              <text fg={theme.text}>{provider()?.name} · pick a model</text>
-              <Show when={models.loading}>
-                <text fg={theme.textFaint}>loading models…</text>
-              </Show>
-              <box flexDirection="column" maxHeight={12}>
-                <scrollbox maxHeight={10}>
-                  <For each={modelList()}>
-                    {(m, i) => (
-                      <Row active={field() === "list" && mIndex() === i()} accent={accent()} onClick={() => chooseModel(m.id)}>
-                        <text fg={field() === "list" && mIndex() === i() ? theme.text : theme.textMuted}>{m.name}</text>
-                      </Row>
-                    )}
-                  </For>
-                </scrollbox>
-              </box>
-              <box flexDirection="column">
-                <text fg={theme.textFaint}>…or type a model id (tab)</text>
-                <box border borderStyle="rounded" borderColor={field() === "input" ? accent() : theme.border} paddingLeft={1} paddingRight={1} onMouseDown={() => setField("input")}>
+            <box flexDirection="column" gap={1}>
+              <box flexDirection="row" gap={1} alignItems="center">
+                <text fg={theme.text}>{provider()?.name}</text>
+                <box flexGrow={1} border borderStyle="rounded" borderColor={accent()} paddingLeft={1} paddingRight={1}>
                   <input
-                    value={customModel()}
-                    onInput={setCustomModel}
-                    onSubmit={() => chooseModel(customModel())}
-                    focused={field() === "input"}
-                    placeholder="e.g. gpt-5"
+                    value={query()}
+                    onInput={setQuery}
+                    focused
+                    placeholder="filter or type a model id…"
                     placeholderColor={theme.textFaint}
                   />
                 </box>
               </box>
-              <text fg={theme.textFaint}>↑↓ move · ⏎ select · tab custom · esc back</text>
+              <Show when={models.loading}>
+                <text fg={theme.textFaint}>loading models…</text>
+              </Show>
+              <scrollbox ref={(r: any) => (scrollRef = r)} maxHeight={12}>
+                <For each={filtered()}>
+                  {(m, i) => (
+                    <Row id={`m-${i()}`} active={mIndex() === i()} accent={accent()} onClick={() => chooseModel(m.id)}>
+                      <text fg={mIndex() === i() ? theme.text : theme.textMuted}>{m.name}</text>
+                      <box flexGrow={1} />
+                      <Show when={m.reasoning}>
+                        <text fg={theme.textFaint}>reasoning</text>
+                      </Show>
+                    </Row>
+                  )}
+                </For>
+              </scrollbox>
+              <text fg={theme.textFaint}>↑↓ move · ⏎ select · esc back · {filtered().length} models</text>
             </box>
           </Match>
 
           <Match when={step() === "effort"}>
             <box flexDirection="column">
-              <text fg={theme.text}>reasoning effort for {customModel()}</text>
+              <text fg={theme.text}>reasoning effort for {chosenModel()}</text>
               <For each={EFFORTS}>
                 {(eff, i) => (
                   <Row active={eIndex() === i()} accent={accent()} onClick={() => { setEIndex(i()); finalize() }}>
