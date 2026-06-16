@@ -65,7 +65,15 @@ export interface RunnerHost {
   /** current tool registry (reflects MCP connect/disconnect) */
   registry: () => { list: Tool[]; defs: ReturnType<typeof toToolDef>[]; get(name: string): Tool | undefined }
   /** shared model/mode selection */
-  selection: () => { providerId?: string; model?: string; reasoning: boolean; effort: Effort; mode: ModeId; contextWindow: number }
+  selection: () => {
+    providerId?: string
+    model?: string
+    reasoning: boolean
+    effort: Effort
+    mode: ModeId
+    contextWindow: number
+    cost?: { input: number; output: number }
+  }
   resolveProvider: () => ProviderInfo
   /** globally-unique id source (so permission/ask requestIds don't collide across sessions) */
   nextId: () => string
@@ -500,7 +508,8 @@ export class SessionRunner {
           inTok += i
           outTok += o
           this.totalTokens += i + o
-          this.emit({ type: "usage", input: inTok, output: outTok })
+          const cost = sel.cost ? (inTok / 1_000_000) * sel.cost.input + (outTok / 1_000_000) * sel.cost.output : undefined
+          this.emit({ type: "usage", input: inTok, output: outTok, costUsd: cost })
           this.emit({ type: "status", text: "thinking…", elapsedMs: now() - start, tokens: inTok + outTok })
         },
       })

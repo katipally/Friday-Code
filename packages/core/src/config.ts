@@ -14,6 +14,8 @@ export interface FridayConfig {
   mcp?: Record<string, McpServerConfig>
   /** context window (tokens) of the selected model — drives auto-compaction */
   contextWindow?: number
+  /** USD per 1M tokens for the selected model — drives the cost meter */
+  cost?: { input: number; output: number }
   /** lifecycle hooks (deterministic scripts) */
   hooks?: HooksConfig
   /** bash command allow/deny lists (prefix or `*` glob) */

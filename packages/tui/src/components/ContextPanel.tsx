@@ -139,8 +139,27 @@ export function ContextPanel() {
                   </Show>
                 </box>
                 <box flexDirection="column">
-                  <text fg={theme.textMuted}>tokens</text>
-                  <text fg={theme.textFaint}>{fmtTokens(app.tokens())} used this turn</text>
+                  <text fg={theme.textMuted}>context</text>
+                  <Show
+                    when={app.contextWindow() > 0}
+                    fallback={<text fg={theme.textFaint}>{fmtTokens(app.tokens())} tokens · ${app.cost().toFixed(3)}</text>}
+                  >
+                    {(() => {
+                      const pct = () => Math.min(100, Math.round((app.tokens() / app.contextWindow()) * 100))
+                      const filled = () => Math.round((pct() / 100) * 12)
+                      return (
+                        <box flexDirection="column">
+                          <text fg={pct() > 80 ? theme.warning : accent()}>
+                            {"█".repeat(filled())}
+                            {"░".repeat(12 - filled())} {pct()}%
+                          </text>
+                          <text fg={theme.textFaint}>
+                            {fmtTokens(app.tokens())}/{fmtTokens(app.contextWindow())} · ${app.cost().toFixed(3)}
+                          </text>
+                        </box>
+                      )
+                    })()}
+                  </Show>
                 </box>
                 <box flexDirection="column">
                   <text fg={theme.textMuted}>model</text>

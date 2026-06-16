@@ -22,6 +22,9 @@ export function StatusStrip() {
       <Show when={app.tokens() > 0}>
         <text fg={theme.textFaint}>· {app.tokens()} tok</text>
       </Show>
+      <Show when={app.cost() > 0}>
+        <text fg={theme.textFaint}>· ${app.cost() < 0.01 ? app.cost().toFixed(4) : app.cost().toFixed(2)}</text>
+      </Show>
       <box flexGrow={1} />
       <Show when={app.busy()}>
         <text fg={theme.textFaint}>esc to stop</text>

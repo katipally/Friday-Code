@@ -13,7 +13,7 @@ import type { Message, TodoItem } from "./types.ts"
  */
 export type EngineEventBody =
   | { type: "ready"; needsModel: boolean }
-  | { type: "model-changed"; model: string; provider: string; reasoning: boolean }
+  | { type: "model-changed"; model: string; provider: string; reasoning: boolean; contextWindow?: number }
   | { type: "message-start"; role: "assistant"; id: string }
   | { type: "text"; id: string; delta: string }
   | { type: "reasoning"; id: string; delta: string }

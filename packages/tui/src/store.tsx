@@ -92,6 +92,7 @@ export function createAppStore(engine: Engine) {
   const [rightWidth, setRightWidth] = createSignal(28)
   const [overlayOpen, setOverlayOpen] = createSignal(false)
   const [modelModalOpen, setModelModalOpen] = createSignal(false)
+  const [onboardingOpen, setOnboardingOpen] = createSignal(false)
 
   const [mascot, setMascot] = createSignal<MascotState>("idle")
   const [status, setStatus] = createSignal("ready")
@@ -106,6 +107,8 @@ export function createAppStore(engine: Engine) {
   const [sessionPending, setSessionPending] = createSignal<Record<string, PendingPermission>>({})
   const [sessionAsk, setSessionAsk] = createSignal<Record<string, PendingAsk>>({})
   const [sessionDiag, setSessionDiag] = createSignal<Record<string, { path: string; errors: number; warnings: number }[]>>({})
+  const [sessionCost, setSessionCost] = createSignal<Record<string, number>>({})
+  const [contextWindow, setContextWindow] = createSignal(0)
   const setKey = <T,>(set: (fn: (m: Record<string, T>) => Record<string, T>) => void, sid: string, v: T) =>
     set((m) => ({ ...m, [sid]: v }))
   const delKey = <T,>(set: (fn: (m: Record<string, T>) => Record<string, T>) => void, sid: string) =>
@@ -142,6 +145,7 @@ export function createAppStore(engine: Engine) {
   const pending = () => sessionPending()[activeSession()] ?? null
   const askPending = () => sessionAsk()[activeSession()] ?? null
   const diagnostics = () => sessionDiag()[activeSession()] ?? []
+  const cost = () => sessionCost()[activeSession()] ?? 0
   const sessionRunning = (id: string) => !!sessionBusy()[id]
   const sessionNeedsInput = (id: string) => !!sessionNeeds()[id]
 
@@ -167,11 +171,12 @@ export function createAppStore(engine: Engine) {
     switch (e.type) {
       case "ready":
         setNeedsModel(e.needsModel)
-        if (e.needsModel) setModelModalOpen(true)
+        if (e.needsModel) setOnboardingOpen(true) // first run → welcome tour, then /model
         break
       case "model-changed":
         setModel(e.model)
         setReasoningModel(e.reasoning)
+        if (e.contextWindow != null) setContextWindow(e.contextWindow)
         setNeedsModel(false)
         break
       case "message-start":
@@ -222,6 +227,7 @@ export function createAppStore(engine: Engine) {
         break
       case "usage":
         setKey(setSessionTokens, sid, e.input + e.output)
+        if (e.costUsd != null) setKey(setSessionCost, sid, e.costUsd)
         break
       case "status":
         if (focused) setStatus(e.text)
@@ -401,9 +407,10 @@ export function createAppStore(engine: Engine) {
     apiKey?: string,
     baseURL?: string,
     contextWindow?: number,
+    cost?: { input: number; output: number },
   ) {
     if (apiKey) engine.connectProvider(providerId, apiKey, baseURL)
-    engine.selectModel(providerId, model, reasoning, contextWindow)
+    engine.selectModel(providerId, model, reasoning, contextWindow, cost)
     setModelModalOpen(false)
   }
 
@@ -489,6 +496,8 @@ export function createAppStore(engine: Engine) {
     setOverlayOpen,
     modelModalOpen,
     setModelModalOpen,
+    onboardingOpen,
+    setOnboardingOpen,
     mascot,
     status,
     tokens,
@@ -547,6 +556,8 @@ export function createAppStore(engine: Engine) {
     setChangedFiles,
     branch,
     diagnostics,
+    cost,
+    contextWindow,
     sendEngineCommand,
   }
 }

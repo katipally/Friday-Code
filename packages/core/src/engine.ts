@@ -55,6 +55,7 @@ export class Engine {
   private model?: string
   private modelReasoning = false
   private contextWindow = 0
+  private modelCost?: { input: number; output: number }
 
   private runners = new Map<string, SessionRunner>()
   private focusedId!: string
@@ -70,6 +71,7 @@ export class Engine {
       effort: this.effort,
       mode: this.mode,
       contextWindow: this.contextWindow,
+      cost: this.modelCost,
     }),
     resolveProvider: () => this.resolveProvider(),
     nextId: () => this.nextId(),
@@ -92,6 +94,7 @@ export class Engine {
     this.model = cfg.model
     this.modelReasoning = cfg.reasoning ?? false
     this.contextWindow = cfg.contextWindow ?? 0
+    this.modelCost = cfg.cost
 
     const resumed = opts.resumeId ? this.store.get(opts.resumeId) : opts.continueLast ? this.store.latest(this.cwd) : undefined
     const row = resumed ?? this.store.create([this.cwd], crypto.randomUUID(), now())
@@ -186,7 +189,13 @@ export class Engine {
   // ---- announce / focus ----
   ready(): void {
     if (this.model && this.providerId)
-      this.dispatch(this.focusedId, { type: "model-changed", model: this.model, provider: this.providerId, reasoning: this.modelReasoning })
+      this.dispatch(this.focusedId, {
+        type: "model-changed",
+        model: this.model,
+        provider: this.providerId,
+        reasoning: this.modelReasoning,
+        contextWindow: this.contextWindow,
+      })
     this.focused().emitState(true)
     this.dispatch(this.focusedId, { type: "ready", needsModel: !this.model || !this.providerId })
   }
@@ -319,13 +328,14 @@ export class Engine {
   connectProvider(providerId: string, apiKey: string, baseURL?: string): void {
     setProviderKey(providerId, apiKey, baseURL)
   }
-  selectModel(providerId: string, model: string, reasoning = false, contextWindow?: number): void {
+  selectModel(providerId: string, model: string, reasoning = false, contextWindow?: number, cost?: { input: number; output: number }): void {
     this.providerId = providerId
     this.model = model
     this.modelReasoning = reasoning
     if (contextWindow && contextWindow > 0) this.contextWindow = contextWindow
-    saveConfig({ providerId, model, reasoning, contextWindow: this.contextWindow || undefined })
-    this.dispatch(this.focusedId, { type: "model-changed", model, provider: providerId, reasoning })
+    this.modelCost = cost ?? this.modelCost
+    saveConfig({ providerId, model, reasoning, contextWindow: this.contextWindow || undefined, cost: this.modelCost })
+    this.dispatch(this.focusedId, { type: "model-changed", model, provider: providerId, reasoning, contextWindow: this.contextWindow })
   }
   setMode(m: ModeId): void {
     this.mode = m

@@ -22,6 +22,7 @@ import { DirectoryModal } from "./components/DirectoryModal.tsx"
 import { McpModal } from "./components/McpModal.tsx"
 import { CheckpointHistory } from "./components/CheckpointHistory.tsx"
 import { ExitScreen } from "./components/ExitScreen.tsx"
+import { Onboarding } from "./components/Onboarding.tsx"
 
 function Shell() {
   const app = useApp()
@@ -71,6 +72,9 @@ function Shell() {
       <Show when={app.checkpointsOpen()}>
         <CheckpointHistory />
       </Show>
+      <Show when={app.onboardingOpen()}>
+        <Onboarding />
+      </Show>
     </box>
   )
 }
@@ -89,6 +93,7 @@ function AppRoot() {
       if (["return", "enter", "space", "escape"].includes(key.name)) app.setView("shell")
       return
     }
+    if (app.onboardingOpen()) return // Onboarding owns keys while open
     if (app.modelModalOpen()) return // ModelModal owns keys while open
     if (app.paletteOpen()) return // CommandPalette owns keys while open
     if (app.historyOpen()) return // SessionHistory owns keys while open

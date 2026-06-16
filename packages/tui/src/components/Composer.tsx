@@ -24,6 +24,7 @@ export function Composer() {
   const focused = () =>
     app.view() === "shell" &&
     !app.overlayOpen() &&
+    !app.onboardingOpen() &&
     !app.modelModalOpen() &&
     !app.paletteOpen() &&
     !app.historyOpen() &&
