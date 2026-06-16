@@ -47,6 +47,13 @@ function snapshot(providerId: string): ModelInfo[] {
   return (MODEL_SNAPSHOT[providerId] ?? []).map((id) => ({ id, name: id, providerId }))
 }
 
+/** Raw models.dev metadata map ({ modelId -> meta }) for a provider, used to enrich live ids. */
+export async function catalogModels(catalogId?: string): Promise<Record<string, any>> {
+  if (!catalogId) return {}
+  const cat = await loadCatalog()
+  return cat?.[catalogId]?.models ?? {}
+}
+
 /** Models for a provider, from models.dev when available, else the offline snapshot. */
 export async function getModels(providerId: string, catalogId?: string): Promise<ModelInfo[]> {
   // Providers without a catalog id (local/keyless) skip the network entirely.

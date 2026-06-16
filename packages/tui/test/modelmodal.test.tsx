@@ -8,6 +8,12 @@ import { App } from "../src/App.tsx"
 
 process.env.FRIDAY_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "friday-home-"))
 
+// Force the offline snapshot (don't depend on a live local Ollama in CI).
+const realFetch = globalThis.fetch
+globalThis.fetch = (async () => {
+  throw new Error("offline (test)")
+}) as any
+
 test("model modal: pick keyless provider, filter models, select", async () => {
   const e = new Engine({ cwd: fs.mkdtempSync(path.join(os.tmpdir(), "cwd-")) })
   const t = await testRender(() => <App engine={e} />, { width: 100, height: 30 })
@@ -37,4 +43,5 @@ test("model modal: pick keyless provider, filter models, select", async () => {
   expect(e.selection().providerId).toBe("ollama")
 
   t.renderer.destroy()
+  globalThis.fetch = realFetch
 })

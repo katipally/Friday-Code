@@ -14,7 +14,7 @@ import {
 } from "@friday/shared"
 import {
   BUILTIN_PROVIDERS,
-  getModels,
+  fetchModels,
   getProviderKey,
   loadAuth,
   setProviderKey,
@@ -267,9 +267,11 @@ export class Engine {
     return [...BUILTIN_PROVIDERS, ...custom]
   }
   async listModels(providerId: string): Promise<ModelInfo[]> {
-    const p = this.listProviders().find((x) => x.id === providerId)
-    const catalogId = (p as any)?.catalogId as string | undefined
-    return getModels(providerId, catalogId)
+    const provider = this.listProviders().find((x) => x.id === providerId)
+    if (!provider) return []
+    const override = loadAuth().providers[provider.id]?.baseURL
+    const resolved = override ? { ...provider, baseURL: override } : provider
+    return fetchModels(resolved, getProviderKey(provider.id))
   }
   authState(): Record<string, { hasKey: boolean }> {
     const auth = loadAuth()

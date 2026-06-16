@@ -50,6 +50,8 @@ export interface ProviderInfo {
   envKeys?: string[]
   /** true for OpenAI-compatible local servers (ollama/llama.cpp) that need no key */
   keyless?: boolean
+  /** supports the OpenAI Responses API (/v1/responses) rather than just Chat Completions */
+  supportsResponses?: boolean
   /** user added this as a custom endpoint */
   custom?: boolean
 }
@@ -59,8 +61,13 @@ export interface ModelInfo {
   name: string
   providerId: string
   contextWindow?: number
+  maxOutput?: number
   /** model exposes a reasoning/thinking channel */
   reasoning?: boolean
+  /** USD per 1M tokens, when known */
+  cost?: { input: number; output: number }
+  /** true when surfaced from the provider's own live endpoint (vs offline snapshot) */
+  live?: boolean
 }
 
 /** Normalized streaming event emitted by every provider adapter. */

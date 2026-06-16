@@ -6,6 +6,7 @@ import { streamGoogle } from "./google.ts"
 export * from "./registry.ts"
 export * from "./auth.ts"
 export * from "./catalog.ts"
+export * from "./models.ts"
 export * from "./paths.ts"
 
 /** Dispatch a streaming chat request to the right wire adapter. */

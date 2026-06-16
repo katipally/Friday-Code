@@ -6,6 +6,16 @@ import { Scrim } from "./Scrim.tsx"
 
 type Step = "provider" | "key" | "model" | "effort"
 
+function fmtCtx(n?: number): string {
+  if (!n) return ""
+  return n >= 1000 ? `${Math.round(n / 1000)}k` : String(n)
+}
+function fmtCost(c?: { input: number; output: number }): string {
+  if (!c) return ""
+  const r = (x: number) => (x >= 1 ? x.toFixed(0) : x.toFixed(2).replace(/\.?0+$/, ""))
+  return `$${r(c.input)}/${r(c.output)}`
+}
+
 function Row(props: { active: boolean; accent: string; onClick: () => void; children: any; id?: string }) {
   return (
     <box
@@ -237,7 +247,13 @@ export function ModelModal() {
                       <text fg={mIndex() === i() ? theme.text : theme.textMuted}>{m.name}</text>
                       <box flexGrow={1} />
                       <Show when={m.reasoning}>
-                        <text fg={theme.textFaint}>reasoning</text>
+                        <text fg={accent()}>◇</text>
+                      </Show>
+                      <Show when={m.contextWindow}>
+                        <text fg={theme.textFaint}>{fmtCtx(m.contextWindow)}</text>
+                      </Show>
+                      <Show when={m.cost}>
+                        <text fg={theme.textFaint}>{fmtCost(m.cost)}</text>
                       </Show>
                     </Row>
                   )}

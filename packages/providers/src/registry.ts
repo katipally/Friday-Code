@@ -24,6 +24,7 @@ export const BUILTIN_PROVIDERS: BuiltinProvider[] = [
     baseURL: "https://api.openai.com/v1",
     envKeys: ["OPENAI_API_KEY"],
     catalogId: "openai",
+    supportsResponses: true,
   },
   {
     id: "google",
