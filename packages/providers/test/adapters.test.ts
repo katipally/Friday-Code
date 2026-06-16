@@ -2,6 +2,7 @@ import { test, expect, afterEach } from "bun:test"
 import type { ProviderEvent } from "@friday/shared"
 import { streamOpenAI } from "../src/openai.ts"
 import { streamAnthropic } from "../src/anthropic.ts"
+import { streamGoogle } from "../src/google.ts"
 
 const realFetch = globalThis.fetch
 afterEach(() => {
@@ -61,6 +62,24 @@ test("anthropic SSE normalization: text + tool_use + usage", async () => {
   const start = events.find((e) => e.type === "tool_start") as any
   expect(start.name).toBe("read")
   expect(start.id).toBe("tu_1")
+  const args = events.filter((e) => e.type === "tool_delta").map((e: any) => e.argsDelta).join("")
+  expect(args).toBe('{"path":"a"}')
+  expect(events.some((e) => e.type === "usage")).toBe(true)
+  expect(events.some((e) => e.type === "done")).toBe(true)
+})
+
+test("google SSE normalization: text + functionCall + usage", async () => {
+  stubFetch(
+    [
+      `data: {"candidates":[{"content":{"parts":[{"text":"Hi"}]}}]}`,
+      `data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"read","args":{"path":"a"}}}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":2}}`,
+    ].join("\n\n"),
+  )
+  const events = await drain(streamGoogle({ baseURL: "https://x", req, signal: new AbortController().signal }))
+  const text = events.filter((e) => e.type === "text").map((e: any) => e.delta).join("")
+  expect(text).toBe("Hi")
+  const start = events.find((e) => e.type === "tool_start") as any
+  expect(start.name).toBe("read")
   const args = events.filter((e) => e.type === "tool_delta").map((e: any) => e.argsDelta).join("")
   expect(args).toBe('{"path":"a"}')
   expect(events.some((e) => e.type === "usage")).toBe(true)

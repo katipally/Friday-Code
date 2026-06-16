@@ -1,6 +1,6 @@
 import { Show } from "solid-js"
 import { theme } from "@friday/shared"
-import { useApp } from "../store.tsx"
+import { useApp, type PendingPermission } from "../store.tsx"
 
 function Btn(props: { label: string; color: string; onClick: () => void }) {
   return (
@@ -22,7 +22,7 @@ export function PermissionCard() {
   const app = useApp()
   return (
     <Show when={app.pending()}>
-      {(p) => (
+      {(p: () => PendingPermission) => (
         <box
           flexDirection="column"
           border

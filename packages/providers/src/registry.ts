@@ -26,6 +26,14 @@ export const BUILTIN_PROVIDERS: BuiltinProvider[] = [
     catalogId: "openai",
   },
   {
+    id: "google",
+    name: "Google Gemini",
+    protocol: "google",
+    baseURL: "https://generativelanguage.googleapis.com/v1beta",
+    envKeys: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+    catalogId: "google",
+  },
+  {
     id: "openrouter",
     name: "OpenRouter",
     protocol: "openai",
@@ -109,6 +117,7 @@ export const BUILTIN_PROVIDERS: BuiltinProvider[] = [
 export const MODEL_SNAPSHOT: Record<string, string[]> = {
   anthropic: ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"],
   openai: ["gpt-5", "gpt-5-mini", "o3"],
+  google: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"],
   openrouter: ["anthropic/claude-opus-4-8", "openai/gpt-5", "moonshotai/kimi-k2"],
   "opencode-zen": ["claude-sonnet-4-6", "kimi-k2", "gpt-5", "minimax-m2.5"],
   groq: ["moonshotai/kimi-k2-instruct", "llama-3.3-70b-versatile"],

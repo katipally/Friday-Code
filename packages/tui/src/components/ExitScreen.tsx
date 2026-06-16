@@ -1,6 +1,7 @@
 import { onCleanup, onMount, Show } from "solid-js"
 import { useKeyboard, useRenderer } from "@opentui/solid"
 import { theme, getMode, MASCOT } from "@friday/shared"
+import type { SessionStats } from "@friday/core"
 import { useApp } from "../store.tsx"
 import { Logo } from "./Logo.tsx"
 
@@ -51,7 +52,7 @@ export function ExitScreen() {
       <text fg={accent()}>{MASCOT.done.frames[0]} see you soon</text>
       <box height={1} />
       <Show when={stats}>
-        {(s) => (
+        {(s: () => SessionStats) => (
           <text fg={theme.textMuted}>
             {s().messages} messages · {fmtTokens(s().tokens)} tokens · {fmtDuration(s().durationMs)}
           </text>

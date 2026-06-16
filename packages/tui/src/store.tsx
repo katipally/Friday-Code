@@ -96,7 +96,6 @@ export function createAppStore(engine: Engine) {
   const [pending, setPending] = createSignal<PendingPermission | null>(null)
   const [askPending, setAskPending] = createSignal<PendingAsk | null>(null)
   const [paletteOpen, setPaletteOpen] = createSignal(false)
-  const [composerText, setComposerText] = createSignal("")
 
   const [items, setItems] = createStore<ViewItem[]>([])
   const [contextFiles] = createSignal<string[]>(engine.contextInfo().files)
@@ -373,8 +372,6 @@ export function createAppStore(engine: Engine) {
     exitStats,
     paletteOpen,
     setPaletteOpen,
-    composerText,
-    setComposerText,
     listCommands,
     runCommand,
     contextFiles,

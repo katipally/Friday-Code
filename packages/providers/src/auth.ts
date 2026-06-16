@@ -28,14 +28,5 @@ export function setProviderKey(id: string, apiKey: string, baseURL?: string): vo
 }
 
 export function getProviderKey(id: string): string | undefined {
-  const stored = loadAuth().providers[id]?.apiKey
-  if (stored) return stored
-  return undefined
-}
-
-export function addCustomProvider(p: ProviderInfo): void {
-  const a = loadAuth()
-  a.custom = a.custom.filter((c) => c.id !== p.id)
-  a.custom.push(p)
-  saveAuth(a)
+  return loadAuth().providers[id]?.apiKey
 }

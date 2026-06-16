@@ -34,11 +34,7 @@ export function Composer() {
   })
 
   function refresh() {
-    queueMicrotask(() => {
-      const t: string = ta?.plainText ?? ""
-      setText(t)
-      app.setComposerText(t)
-    })
+    queueMicrotask(() => setText(ta?.plainText ?? ""))
   }
 
   function setComposer(value: string) {
@@ -173,7 +169,6 @@ export function Composer() {
             backgroundColor={theme.bgComposer}
             minHeight={1}
             maxHeight={maxHeight()}
-            wrapText
           />
         </box>
         <box flexDirection="row" gap={1} marginLeft={1} alignItems="center">

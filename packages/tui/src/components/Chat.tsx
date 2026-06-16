@@ -41,6 +41,7 @@ function AssistantMessage(props: { item: Extract<ViewItem, { kind: "assistant" }
           <text fg={accent()}>⬡ friday</text>
           <text fg={theme.text} selectable>
             {props.item.text}
+            {props.item.done ? "" : " ▋"}
           </text>
         </box>
       </Show>

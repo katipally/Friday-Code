@@ -1,4 +1,4 @@
-import { obj, type Tool, type ToolContext, type ToolResult } from "../tool.ts"
+import { obj, type Tool, type ToolResult } from "../tool.ts"
 
 const MAX_OUTPUT = 30_000
 

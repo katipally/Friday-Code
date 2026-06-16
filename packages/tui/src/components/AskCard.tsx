@@ -1,7 +1,7 @@
 import { For, Show } from "solid-js"
 import { useKeyboard } from "@opentui/solid"
 import { theme, getMode } from "@friday/shared"
-import { useApp } from "../store.tsx"
+import { useApp, type PendingAsk } from "../store.tsx"
 
 /** Inline HITL card for the ask_user tool: a question + optional numbered choices + free text. */
 export function AskCard() {
@@ -24,7 +24,7 @@ export function AskCard() {
 
   return (
     <Show when={app.askPending()}>
-      {(a) => (
+      {(a: () => PendingAsk) => (
         <box
           flexDirection="column"
           border

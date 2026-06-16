@@ -1,13 +1,8 @@
 import fs from "node:fs/promises"
 import path from "node:path"
-import { obj, type Tool, type ToolContext, type ToolResult } from "../tool.ts"
+import { obj, type Tool, type ToolResult } from "../tool.ts"
 
 const IGNORE = /(^|\/)(node_modules|\.git|dist|build|\.next|coverage)(\/|$)/
-
-function rel(ctx: ToolContext, p: string): string {
-  const r = path.relative(ctx.cwd, p)
-  return r.startsWith("..") ? p : r
-}
 
 export const globTool: Tool = {
   name: "glob",

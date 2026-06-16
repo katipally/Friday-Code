@@ -22,5 +22,3 @@ export const MASCOT: Record<MascotState, MascotAnim> = {
   done: { frames: ["⬡‿⬡"], interval: 1000, line: "done!" },
   error: { frames: ["⬡_⬡", "⬡╴⬡"], interval: 400, line: "hmm…" },
 }
-
-export const MASCOT_WIDTH = 5

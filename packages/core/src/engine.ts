@@ -30,7 +30,7 @@ import { expandMentions } from "./mentions.ts"
 import { loadCommands, type CustomCommand } from "./commands.ts"
 import { loadSkills, type Skill } from "./skills.ts"
 
-let now = () => Date.now()
+const now = () => Date.now()
 
 export type StreamFn = (
   provider: ProviderInfo,
@@ -317,6 +317,50 @@ export class Engine {
   }
 
   // ---- the agentic loop ----
+  /** Drain one provider turn, accumulating text/reasoning/tool-calls and firing callbacks. */
+  private async collectTurn(
+    gen: AsyncGenerator<ProviderEvent>,
+    signal: AbortSignal,
+    on: { text?: (d: string) => void; reasoning?: (d: string) => void; usage?: (input: number, output: number) => void },
+  ): Promise<{ text: string; reasoning: string; toolCalls: ToolCall[] }> {
+    let text = ""
+    let reasoning = ""
+    const calls = new Map<number, { id: string; name: string; args: string }>()
+    for await (const ev of gen) {
+      if (signal.aborted) break
+      switch (ev.type) {
+        case "text":
+          text += ev.delta
+          on.text?.(ev.delta)
+          break
+        case "reasoning":
+          reasoning += ev.delta
+          on.reasoning?.(ev.delta)
+          break
+        case "tool_start": {
+          const c = calls.get(ev.index) ?? { id: "", name: "", args: "" }
+          if (ev.id) c.id = ev.id
+          if (ev.name) c.name = ev.name
+          calls.set(ev.index, c)
+          break
+        }
+        case "tool_delta": {
+          const c = calls.get(ev.index) ?? { id: "", name: "", args: "" }
+          c.args += ev.argsDelta
+          calls.set(ev.index, c)
+          break
+        }
+        case "usage":
+          on.usage?.(ev.input, ev.output)
+          break
+      }
+    }
+    const toolCalls: ToolCall[] = [...calls.values()]
+      .filter((c) => c.name)
+      .map((c) => ({ id: c.id || this.nextId(), name: c.name, arguments: c.args || "{}" }))
+    return { text, reasoning, toolCalls }
+  }
+
   private resolveProvider(): ProviderInfo {
     const found = this.listProviders().find((p) => p.id === this.providerId)
     if (found) {
@@ -387,52 +431,29 @@ export class Engine {
         maxTokens: 8192,
       }
 
-      let text = ""
-      let reasoning = ""
-      const calls = new Map<number, { id: string; name: string; args: string }>()
       let streamedText = false
-
-      for await (const ev of this.streamFn(provider, apiKey, req, signal)) {
-        if (signal.aborted) return
-        switch (ev.type) {
-          case "text":
+      const { text, reasoning, toolCalls } = await this.collectTurn(
+        this.streamFn(provider, apiKey, req, signal),
+        signal,
+        {
+          text: (d) => {
             if (!streamedText) {
               streamedText = true
               this.emit({ type: "mascot", state: "streaming" })
             }
-            text += ev.delta
-            this.emit({ type: "text", id, delta: ev.delta })
-            break
-          case "reasoning":
-            reasoning += ev.delta
-            this.emit({ type: "reasoning", id, delta: ev.delta })
-            break
-          case "tool_start": {
-            const c = calls.get(ev.index) ?? { id: "", name: "", args: "" }
-            if (ev.id) c.id = ev.id
-            if (ev.name) c.name = ev.name
-            calls.set(ev.index, c)
-            break
-          }
-          case "tool_delta": {
-            const c = calls.get(ev.index) ?? { id: "", name: "", args: "" }
-            c.args += ev.argsDelta
-            calls.set(ev.index, c)
-            break
-          }
-          case "usage":
-            inTok += ev.input
-            outTok += ev.output
-            this.totalTokens += ev.input + ev.output
+            this.emit({ type: "text", id, delta: d })
+          },
+          reasoning: (d) => this.emit({ type: "reasoning", id, delta: d }),
+          usage: (i, o) => {
+            inTok += i
+            outTok += o
+            this.totalTokens += i + o
             this.emit({ type: "usage", input: inTok, output: outTok })
             this.emit({ type: "status", text: "thinking…", elapsedMs: Date.now() - start, tokens: inTok + outTok })
-            break
-        }
-      }
-
-      const toolCalls: ToolCall[] = [...calls.values()]
-        .filter((c) => c.name)
-        .map((c) => ({ id: c.id || this.nextId(), name: c.name, arguments: c.args || "{}" }))
+          },
+        },
+      )
+      if (signal.aborted) return
 
       this.addMessage({
         role: "assistant",
@@ -545,30 +566,11 @@ export class Engine {
 
     for (let step = 0; step < 15; step++) {
       if (signal.aborted) break
-      const calls = new Map<number, { id: string; name: string; args: string }>()
-      let text = ""
-      for await (const ev of this.streamFn(
-        provider,
-        apiKey,
-        { model: this.model!, messages, tools: defs, effort: this.effort, maxTokens: 4096 },
+      const { text, toolCalls } = await this.collectTurn(
+        this.streamFn(provider, apiKey, { model: this.model!, messages, tools: defs, effort: this.effort, maxTokens: 4096 }, signal),
         signal,
-      )) {
-        if (signal.aborted) break
-        if (ev.type === "text") text += ev.delta
-        else if (ev.type === "tool_start") {
-          const c = calls.get(ev.index) ?? { id: "", name: "", args: "" }
-          if (ev.id) c.id = ev.id
-          if (ev.name) c.name = ev.name
-          calls.set(ev.index, c)
-        } else if (ev.type === "tool_delta") {
-          const c = calls.get(ev.index) ?? { id: "", name: "", args: "" }
-          c.args += ev.argsDelta
-          calls.set(ev.index, c)
-        } else if (ev.type === "usage") this.totalTokens += ev.input + ev.output
-      }
-      const toolCalls = [...calls.values()]
-        .filter((c) => c.name)
-        .map((c) => ({ id: c.id || this.nextId(), name: c.name, arguments: c.args || "{}" }))
+        { usage: (i, o) => (this.totalTokens += i + o) },
+      )
       messages.push({ role: "assistant", text: text || undefined, toolCalls: toolCalls.length ? toolCalls : undefined })
       if (text) lastText = text
       if (!toolCalls.length) return lastText || "(no result)"
