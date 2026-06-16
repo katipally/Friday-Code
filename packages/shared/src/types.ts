@@ -18,7 +18,7 @@ export interface ToolCall {
 export type Message =
   | { role: "system"; text: string }
   | { role: "user"; text: string }
-  | { role: "assistant"; text?: string; reasoning?: string; toolCalls?: ToolCall[] }
+  | { role: "assistant"; text?: string; reasoning?: string; reasoningSignature?: string; toolCalls?: ToolCall[] }
   | { role: "tool"; callId: string; name: string; result: string; isError?: boolean }
 
 /** Tool description handed to the model (JSON-Schema parameters). */
@@ -74,6 +74,8 @@ export interface ModelInfo {
 export type ProviderEvent =
   | { type: "text"; delta: string }
   | { type: "reasoning"; delta: string }
+  /** the signed reasoning block (Anthropic) — must be replayed on later turns when tools are used */
+  | { type: "reasoning_signature"; signature: string }
   | { type: "tool_start"; index: number; id: string; name: string }
   | { type: "tool_delta"; index: number; argsDelta: string }
   | { type: "tool_stop"; index: number }

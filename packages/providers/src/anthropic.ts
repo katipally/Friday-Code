@@ -1,5 +1,6 @@
 import type { ChatRequest, Message, ProviderEvent, ToolDef } from "@friday/shared"
 import { safeJsonParse, sseLines } from "./sse.ts"
+import { thinkingBudget } from "./effort.ts"
 
 function toAnthropic(messages: Message[]): { system?: string; messages: unknown[] } {
   let system: string | undefined
@@ -11,6 +12,10 @@ function toAnthropic(messages: Message[]): { system?: string; messages: unknown[
       out.push({ role: "user", content: [{ type: "text", text: m.text }] })
     } else if (m.role === "assistant") {
       const content: Record<string, unknown>[] = []
+      // Replay the signed thinking block first (required by Anthropic when thinking + tools are used).
+      if (m.reasoning && m.reasoningSignature) {
+        content.push({ type: "thinking", thinking: m.reasoning, signature: m.reasoningSignature })
+      }
       if (m.text) content.push({ type: "text", text: m.text })
       for (const tc of m.toolCalls ?? []) {
         content.push({ type: "tool_use", id: tc.id, name: tc.name, input: safeJsonParse(tc.arguments || "{}") })
@@ -47,6 +52,12 @@ export async function* streamAnthropic(opts: {
   }
   if (system) body.system = system
   if (req.tools.length) body.tools = toTools(req.tools)
+  // Extended thinking: enable when a reasoning effort is requested. max_tokens must exceed the budget.
+  if (req.effort) {
+    const budget = thinkingBudget(req.effort)
+    body.thinking = { type: "enabled", budget_tokens: budget }
+    body.max_tokens = Math.min(budget + (req.maxTokens ?? 8192), 32000) // must exceed the budget, capped for safety
+  }
 
   const res = await fetch(`${baseURL.replace(/\/$/, "")}/messages`, {
     method: "POST",
@@ -90,6 +101,7 @@ export async function* streamAnthropic(opts: {
         const d = json.delta
         if (d?.type === "text_delta") yield { type: "text", delta: d.text }
         else if (d?.type === "thinking_delta") yield { type: "reasoning", delta: d.thinking }
+        else if (d?.type === "signature_delta") yield { type: "reasoning_signature", signature: d.signature }
         else if (d?.type === "input_json_delta") yield { type: "tool_delta", index: json.index, argsDelta: d.partial_json }
         break
       }

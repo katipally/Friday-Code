@@ -1,5 +1,6 @@
 import type { ChatRequest, Message, ProviderEvent, ToolDef } from "@friday/shared"
 import { sseLines } from "./sse.ts"
+import { thinkingBudget } from "./effort.ts"
 
 /** Convert canonical messages to Gemini `contents` + systemInstruction. */
 function toGoogle(messages: Message[]): { system?: string; contents: unknown[] } {
@@ -50,6 +51,10 @@ export async function* streamGoogle(opts: {
   if (system) body.systemInstruction = { parts: [{ text: system }] }
   const tools = toTools(req.tools)
   if (tools.length) body.tools = tools
+  // Thinking: request a thinking budget + thought summaries when a reasoning effort is set.
+  if (req.effort) {
+    body.generationConfig = { thinkingConfig: { thinkingBudget: thinkingBudget(req.effort), includeThoughts: true } }
+  }
 
   const url = `${baseURL.replace(/\/$/, "")}/models/${req.model}:streamGenerateContent?alt=sse${apiKey ? `&key=${apiKey}` : ""}`
   const res = await fetch(url, {
@@ -81,8 +86,10 @@ export async function* streamGoogle(opts: {
     }
     const cand = json.candidates?.[0]
     for (const part of cand?.content?.parts ?? []) {
-      if (typeof part.text === "string" && part.text) yield { type: "text", delta: part.text }
-      else if (part.functionCall) {
+      if (typeof part.text === "string" && part.text) {
+        // Gemini marks thinking parts with `thought: true`.
+        yield part.thought ? { type: "reasoning", delta: part.text } : { type: "text", delta: part.text }
+      } else if (part.functionCall) {
         const i = toolIndex++
         yield { type: "tool_start", index: i, id: `${part.functionCall.name}_${i}`, name: part.functionCall.name }
         yield { type: "tool_delta", index: i, argsDelta: JSON.stringify(part.functionCall.args ?? {}) }

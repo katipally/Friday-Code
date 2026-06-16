@@ -364,9 +364,10 @@ export class Engine {
     gen: AsyncGenerator<ProviderEvent>,
     signal: AbortSignal,
     on: { text?: (d: string) => void; reasoning?: (d: string) => void; usage?: (input: number, output: number) => void },
-  ): Promise<{ text: string; reasoning: string; toolCalls: ToolCall[] }> {
+  ): Promise<{ text: string; reasoning: string; reasoningSignature: string; toolCalls: ToolCall[] }> {
     let text = ""
     let reasoning = ""
+    let reasoningSignature = ""
     const calls = new Map<number, { id: string; name: string; args: string }>()
     for await (const ev of gen) {
       if (signal.aborted) break
@@ -378,6 +379,9 @@ export class Engine {
         case "reasoning":
           reasoning += ev.delta
           on.reasoning?.(ev.delta)
+          break
+        case "reasoning_signature":
+          reasoningSignature += ev.signature
           break
         case "tool_start": {
           const c = calls.get(ev.index) ?? { id: "", name: "", args: "" }
@@ -400,7 +404,7 @@ export class Engine {
     const toolCalls: ToolCall[] = [...calls.values()]
       .filter((c) => c.name)
       .map((c) => ({ id: c.id || this.nextId(), name: c.name, arguments: c.args || "{}" }))
-    return { text, reasoning, toolCalls }
+    return { text, reasoning, reasoningSignature, toolCalls }
   }
 
   private resolveProvider(): ProviderInfo {
@@ -476,7 +480,7 @@ export class Engine {
       }
 
       let streamedText = false
-      const { text, reasoning, toolCalls } = await this.collectTurn(
+      const { text, reasoning, reasoningSignature, toolCalls } = await this.collectTurn(
         this.streamFn(provider, apiKey, req, signal),
         signal,
         {
@@ -503,6 +507,7 @@ export class Engine {
         role: "assistant",
         text: text || undefined,
         reasoning: reasoning || undefined,
+        reasoningSignature: reasoningSignature || undefined,
         toolCalls: toolCalls.length ? toolCalls : undefined,
       })
 
@@ -610,7 +615,7 @@ export class Engine {
 
     for (let step = 0; step < 15; step++) {
       if (signal.aborted) break
-      const { text, toolCalls } = await this.collectTurn(
+      const { text, reasoning, reasoningSignature, toolCalls } = await this.collectTurn(
         this.streamFn(
           provider,
           apiKey,
@@ -620,7 +625,13 @@ export class Engine {
         signal,
         { usage: (i, o) => (this.totalTokens += i + o) },
       )
-      messages.push({ role: "assistant", text: text || undefined, toolCalls: toolCalls.length ? toolCalls : undefined })
+      messages.push({
+        role: "assistant",
+        text: text || undefined,
+        reasoning: reasoning || undefined,
+        reasoningSignature: reasoningSignature || undefined,
+        toolCalls: toolCalls.length ? toolCalls : undefined,
+      })
       if (text) lastText = text
       if (!toolCalls.length) return lastText || "(no result)"
 
