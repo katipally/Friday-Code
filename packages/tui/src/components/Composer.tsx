@@ -14,7 +14,11 @@ export function Composer() {
   const dims = useTerminalDimensions()
   const mode = () => getMode(app.mode())
   const focused = () =>
-    app.view() === "shell" && !app.overlayOpen() && !app.modelModalOpen() && !app.pending()
+    app.view() === "shell" &&
+    !app.overlayOpen() &&
+    !app.modelModalOpen() &&
+    !app.pending() &&
+    !app.askPending()
   const maxHeight = () => Math.max(4, Math.floor(dims().height / 3))
 
   let ta: any

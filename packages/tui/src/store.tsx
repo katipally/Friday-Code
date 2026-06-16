@@ -38,6 +38,7 @@ export type ViewItem =
   | { kind: "error"; id: string; text: string }
 
 export type PendingPermission = { requestId: string; tool: string; summary: string; detail?: string }
+export type PendingAsk = { requestId: string; question: string; options?: string[] }
 export type SessionItem = { id: string; title: string }
 
 export function createAppStore(engine: Engine) {
@@ -60,6 +61,7 @@ export function createAppStore(engine: Engine) {
   const [dragging, setDragging] = createSignal<null | "left" | "right">(null)
   const [busy, setBusy] = createSignal(false)
   const [pending, setPending] = createSignal<PendingPermission | null>(null)
+  const [askPending, setAskPending] = createSignal<PendingAsk | null>(null)
 
   const [items, setItems] = createStore<ViewItem[]>([])
   const sessions: SessionItem[] = [{ id: "s1", title: "session" }]
@@ -129,6 +131,9 @@ export function createAppStore(engine: Engine) {
         break
       case "permission-request":
         setPending({ requestId: e.requestId, tool: e.tool, summary: e.summary, detail: e.detail })
+        break
+      case "ask-user":
+        setAskPending({ requestId: e.requestId, question: e.question, options: e.options })
         break
       case "turn-done":
         patchItem(e.id, (it) => {
@@ -200,6 +205,13 @@ export function createAppStore(engine: Engine) {
     setPending(null)
   }
 
+  function replyAsk(answer: string) {
+    const a = askPending()
+    if (!a) return
+    engine.send({ type: "ask-reply", requestId: a.requestId, answer })
+    setAskPending(null)
+  }
+
   function connectAndSelect(providerId: string, model: string, apiKey?: string, baseURL?: string) {
     if (apiKey) engine.connectProvider(providerId, apiKey, baseURL)
     engine.selectModel(providerId, model)
@@ -245,6 +257,8 @@ export function createAppStore(engine: Engine) {
     setDragging,
     busy,
     pending,
+    askPending,
+    replyAsk,
     items,
     sessions,
     activeSession,

@@ -14,6 +14,7 @@ import { Composer } from "./components/Composer.tsx"
 import { FooterHints } from "./components/FooterHints.tsx"
 import { KeymapOverlay } from "./components/KeymapOverlay.tsx"
 import { PermissionCard } from "./components/PermissionCard.tsx"
+import { AskCard } from "./components/AskCard.tsx"
 import { ModelModal } from "./components/ModelModal.tsx"
 
 function Shell() {
@@ -44,6 +45,7 @@ function Shell() {
           <box flexGrow={1} flexDirection="column" paddingLeft={1} paddingRight={1}>
             <Chat />
             <PermissionCard />
+            <AskCard />
             <StatusStrip />
             <Composer />
           </box>
@@ -76,6 +78,7 @@ function AppRoot() {
       return
     }
     if (app.modelModalOpen()) return // ModelModal owns keys while open
+    if (app.askPending()) return // AskCard owns keys while open
 
     if (app.pending()) {
       if (key.name === "a" || key.name === "return" || key.name === "enter") return app.replyPermission("allow-once")

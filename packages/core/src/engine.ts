@@ -20,7 +20,7 @@ import {
   setProviderKey,
   streamProvider,
 } from "@friday/providers"
-import { buildRegistry, type Tool, type ToolResult } from "@friday/tools"
+import { ASK_USER, buildRegistry, type Tool, type ToolResult } from "@friday/tools"
 import { loadConfig, saveConfig } from "./config.ts"
 import { systemPrompt } from "./prompt.ts"
 
@@ -64,6 +64,7 @@ export class Engine {
   private abort?: AbortController
   private busy = false
   private pending = new Map<string, Pending>()
+  private pendingAsk = new Map<string, (answer: string) => void>()
   private sessionAllow = new Set<PermissionCategory>()
   private idc = 0
 
@@ -154,6 +155,14 @@ export class Engine {
           this.pending.delete(cmd.requestId)
           if (cmd.decision === "allow-always") this.sessionAllow.add(p.category)
           p.resolve(cmd.decision === "deny" ? "deny" : "allow")
+        }
+        break
+      }
+      case "ask-reply": {
+        const r = this.pendingAsk.get(cmd.requestId)
+        if (r) {
+          this.pendingAsk.delete(cmd.requestId)
+          r(cmd.answer)
         }
         break
       }
@@ -292,6 +301,23 @@ export class Engine {
         this.emit({ type: "tool-call", id, callId: tc.id, name: tc.name, input: safeParse(tc.arguments) })
         this.emit({ type: "mascot", state: "working" })
         this.emit({ type: "status", text: `running ${tc.name}…`, elapsedMs: Date.now() - start })
+
+        if (tc.name === ASK_USER) {
+          const a = safeParse(tc.arguments) as { question?: string; options?: unknown }
+          const requestId = this.nextId()
+          this.emit({
+            type: "ask-user",
+            requestId,
+            question: a.question ?? "",
+            options: Array.isArray(a.options) ? (a.options as string[]) : undefined,
+          })
+          this.emit({ type: "mascot", state: "idle" })
+          this.emit({ type: "status", text: "waiting for you…" })
+          const answer = await new Promise<string>((resolve) => this.pendingAsk.set(requestId, resolve))
+          this.messages.push({ role: "tool", callId: tc.id, name: tc.name, result: answer })
+          this.emit({ type: "tool-result", callId: tc.id, ok: true, output: answer })
+          continue
+        }
 
         const tool = this.registry.get(tc.name)
         if (!tool) {

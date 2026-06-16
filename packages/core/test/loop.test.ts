@@ -110,3 +110,64 @@ test("permission gate: default mode asks before an edit, deny is honored", async
 
   fs.rmSync(dir, { recursive: true, force: true })
 })
+
+test("ask_user pauses the loop and feeds the answer back", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-test-"))
+  const streamFn = makeStreamFn([
+    [
+      { type: "tool_start", index: 0, id: "call_a", name: "ask_user" },
+      { type: "tool_delta", index: 0, argsDelta: JSON.stringify({ question: "Which framework?", options: ["solid", "react"] }) },
+      { type: "tool_stop", index: 0 },
+      { type: "done", stopReason: "tool_use" },
+    ],
+    [
+      { type: "text", delta: "Great, Solid it is." },
+      { type: "done", stopReason: "stop" },
+    ],
+  ])
+  const engine = new Engine({ cwd: dir, streamFn })
+  engine.selectModel("mock", "mock-model")
+  const events = collect(engine)
+  engine.send({ type: "prompt", text: "pick a framework" })
+  await Bun.sleep(20)
+
+  const ask = events.find((e) => e.type === "ask-user") as Extract<EngineEvent, { type: "ask-user" }>
+  expect(ask).toBeTruthy()
+  expect(ask.options).toEqual(["solid", "react"])
+
+  engine.send({ type: "ask-reply", requestId: ask.requestId, answer: "solid" })
+  await Bun.sleep(20)
+
+  const result = events.find((e) => e.type === "tool-result") as Extract<EngineEvent, { type: "tool-result" }>
+  expect(result.output).toBe("solid")
+  const text = events.filter((e) => e.type === "text").map((e: any) => e.delta).join("")
+  expect(text).toContain("Solid")
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test("network tools are gated: default mode asks before webfetch, deny avoids the call", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-test-"))
+  const streamFn = makeStreamFn([
+    [
+      { type: "tool_start", index: 0, id: "call_f", name: "webfetch" },
+      { type: "tool_delta", index: 0, argsDelta: JSON.stringify({ url: "https://example.com" }) },
+      { type: "tool_stop", index: 0 },
+      { type: "done", stopReason: "tool_use" },
+    ],
+    [{ type: "text", delta: "ok" }, { type: "done", stopReason: "stop" }],
+  ])
+  const engine = new Engine({ cwd: dir, streamFn })
+  engine.send({ type: "set-mode", mode: "default" })
+  engine.selectModel("mock", "mock-model")
+  const events = collect(engine)
+  engine.send({ type: "prompt", text: "fetch example.com" })
+  await Bun.sleep(20)
+
+  const req = events.find((e) => e.type === "permission-request") as Extract<EngineEvent, { type: "permission-request" }>
+  expect(req.tool).toBe("webfetch")
+  engine.send({ type: "permission-reply", requestId: req.requestId, decision: "deny" })
+  await Bun.sleep(20)
+  const result = events.find((e) => e.type === "tool-result") as Extract<EngineEvent, { type: "tool-result" }>
+  expect(result.ok).toBe(false)
+  fs.rmSync(dir, { recursive: true, force: true })
+})
