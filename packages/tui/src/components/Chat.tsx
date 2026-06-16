@@ -5,6 +5,7 @@ import { ThinkingCard } from "./ThinkingCard.tsx"
 import { ToolCard } from "./ToolCard.tsx"
 import { Markdown } from "./Markdown.tsx"
 import { Logo } from "./Logo.tsx"
+import { Appear } from "../motion/index.ts"
 
 /** User prompt: ❯ marker + a left accent bar colored by the mode it was sent in, with padding. */
 function UserBubble(props: { item: Extract<ViewItem, { kind: "user" }> }) {
@@ -68,20 +69,22 @@ export function Chat() {
       </Show>
       <For each={app.items}>
         {(item) => (
-          <Switch>
-            <Match when={item.kind === "user"}>
-              <UserBubble item={item as any} />
-            </Match>
-            <Match when={item.kind === "assistant"}>
-              <AssistantMessage item={item as any} />
-            </Match>
-            <Match when={item.kind === "tool"}>
-              <ToolCard item={item as any} />
-            </Match>
-            <Match when={item.kind === "error"}>
-              <ErrorBubble item={item as any} />
-            </Match>
-          </Switch>
+          <Appear distance={1} duration={170}>
+            <Switch>
+              <Match when={item.kind === "user"}>
+                <UserBubble item={item as any} />
+              </Match>
+              <Match when={item.kind === "assistant"}>
+                <AssistantMessage item={item as any} />
+              </Match>
+              <Match when={item.kind === "tool"}>
+                <ToolCard item={item as any} />
+              </Match>
+              <Match when={item.kind === "error"}>
+                <ErrorBubble item={item as any} />
+              </Match>
+            </Switch>
+          </Appear>
         )}
       </For>
     </scrollbox>

@@ -41,6 +41,8 @@ export type ViewItem =
 export type PendingPermission = { requestId: string; tool: string; summary: string; detail?: string }
 export type PendingAsk = { requestId: string; question: string; options?: string[] }
 export type SessionItem = { id: string; title: string }
+export type TodoItem = { id: string; text: string; status: "pending" | "active" | "done" }
+export type ChangedFile = { path: string; status: string; added: number; removed: number }
 
 /** Rebuild view items from stored messages (history replay on resume/switch). */
 function messagesToItems(messages: Message[]): ViewItem[] {
@@ -106,6 +108,9 @@ export function createAppStore(engine: Engine) {
   const runningTools = createMemo(() =>
     items.filter((i) => i.kind === "tool" && i.status === "running").map((i) => (i as any).title ?? (i as any).name),
   )
+  // Right-panel accordion data — populated by todo_write (M9), git/LSP (M11/M12).
+  const [todos, setTodos] = createSignal<TodoItem[]>([])
+  const [changedFiles, setChangedFiles] = createSignal<ChangedFile[]>([])
   const [activeSession, setActiveSession] = createSignal(engine.currentSessionId())
   const [currentCwd, setCurrentCwd] = createSignal(engine.currentCwd())
   const [roots, setRoots] = createSignal<string[]>(engine.currentRoots())
@@ -296,6 +301,11 @@ export function createAppStore(engine: Engine) {
     return false
   }
 
+  /** Route an engine-side slash command (e.g. /compact, /commit) over the bus. */
+  function sendEngineCommand(command: string) {
+    engine.send({ type: "run-command", command })
+  }
+
   function submitRaw(text: string) {
     setItems(items.length, { kind: "user", id: nextLocalId(), text, mode: mode() })
     engine.send({ type: "prompt", text })
@@ -473,6 +483,11 @@ export function createAppStore(engine: Engine) {
     skills,
     mcpServers,
     runningTools,
+    todos,
+    setTodos,
+    changedFiles,
+    setChangedFiles,
+    sendEngineCommand,
   }
 }
 

@@ -434,6 +434,9 @@ export class Engine {
       case "set-model":
         // model id may be "providerId/model" — handled by selectModel via UI
         break
+      case "run-command":
+        this.runEngineCommand(cmd.command)
+        break
       case "permission-reply": {
         const p = this.pending.get(cmd.requestId)
         if (p) {
@@ -464,6 +467,19 @@ export class Engine {
 
   setMode(m: ModeId): void {
     this.mode = m
+  }
+
+  /**
+   * Dispatch an engine-side slash command sent over the bus (`run-command`).
+   * Real commands are registered by later milestones (e.g. `/compact`, `/commit`);
+   * unknown commands surface a clear error rather than failing silently.
+   */
+  private runEngineCommand(command: string): void {
+    const [name] = command.trim().split(/\s+/)
+    switch (name) {
+      default:
+        this.emit({ type: "error", message: `Unknown command: /${name}` })
+    }
   }
 
   // ---- the agentic loop ----

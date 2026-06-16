@@ -1,0 +1,5 @@
+export * from "./easing.ts"
+export * from "./config.ts"
+export { animate, type AnimateOpts } from "./animate.ts"
+export { useTween, useStagger, useBreathe } from "./hooks.ts"
+export { Fade, Appear, Reveal } from "./components.tsx"
