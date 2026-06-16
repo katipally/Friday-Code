@@ -4,7 +4,7 @@
  */
 import type { ModeId } from "./modes.ts"
 import type { MascotState } from "./mascot.ts"
-import type { Message } from "./types.ts"
+import type { Message, TodoItem } from "./types.ts"
 
 export type EngineEvent =
   | { type: "ready"; needsModel: boolean }
@@ -22,6 +22,8 @@ export type EngineEvent =
   | { type: "status"; text: string; elapsedMs?: number; tokens?: number }
   | { type: "session-changed"; sessionId: string; title: string; cwd: string; roots: string[] }
   | { type: "session-loaded"; sessionId: string; title: string; cwd: string; roots: string[]; messages: Message[] }
+  | { type: "todos"; items: TodoItem[] }
+  | { type: "compaction"; turnsCompacted: number; kept: number; tokensBefore: number; tokensAfter: number }
   | { type: "error"; message: string }
 
 export type UICommand =

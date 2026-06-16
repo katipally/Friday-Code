@@ -11,6 +11,8 @@ export interface FridayConfig {
   effort?: Effort
   mode?: ModeId
   mcp?: Record<string, McpServerConfig>
+  /** context window (tokens) of the selected model — drives auto-compaction */
+  contextWindow?: number
 }
 
 export function loadConfig(): FridayConfig {

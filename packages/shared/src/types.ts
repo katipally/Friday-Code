@@ -84,3 +84,11 @@ export type ProviderEvent =
 
 /** Tool permission categories, matched against a mode's PermissionPolicy. */
 export type PermissionCategory = "read" | "edit" | "bash" | "network"
+
+/** A single item in the agent's live task list (maintained via the todo_write tool). */
+export type TodoStatus = "pending" | "active" | "done"
+export interface TodoItem {
+  id: string
+  text: string
+  status: TodoStatus
+}

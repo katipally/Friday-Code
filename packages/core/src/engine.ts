@@ -10,6 +10,8 @@ import {
   type ProviderEvent,
   type ProviderInfo,
   type ToolCall,
+  type TodoItem,
+  type TodoStatus,
   type UICommand,
 } from "@friday/shared"
 import {
@@ -20,9 +22,10 @@ import {
   setProviderKey,
   streamProvider,
 } from "@friday/providers"
-import { ASK_USER, BUILTIN_TOOLS, SKILL_TOOL, TASK_TOOL, buildRegistry, toToolDef, type Tool, type ToolResult } from "@friday/tools"
+import { ASK_USER, BUILTIN_TOOLS, SKILL_TOOL, TASK_TOOL, TODO_WRITE, buildRegistry, toToolDef, type Tool, type ToolResult } from "@friday/tools"
 import { connectServers, type McpServerConfig } from "@friday/mcp"
 import { loadConfig, saveConfig } from "./config.ts"
+import { COMPACTION, estimateTokens, renderTranscript, safeCutIndex } from "./compaction.ts"
 import { subagentPrompt, systemPrompt } from "./prompt.ts"
 import { SessionStore } from "./sessions.ts"
 import { loadProjectContext, type ProjectContext } from "./context.ts"
@@ -108,6 +111,11 @@ export class Engine {
   private currentCheckpoint?: Checkpoint
   private redoState?: { files: Map<string, string | null>; messages: Message[] }
 
+  private todos: TodoItem[] = []
+  private contextWindow = 0
+  /** When set, the prefix [0, throughIndex) is represented by `summary` instead of raw messages. */
+  private compaction?: { summary: string; throughIndex: number }
+
   constructor(opts: EngineOptions) {
     this.cwd = opts.cwd
     this.roots = [opts.cwd]
@@ -119,6 +127,7 @@ export class Engine {
     this.providerId = cfg.providerId
     this.model = cfg.model
     this.modelReasoning = cfg.reasoning ?? false
+    this.contextWindow = cfg.contextWindow ?? 0
 
     const resumed = opts.resumeId
       ? this.store.get(opts.resumeId)
@@ -196,6 +205,8 @@ export class Engine {
     this.checkpoints = []
     this.currentCheckpoint = undefined
     this.redoState = undefined
+    this.todos = []
+    this.compaction = undefined
   }
 
   private addMessage(msg: Message): void {
@@ -239,6 +250,7 @@ export class Engine {
     this.emit({ type: "session-changed", sessionId: this.sessionId, title: this.sessionTitle, cwd: this.cwd, roots: this.roots })
     if (this.messages.length)
       this.emit({ type: "session-loaded", sessionId: this.sessionId, title: this.sessionTitle, cwd: this.cwd, roots: this.roots, messages: this.messages })
+    this.emit({ type: "todos", items: this.todos })
     this.emit({ type: "ready", needsModel: !this.model || !this.providerId })
   }
 
@@ -318,6 +330,7 @@ export class Engine {
   private emitSessionState(messages: Message[]): void {
     this.emit({ type: "session-changed", sessionId: this.sessionId, title: this.sessionTitle, cwd: this.cwd, roots: this.roots })
     this.emit({ type: "session-loaded", sessionId: this.sessionId, title: this.sessionTitle, cwd: this.cwd, roots: this.roots, messages })
+    this.emit({ type: "todos", items: this.todos })
   }
 
   // ---- checkpoints / undo-rewind ----
@@ -406,11 +419,12 @@ export class Engine {
   connectProvider(providerId: string, apiKey: string, baseURL?: string): void {
     setProviderKey(providerId, apiKey, baseURL)
   }
-  selectModel(providerId: string, model: string, reasoning = false): void {
+  selectModel(providerId: string, model: string, reasoning = false, contextWindow?: number): void {
     this.providerId = providerId
     this.model = model
     this.modelReasoning = reasoning
-    saveConfig({ providerId, model, reasoning })
+    if (contextWindow && contextWindow > 0) this.contextWindow = contextWindow
+    saveConfig({ providerId, model, reasoning, contextWindow: this.contextWindow || undefined })
     this.emit({ type: "model-changed", model, provider: providerId, reasoning })
   }
 
@@ -477,6 +491,9 @@ export class Engine {
   private runEngineCommand(command: string): void {
     const [name] = command.trim().split(/\s+/)
     switch (name) {
+      case "compact":
+        void this.forceCompact()
+        break
       default:
         this.emit({ type: "error", message: `Unknown command: /${name}` })
     }
@@ -579,6 +596,89 @@ export class Engine {
     }
   }
 
+  // ---- context compaction ----
+  /** The message list actually sent to the model (summary prefix + recent tail). */
+  private sendMessages(): Message[] {
+    if (!this.compaction) return this.messages
+    const summaryMsg: Message = {
+      role: "user",
+      text: `<conversation_summary>\nEarlier conversation, condensed for context:\n${this.compaction.summary}\n</conversation_summary>`,
+    }
+    return [summaryMsg, ...this.messages.slice(this.compaction.throughIndex)]
+  }
+
+  private async maybeCompact(provider: ProviderInfo, apiKey: string | undefined, signal: AbortSignal, force: boolean): Promise<void> {
+    const window = this.contextWindow || COMPACTION.defaultWindow
+    const tokens = estimateTokens(this.sendMessages())
+    if (!force && tokens < Math.floor(window * COMPACTION.threshold)) return
+    const floor = this.compaction?.throughIndex ?? 0
+    const target = this.messages.length - COMPACTION.keepRecent
+    const cut = safeCutIndex(this.messages, target, floor)
+    if (cut <= floor) return // no new, safely-cuttable history
+    const before = estimateTokens(this.messages.slice(0, cut))
+    this.emit({ type: "status", text: "compacting context…" })
+    const summary = await this.summarize(provider, apiKey, signal, this.messages.slice(0, cut), this.compaction?.summary)
+    if (!summary) return
+    this.compaction = { summary, throughIndex: cut }
+    this.emit({
+      type: "compaction",
+      turnsCompacted: cut - floor,
+      kept: this.messages.length - cut,
+      tokensBefore: before,
+      tokensAfter: estimateTokens(this.sendMessages()),
+    })
+  }
+
+  /** One-shot provider call to compress a transcript prefix into a faithful summary. */
+  private async summarize(
+    provider: ProviderInfo,
+    apiKey: string | undefined,
+    signal: AbortSignal,
+    msgs: Message[],
+    prior?: string,
+  ): Promise<string> {
+    const instruction = [
+      prior ? `An earlier summary exists; extend it without repeating:\n${prior}\n` : "",
+      "Summarize the conversation below for continuity. Preserve the user's goals, key decisions, file paths created or edited, important findings, and any unfinished tasks. Use terse bullet points. Output only the summary.",
+      "",
+      "Conversation:",
+      renderTranscript(msgs),
+    ]
+      .filter(Boolean)
+      .join("\n")
+    const req = {
+      model: this.model!,
+      messages: [
+        { role: "system", text: "You compress coding-session transcripts into concise, faithful summaries." } as Message,
+        { role: "user", text: instruction } as Message,
+      ],
+      tools: [],
+      maxTokens: 1024,
+    }
+    let text = ""
+    try {
+      for await (const ev of this.streamFn(provider, apiKey, req, signal)) {
+        if (signal.aborted) break
+        if (ev.type === "text") text += ev.delta
+      }
+    } catch {
+      return prior ?? ""
+    }
+    return text.trim() || prior || ""
+  }
+
+  private async forceCompact(): Promise<void> {
+    if (!this.model || !this.providerId) return this.emit({ type: "error", message: "Select a model first (/model)." })
+    if (this.busy) return this.emit({ type: "status", text: "busy — compaction runs automatically" })
+    if (this.messages.length <= COMPACTION.keepRecent) return this.emit({ type: "status", text: "nothing to compact yet" })
+    const provider = this.resolveProvider()
+    const apiKey = getProviderKey(provider.id)
+    this.emit({ type: "mascot", state: "working" })
+    await this.maybeCompact(provider, apiKey, new AbortController().signal, true)
+    this.emit({ type: "mascot", state: "idle" })
+    this.emit({ type: "status", text: "ready" })
+  }
+
   private async loop(start: number): Promise<void> {
     const provider = this.resolveProvider()
     const apiKey = getProviderKey(provider.id)
@@ -593,6 +693,9 @@ export class Engine {
       this.emit({ type: "mascot", state: "thinking" })
       this.emit({ type: "status", text: "thinking…", elapsedMs: Date.now() - start })
 
+      // Auto-compact older history before it overflows the model window.
+      await this.maybeCompact(provider, apiKey, signal, false)
+
       const req = {
         model: this.model!,
         messages: [
@@ -606,7 +709,7 @@ export class Engine {
               skills: this.skills.map((s) => ({ name: s.name, description: s.description, whenToUse: s.whenToUse })),
             }),
           } as Message,
-          ...this.messages,
+          ...this.sendMessages(),
         ],
         tools: this.registry.defs,
         // Only send reasoning effort for models that actually support it (avoids 400s on e.g. gpt-4o).
@@ -653,6 +756,21 @@ export class Engine {
 
       for (const tc of toolCalls) {
         if (signal.aborted) return
+
+        // todo_write renders in the right-panel list, not as a chat tool-card.
+        if (tc.name === TODO_WRITE) {
+          const a = safeParse(tc.arguments) as { todos?: { text?: string; status?: TodoStatus }[] }
+          this.todos = (a.todos ?? [])
+            .filter((t) => t.text)
+            .map((t, i) => ({ id: `t${i}`, text: t.text!, status: (t.status ?? "pending") as TodoStatus }))
+          this.emit({ type: "todos", items: this.todos })
+          const rendered = this.todos.length
+            ? this.todos.map((t) => `${t.status === "done" ? "[x]" : t.status === "active" ? "[~]" : "[ ]"} ${t.text}`).join("\n")
+            : "(list cleared)"
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: `Todos updated:\n${rendered}` })
+          continue
+        }
+
         this.emit({ type: "tool-call", id, callId: tc.id, name: tc.name, input: safeParse(tc.arguments) })
         this.emit({ type: "mascot", state: "working" })
         this.emit({ type: "status", text: `running ${tc.name}…`, elapsedMs: Date.now() - start })

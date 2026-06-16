@@ -104,12 +104,14 @@ export function ModelModal() {
     const p = provider()
     if (!p) return
     if (chosenReasoning()) app.setEffort(EFFORTS[eIndex()] ?? "medium")
+    const window = modelList().find((x) => x.id === chosenModel())?.contextWindow
     app.connectAndSelect(
       p.id,
       chosenModel(),
       chosenReasoning(),
       apiKey() || undefined,
       baseURL() && baseURL() !== p.baseURL ? baseURL() : undefined,
+      window,
     )
   }
 

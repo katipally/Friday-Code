@@ -37,6 +37,7 @@ export type ViewItem =
       open: boolean
     }
   | { kind: "error"; id: string; text: string }
+  | { kind: "notice"; id: string; text: string }
 
 export type PendingPermission = { requestId: string; tool: string; summary: string; detail?: string }
 export type PendingAsk = { requestId: string; question: string; options?: string[] }
@@ -62,6 +63,7 @@ function messagesToItems(messages: Message[]): ViewItem[] {
           startedAt: 0,
         })
     } else if (m.role === "tool") {
+      if (m.name === "todo_write") continue // shown in the panel, not the transcript
       out.push({
         kind: "tool",
         id: `h${n++}`,
@@ -232,6 +234,18 @@ export function createAppStore(engine: Engine) {
         setPending(null)
         setAskPending(null)
         break
+      case "todos":
+        setTodos(e.items)
+        break
+      case "compaction": {
+        const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
+        setItems(items.length, {
+          kind: "notice",
+          id: nextLocalId(),
+          text: `↻ compacted ${e.turnsCompacted} earlier messages · kept ${e.kept} recent · ~${k(e.tokensBefore)} → ${k(e.tokensAfter)} tokens`,
+        })
+        break
+      }
     }
   })
 
@@ -254,6 +268,7 @@ export function createAppStore(engine: Engine) {
     { name: "history", description: "browse all past sessions (by directory)" },
     { name: "dir", description: "change or add a working directory" },
     { name: "mcp", description: "view / add / remove MCP servers" },
+    { name: "compact", description: "summarize older context to reclaim the window" },
     { name: "undo", description: "rewind files + conversation to a checkpoint" },
     { name: "help", description: "show the keymap" },
     { name: "exit", description: "quit Friday (clean exit)" },
@@ -281,6 +296,9 @@ export function createAppStore(engine: Engine) {
         return true
       case "mcp":
         setMcpModalOpen(true)
+        return true
+      case "compact":
+        sendEngineCommand("compact")
         return true
       case "undo":
         setCheckpointsOpen(true)
@@ -340,9 +358,16 @@ export function createAppStore(engine: Engine) {
     setAskPending(null)
   }
 
-  function connectAndSelect(providerId: string, model: string, reasoning: boolean, apiKey?: string, baseURL?: string) {
+  function connectAndSelect(
+    providerId: string,
+    model: string,
+    reasoning: boolean,
+    apiKey?: string,
+    baseURL?: string,
+    contextWindow?: number,
+  ) {
     if (apiKey) engine.connectProvider(providerId, apiKey, baseURL)
-    engine.selectModel(providerId, model, reasoning)
+    engine.selectModel(providerId, model, reasoning, contextWindow)
     setModelModalOpen(false)
   }
 

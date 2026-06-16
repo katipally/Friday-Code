@@ -44,6 +44,17 @@ function AssistantMessage(props: { item: Extract<ViewItem, { kind: "assistant" }
   )
 }
 
+/** A dim, centered system notice (e.g. context compaction). */
+function NoticeBubble(props: { item: Extract<ViewItem, { kind: "notice" }> }) {
+  return (
+    <box flexDirection="row" justifyContent="center" marginBottom={1}>
+      <box border borderStyle="rounded" borderColor={theme.border} paddingLeft={1} paddingRight={1}>
+        <text fg={theme.textFaint}>{props.item.text}</text>
+      </box>
+    </box>
+  )
+}
+
 function ErrorBubble(props: { item: Extract<ViewItem, { kind: "error" }> }) {
   return (
     <box flexDirection="row" gap={1} marginBottom={1}>
@@ -82,6 +93,9 @@ export function Chat() {
               </Match>
               <Match when={item.kind === "error"}>
                 <ErrorBubble item={item as any} />
+              </Match>
+              <Match when={item.kind === "notice"}>
+                <NoticeBubble item={item as any} />
               </Match>
             </Switch>
           </Appear>
