@@ -101,6 +101,7 @@ export function createAppStore(engine: Engine) {
   const [items, setItems] = createStore<ViewItem[]>([])
   const [contextFiles] = createSignal<string[]>(engine.contextInfo().files)
   const [skills] = createSignal(engine.listSkills())
+  const [mcpServers] = createSignal(engine.listMcpServers())
   const [sessions, setSessions] = createSignal<SessionItem[]>(engine.listSessions())
   const runningTools = createMemo(() =>
     items.filter((i) => i.kind === "tool" && i.status === "running").map((i) => (i as any).title ?? (i as any).name),
@@ -378,6 +379,7 @@ export function createAppStore(engine: Engine) {
     runCommand,
     contextFiles,
     skills,
+    mcpServers,
     runningTools,
   }
 }

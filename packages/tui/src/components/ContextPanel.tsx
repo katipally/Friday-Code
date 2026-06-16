@@ -63,6 +63,12 @@ export function ContextPanel() {
               <For each={app.skills()}>{(s) => <text fg={theme.textFaint}>• {s.name}</text>}</For>
             </box>
           </Show>
+          <Show when={app.mcpServers().length}>
+            <box flexDirection="column">
+              <text fg={theme.textMuted}>mcp</text>
+              <For each={app.mcpServers()}>{(s) => <text fg={theme.success}>⚡ {s}</text>}</For>
+            </box>
+          </Show>
           <Show when={app.runningTools().length}>
             <box flexDirection="column">
               <text fg={theme.textMuted}>active</text>

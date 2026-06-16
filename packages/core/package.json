@@ -7,6 +7,7 @@
   "dependencies": {
     "@friday/shared": "workspace:*",
     "@friday/providers": "workspace:*",
-    "@friday/tools": "workspace:*"
+    "@friday/tools": "workspace:*",
+    "@friday/mcp": "workspace:*"
   }
 }

@@ -29,6 +29,7 @@
       "name": "@friday/core",
       "version": "0.0.0",
       "dependencies": {
+        "@friday/mcp": "workspace:*",
         "@friday/providers": "workspace:*",
         "@friday/shared": "workspace:*",
         "@friday/tools": "workspace:*",
@@ -39,6 +40,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@friday/shared": "workspace:*",
+        "@friday/tools": "workspace:*",
       },
     },
     "packages/providers": {

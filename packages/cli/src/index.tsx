@@ -13,4 +13,5 @@ for (let i = 0; i < argv.length; i++) {
 }
 
 const engine = new Engine({ cwd: process.cwd(), resumeId, continueLast })
+await engine.init() // connect MCP servers (no-op if none configured)
 start(engine)

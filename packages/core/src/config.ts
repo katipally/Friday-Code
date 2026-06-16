@@ -1,5 +1,6 @@
 import fs from "node:fs"
 import { configPath, fridayDir } from "@friday/providers"
+import type { McpServerConfig } from "@friday/mcp"
 import type { Effort, ModeId } from "@friday/shared"
 
 export interface FridayConfig {
@@ -7,6 +8,7 @@ export interface FridayConfig {
   model?: string
   effort?: Effort
   mode?: ModeId
+  mcp?: Record<string, McpServerConfig>
 }
 
 export function loadConfig(): FridayConfig {

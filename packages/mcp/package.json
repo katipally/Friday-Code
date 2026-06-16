@@ -5,6 +5,7 @@
   "main": "src/index.ts",
   "exports": { ".": "./src/index.ts" },
   "dependencies": {
-    "@friday/shared": "workspace:*"
+    "@friday/shared": "workspace:*",
+    "@friday/tools": "workspace:*"
   }
 }

@@ -20,7 +20,8 @@ import {
   setProviderKey,
   streamProvider,
 } from "@friday/providers"
-import { ASK_USER, SKILL_TOOL, TASK_TOOL, buildRegistry, toToolDef, type Tool, type ToolResult } from "@friday/tools"
+import { ASK_USER, BUILTIN_TOOLS, SKILL_TOOL, TASK_TOOL, buildRegistry, toToolDef, type Tool, type ToolResult } from "@friday/tools"
+import { connectServers } from "@friday/mcp"
 import { loadConfig, saveConfig } from "./config.ts"
 import { subagentPrompt, systemPrompt } from "./prompt.ts"
 import { SessionStore } from "./sessions.ts"
@@ -71,7 +72,10 @@ function safeParse(s: string): unknown {
 export class Engine {
   private listeners = new Set<(e: EngineEvent) => void>()
   private messages: Message[] = []
-  private registry = buildRegistry()
+  private allTools: Tool[] = [...BUILTIN_TOOLS]
+  private registry = buildRegistry(this.allTools)
+  private mcpServers: string[] = []
+  private mcpClose?: () => void
   private cwd: string
   private streamFn: StreamFn
   private store: SessionStore
@@ -115,6 +119,31 @@ export class Engine {
         : undefined
     if (resumed) this.adoptSession(resumed)
     else this.adoptSession(this.store.create(this.cwd, crypto.randomUUID(), now()))
+  }
+
+  /** Connect configured MCP servers and merge their tools into the registry. Call once at startup. */
+  async init(): Promise<void> {
+    const cfg = loadConfig()
+    if (!cfg.mcp || !Object.keys(cfg.mcp).length) return
+    try {
+      const conn = await connectServers(cfg.mcp)
+      this.mcpClose = conn.close
+      this.mcpServers = conn.servers
+      if (conn.tools.length) {
+        this.allTools.push(...conn.tools)
+        this.registry = buildRegistry(this.allTools)
+      }
+    } catch {
+      /* MCP is optional */
+    }
+  }
+
+  listMcpServers(): string[] {
+    return this.mcpServers
+  }
+
+  dispose(): void {
+    this.mcpClose?.()
   }
 
   private adoptSession(row: { id: string; title: string }): void {
