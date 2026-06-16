@@ -6,9 +6,10 @@ import {
   type EngineEvent,
   type Effort,
   type MascotState,
+  type Message,
   type ModeId,
 } from "@friday/shared"
-import type { Engine } from "@friday/core"
+import type { Engine, SessionStats } from "@friday/core"
 
 export type ToolStatus = "running" | "done" | "error"
 
@@ -41,8 +42,40 @@ export type PendingPermission = { requestId: string; tool: string; summary: stri
 export type PendingAsk = { requestId: string; question: string; options?: string[] }
 export type SessionItem = { id: string; title: string }
 
+/** Rebuild view items from stored messages (history replay on resume/switch). */
+function messagesToItems(messages: Message[]): ViewItem[] {
+  const out: ViewItem[] = []
+  let n = 0
+  for (const m of messages) {
+    if (m.role === "user") out.push({ kind: "user", id: `h${n++}`, text: m.text })
+    else if (m.role === "assistant") {
+      if (m.text || m.reasoning)
+        out.push({
+          kind: "assistant",
+          id: `h${n++}`,
+          text: m.text ?? "",
+          reasoning: m.reasoning ?? "",
+          thinkingOpen: false,
+          done: true,
+          startedAt: 0,
+        })
+    } else if (m.role === "tool") {
+      out.push({
+        kind: "tool",
+        id: `h${n++}`,
+        name: m.name,
+        input: {},
+        status: m.isError ? "error" : "done",
+        output: m.result,
+        open: false,
+      })
+    }
+  }
+  return out
+}
+
 export function createAppStore(engine: Engine) {
-  const [view, setView] = createSignal<"splash" | "shell">("splash")
+  const [view, setView] = createSignal<"splash" | "shell" | "exit">("splash")
   const [mode, setModeSig] = createSignal<ModeId>(engine.selection().mode ?? DEFAULT_MODE)
   const [effort, setEffortSig] = createSignal<Effort>(engine.selection().effort ?? "medium")
   const [model, setModel] = createSignal<string>(engine.selection().model ?? "no model — open /model")
@@ -64,8 +97,9 @@ export function createAppStore(engine: Engine) {
   const [askPending, setAskPending] = createSignal<PendingAsk | null>(null)
 
   const [items, setItems] = createStore<ViewItem[]>([])
-  const sessions: SessionItem[] = [{ id: "s1", title: "session" }]
-  const [activeSession, setActiveSession] = createSignal("s1")
+  const [sessions, setSessions] = createSignal<SessionItem[]>(engine.listSessions())
+  const [activeSession, setActiveSession] = createSignal(engine.currentSessionId())
+  const refreshSessions = () => setSessions(engine.listSessions())
 
   let localId = 0
   const nextLocalId = () => `u${++localId}`
@@ -160,7 +194,14 @@ export function createAppStore(engine: Engine) {
         setBusy(false)
         break
       case "session-changed":
-        setItems([])
+        setActiveSession(e.sessionId)
+        refreshSessions()
+        break
+      case "session-loaded":
+        setItems(messagesToItems(e.messages))
+        setTokens(0)
+        setPending(null)
+        setAskPending(null)
         break
     }
   })
@@ -229,6 +270,23 @@ export function createAppStore(engine: Engine) {
     })
   }
 
+  function newSession() {
+    engine.send({ type: "new-session" })
+  }
+  function switchSession(id: string) {
+    engine.send({ type: "switch-session", sessionId: id })
+  }
+  function switchSessionByIndex(i: number) {
+    const s = sessions()[i]
+    if (s) switchSession(s.id)
+  }
+
+  const [exitStats, setExitStats] = createSignal<SessionStats | null>(null)
+  function quit() {
+    setExitStats(engine.stats())
+    setView("exit")
+  }
+
   return {
     engine,
     view,
@@ -270,6 +328,11 @@ export function createAppStore(engine: Engine) {
     connectAndSelect,
     toggleThinking,
     toggleToolOpen,
+    newSession,
+    switchSession,
+    switchSessionByIndex,
+    quit,
+    exitStats,
   }
 }
 

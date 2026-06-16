@@ -6,7 +6,7 @@ import { App } from "./App.tsx"
 export function start(engine: Engine): void {
   render(() => <App engine={engine} />, {
     targetFPS: 60,
-    exitOnCtrlC: true,
+    exitOnCtrlC: false, // we handle Ctrl+C to show the clean-exit screen
     useMouse: true,
     autoFocus: true,
   })

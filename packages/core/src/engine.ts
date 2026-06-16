@@ -23,6 +23,9 @@ import {
 import { ASK_USER, buildRegistry, type Tool, type ToolResult } from "@friday/tools"
 import { loadConfig, saveConfig } from "./config.ts"
 import { systemPrompt } from "./prompt.ts"
+import { SessionStore } from "./sessions.ts"
+
+let now = () => Date.now()
 
 export type StreamFn = (
   provider: ProviderInfo,
@@ -35,6 +38,18 @@ export interface EngineOptions {
   cwd: string
   /** override the provider streamer (for tests) */
   streamFn?: StreamFn
+  /** override the session store (for tests) */
+  store?: SessionStore
+  /** resume a specific session id */
+  resumeId?: string
+  /** resume the most recent session in this cwd */
+  continueLast?: boolean
+}
+
+export interface SessionStats {
+  messages: number
+  tokens: number
+  durationMs: number
 }
 
 const MAX_STEPS = 50
@@ -55,6 +70,13 @@ export class Engine {
   private registry = buildRegistry()
   private cwd: string
   private streamFn: StreamFn
+  private store: SessionStore
+
+  private sessionId!: string
+  private sessionTitle!: string
+  private sessionStartedAt = now()
+  private seq = 0
+  private totalTokens = 0
 
   private mode: ModeId
   private effort: Effort
@@ -71,11 +93,44 @@ export class Engine {
   constructor(opts: EngineOptions) {
     this.cwd = opts.cwd
     this.streamFn = opts.streamFn ?? (streamProvider as StreamFn)
+    this.store = opts.store ?? new SessionStore()
     const cfg = loadConfig()
     this.mode = cfg.mode ?? DEFAULT_MODE
     this.effort = cfg.effort ?? "medium"
     this.providerId = cfg.providerId
     this.model = cfg.model
+
+    const resumed = opts.resumeId
+      ? this.store.get(opts.resumeId)
+      : opts.continueLast
+        ? this.store.latest(this.cwd)
+        : undefined
+    if (resumed) this.adoptSession(resumed)
+    else this.adoptSession(this.store.create(this.cwd, crypto.randomUUID(), now()))
+  }
+
+  private adoptSession(row: { id: string; title: string }): void {
+    this.sessionId = row.id
+    this.sessionTitle = row.title
+    this.messages = this.store.loadMessages(row.id)
+    this.seq = this.messages.length
+    this.sessionStartedAt = now()
+  }
+
+  private addMessage(msg: Message): void {
+    this.messages.push(msg)
+    this.store.appendMessage(this.sessionId, this.seq++, msg)
+    this.store.touch(this.sessionId, now())
+    this.maybeTitleFromMessage(msg)
+  }
+
+  private maybeTitleFromMessage(msg: Message): void {
+    if (msg.role !== "user") return
+    if (this.sessionTitle && this.sessionTitle !== "new session") return
+    const title = msg.text.replace(/\s+/g, " ").trim().slice(0, 48) || "session"
+    this.sessionTitle = title
+    this.store.rename(this.sessionId, title, now())
+    this.emit({ type: "session-changed", sessionId: this.sessionId, title })
   }
 
   // ---- subscription ----
@@ -93,7 +148,41 @@ export class Engine {
   /** Announce initial state (used right after the UI subscribes). */
   ready(): void {
     if (this.model && this.providerId) this.emit({ type: "model-changed", model: this.model, provider: this.providerId })
+    this.emit({ type: "session-changed", sessionId: this.sessionId, title: this.sessionTitle })
+    if (this.messages.length)
+      this.emit({ type: "session-loaded", sessionId: this.sessionId, title: this.sessionTitle, messages: this.messages })
     this.emit({ type: "ready", needsModel: !this.model || !this.providerId })
+  }
+
+  // ---- sessions ----
+  listSessions(): { id: string; title: string }[] {
+    return this.store.list(this.cwd).map((s) => ({ id: s.id, title: s.title }))
+  }
+  currentSessionId(): string {
+    return this.sessionId
+  }
+  currentTitle(): string {
+    return this.sessionTitle
+  }
+  stats(): SessionStats {
+    const messages = this.messages.filter((m) => m.role === "user" || m.role === "assistant").length
+    return { messages, tokens: this.totalTokens, durationMs: now() - this.sessionStartedAt }
+  }
+  newSession(): void {
+    if (this.busy) return
+    this.adoptSession(this.store.create(this.cwd, crypto.randomUUID(), now()))
+    this.totalTokens = 0
+    this.emit({ type: "session-changed", sessionId: this.sessionId, title: this.sessionTitle })
+    this.emit({ type: "session-loaded", sessionId: this.sessionId, title: this.sessionTitle, messages: [] })
+  }
+  switchSession(id: string): void {
+    if (this.busy || id === this.sessionId) return
+    const row = this.store.get(id)
+    if (!row) return
+    this.adoptSession(row)
+    this.totalTokens = 0
+    this.emit({ type: "session-changed", sessionId: this.sessionId, title: this.sessionTitle })
+    this.emit({ type: "session-loaded", sessionId: this.sessionId, title: this.sessionTitle, messages: this.messages })
   }
 
   // ---- queries for the /model modal ----
@@ -167,8 +256,10 @@ export class Engine {
         break
       }
       case "new-session":
-        this.messages = []
-        this.emit({ type: "session-changed", sessionId: "default" })
+        this.newSession()
+        break
+      case "switch-session":
+        this.switchSession(cmd.sessionId)
         break
       default:
         break
@@ -197,7 +288,7 @@ export class Engine {
     }
     this.busy = true
     this.abort = new AbortController()
-    this.messages.push({ role: "user", text })
+    this.addMessage({ role: "user", text })
     const start = Date.now()
     try {
       await this.loop(start)
@@ -274,6 +365,7 @@ export class Engine {
           case "usage":
             inTok += ev.input
             outTok += ev.output
+            this.totalTokens += ev.input + ev.output
             this.emit({ type: "usage", input: inTok, output: outTok })
             this.emit({ type: "status", text: "thinking…", elapsedMs: Date.now() - start, tokens: inTok + outTok })
             break
@@ -284,7 +376,7 @@ export class Engine {
         .filter((c) => c.name)
         .map((c) => ({ id: c.id || this.nextId(), name: c.name, arguments: c.args || "{}" }))
 
-      this.messages.push({
+      this.addMessage({
         role: "assistant",
         text: text || undefined,
         reasoning: reasoning || undefined,
@@ -314,7 +406,7 @@ export class Engine {
           this.emit({ type: "mascot", state: "idle" })
           this.emit({ type: "status", text: "waiting for you…" })
           const answer = await new Promise<string>((resolve) => this.pendingAsk.set(requestId, resolve))
-          this.messages.push({ role: "tool", callId: tc.id, name: tc.name, result: answer })
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: answer })
           this.emit({ type: "tool-result", callId: tc.id, ok: true, output: answer })
           continue
         }
@@ -322,7 +414,7 @@ export class Engine {
         const tool = this.registry.get(tc.name)
         if (!tool) {
           const msg = `Unknown tool: ${tc.name}`
-          this.messages.push({ role: "tool", callId: tc.id, name: tc.name, result: msg, isError: true })
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: msg, isError: true })
           this.emit({ type: "tool-result", callId: tc.id, ok: false, output: msg })
           continue
         }
@@ -330,7 +422,7 @@ export class Engine {
         const decision = await this.checkPermission(tool, tc)
         if (decision === "deny") {
           const msg = `User denied permission to run ${tool.name}.`
-          this.messages.push({ role: "tool", callId: tc.id, name: tc.name, result: msg, isError: true })
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: msg, isError: true })
           this.emit({ type: "tool-result", callId: tc.id, ok: false, output: msg })
           continue
         }
@@ -341,7 +433,7 @@ export class Engine {
         } catch (e: any) {
           result = { output: `Error: ${e?.message ?? e}`, isError: true }
         }
-        this.messages.push({ role: "tool", callId: tc.id, name: tc.name, result: result.output, isError: result.isError })
+        this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: result.output, isError: result.isError })
         this.emit({
           type: "tool-result",
           callId: tc.id,

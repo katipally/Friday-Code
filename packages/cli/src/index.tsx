@@ -2,7 +2,15 @@
 import { Engine } from "@friday/core"
 import { start } from "@friday/tui"
 
-// M0/M1: launch the shell against a fresh engine in the current directory.
-// Arg parsing (-s/-c/--continue) lands in M3.
-const engine = new Engine({ cwd: process.cwd() })
+// Tiny arg parser: `-s/--session <id>` resumes a session, `-c/--continue` resumes the latest.
+const argv = process.argv.slice(2)
+let resumeId: string | undefined
+let continueLast = false
+for (let i = 0; i < argv.length; i++) {
+  const a = argv[i]
+  if (a === "-s" || a === "--session") resumeId = argv[++i]
+  else if (a === "-c" || a === "--continue") continueLast = true
+}
+
+const engine = new Engine({ cwd: process.cwd(), resumeId, continueLast })
 start(engine)

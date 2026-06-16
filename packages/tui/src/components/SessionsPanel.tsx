@@ -39,23 +39,26 @@ export function SessionsPanel() {
             <text fg={theme.textFaint}>‹</text>
           </box>
         </box>
-        <box flexDirection="column" flexGrow={1} paddingLeft={1} paddingRight={1} paddingTop={1}>
-          <For each={app.sessions}>
-            {(s) => {
+        <scrollbox flexGrow={1} paddingLeft={1} paddingRight={1} paddingTop={1}>
+          <For each={app.sessions()}>
+            {(s, i) => {
               const isActive = () => app.activeSession() === s.id
               return (
-                <box flexDirection="row" gap={1} onMouseDown={() => app.setActiveSession(s.id)}>
+                <box flexDirection="row" gap={1} onMouseDown={() => app.switchSession(s.id)}>
                   <text fg={isActive() ? accent() : theme.textFaint}>{isActive() ? "●" : "○"}</text>
-                  <text fg={isActive() ? theme.text : theme.textMuted}>{s.title}</text>
+                  <text fg={isActive() ? theme.text : theme.textMuted}>
+                    {i() < 9 ? `${i() + 1} ` : "  "}
+                    {s.title}
+                  </text>
                 </box>
               )
             }}
           </For>
           <box height={1} />
-          <box onMouseDown={() => app.setActiveSession("s1")}>
+          <box onMouseDown={() => app.newSession()}>
             <text fg={theme.textFaint}>+ new</text>
           </box>
-        </box>
+        </scrollbox>
         <box paddingLeft={1} paddingRight={1}>
           <text fg={theme.textFaint}>⌃1–9 switch</text>
         </box>

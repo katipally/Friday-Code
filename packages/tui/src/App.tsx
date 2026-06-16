@@ -1,4 +1,4 @@
-import { onMount, Show } from "solid-js"
+import { Match, onMount, Show, Switch } from "solid-js"
 import { useKeyboard, useRenderer, useSelectionHandler, useTerminalDimensions } from "@opentui/solid"
 import { theme, getMode } from "@friday/shared"
 import type { Engine } from "@friday/core"
@@ -16,6 +16,7 @@ import { KeymapOverlay } from "./components/KeymapOverlay.tsx"
 import { PermissionCard } from "./components/PermissionCard.tsx"
 import { AskCard } from "./components/AskCard.tsx"
 import { ModelModal } from "./components/ModelModal.tsx"
+import { ExitScreen } from "./components/ExitScreen.tsx"
 
 function Shell() {
   const app = useApp()
@@ -73,6 +74,8 @@ function AppRoot() {
   onMount(() => app.engine.ready())
 
   useKeyboard((key) => {
+    if (app.view() === "exit") return // ExitScreen owns keys
+    if (key.ctrl && key.name === "c") return app.quit()
     if (app.view() === "splash") {
       if (["return", "enter", "space", "escape"].includes(key.name)) app.setView("shell")
       return
@@ -93,6 +96,7 @@ function AppRoot() {
     if (key.shift && key.name === "tab") return app.toggleMode(1)
     if (key.ctrl && key.name === "b") return app.setLeftOpen(!app.leftOpen())
     if (key.ctrl && key.name === "g") return app.setRightOpen(!app.rightOpen())
+    if (key.ctrl && /^[1-9]$/.test(key.name)) return app.switchSessionByIndex(Number(key.name) - 1)
     if (key.name?.toLowerCase() === "f1" || (key.ctrl && key.name === "/")) return app.setOverlayOpen(true)
     if (key.name === "escape" && app.busy()) return app.abort()
   })
@@ -103,9 +107,14 @@ function AppRoot() {
   })
 
   return (
-    <Show when={app.view() === "shell"} fallback={<Splash />}>
-      <Shell />
-    </Show>
+    <Switch fallback={<Splash />}>
+      <Match when={app.view() === "exit"}>
+        <ExitScreen />
+      </Match>
+      <Match when={app.view() === "shell"}>
+        <Shell />
+      </Match>
+    </Switch>
   )
 }
 
