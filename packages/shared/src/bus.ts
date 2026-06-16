@@ -6,7 +6,12 @@ import type { ModeId } from "./modes.ts"
 import type { MascotState } from "./mascot.ts"
 import type { Message, TodoItem } from "./types.ts"
 
-export type EngineEvent =
+/**
+ * The event payloads. Every event is additionally tagged with the `sessionId` it
+ * belongs to (see `EngineEvent`) so the UI can route foreground vs background
+ * sessions when several run concurrently.
+ */
+export type EngineEventBody =
   | { type: "ready"; needsModel: boolean }
   | { type: "model-changed"; model: string; provider: string; reasoning: boolean }
   | { type: "message-start"; role: "assistant"; id: string }
@@ -25,6 +30,9 @@ export type EngineEvent =
   | { type: "todos"; items: TodoItem[] }
   | { type: "compaction"; turnsCompacted: number; kept: number; tokensBefore: number; tokensAfter: number }
   | { type: "error"; message: string }
+
+/** A bus event, tagged with the session it originates from. */
+export type EngineEvent = EngineEventBody & { sessionId: string }
 
 export type UICommand =
   | { type: "prompt"; text: string }

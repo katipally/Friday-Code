@@ -69,18 +69,19 @@ export function SessionsPanel() {
         </box>
 
         <scrollbox flexGrow={1} minHeight={0} paddingLeft={1} paddingRight={1} paddingTop={1}>
-          {/* RUNNING — sessions in this workspace. */}
+          {/* RUNNING — sessions in this workspace, each with its own live status. */}
           <text fg={theme.textFaint}>running</text>
           <For each={app.sessions()}>
             {(s, i) => {
               const isActive = () => app.activeSession() === s.id
-              const isBusy = () => isActive() && app.busy()
+              const isBusy = () => app.sessionRunning(s.id)
+              const needs = () => app.sessionNeedsInput(s.id)
+              const dot = () => (needs() ? "⚠" : isBusy() ? spin() : isActive() ? "●" : "○")
+              const dotColor = () => (needs() ? theme.warning : isBusy() ? accent() : isActive() ? liveDot() : theme.textFaint)
               return (
                 <box flexDirection="row" gap={1}>
                   <box flexGrow={1} flexDirection="row" gap={1} onMouseDown={() => app.switchSession(s.id)}>
-                    <text fg={isActive() ? liveDot() : theme.textFaint}>
-                      {isBusy() ? spin() : isActive() ? "●" : "○"}
-                    </text>
+                    <text fg={dotColor()}>{dot()}</text>
                     <text fg={isActive() ? theme.text : theme.textMuted}>
                       {i() < 9 ? `${i() + 1} ` : "  "}
                       {s.title}
