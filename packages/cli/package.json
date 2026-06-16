@@ -1,0 +1,9 @@
+{
+  "name": "@friday/cli",
+  "version": "0.0.0",
+  "type": "module",
+  "bin": { "friday": "src/index.tsx" },
+  "dependencies": {
+    "@friday/tui": "workspace:*"
+  }
+}

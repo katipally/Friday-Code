@@ -1,0 +1,5 @@
+# Required so Bun runs the Solid JSX transform before our code loads.
+preload = ["@opentui/solid/preload"]
+
+[test]
+preload = ["@opentui/solid/preload"]

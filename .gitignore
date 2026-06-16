@@ -1,0 +1,10 @@
+node_modules/
+.claude/
+skills-lock.json
+dist/
+*.log
+.DS_Store
+*.db
+*.db-*
+.friday/cache/
+coverage/

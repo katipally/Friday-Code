@@ -1,0 +1,22 @@
+{
+  "name": "friday-code",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "friday": "bun run packages/cli/src/index.tsx",
+    "dev": "bun --watch run packages/cli/src/index.tsx",
+    "test": "bun test",
+    "typecheck": "tsc -b --noEmit"
+  },
+  "dependencies": {
+    "@opentui/core": "latest",
+    "@opentui/solid": "latest",
+    "solid-js": "latest"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "latest"
+  }
+}
