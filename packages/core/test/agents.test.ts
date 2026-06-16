@@ -28,7 +28,7 @@ function cwdWithSkill(): string {
 
 test("loadSkills reads flat files and SKILL.md directories", () => {
   const cwd = cwdWithSkill()
-  const skills = loadSkills(cwd)
+  const skills = loadSkills([cwd])
   expect(skills.find((s) => s.name === "foo")?.whenToUse).toBe("foo tasks")
   expect(skills.find((s) => s.name === "bar")?.content).toBe("Bar instructions.")
 })

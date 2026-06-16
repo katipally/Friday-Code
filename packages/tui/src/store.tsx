@@ -100,7 +100,7 @@ export function createAppStore(engine: Engine) {
   const [items, setItems] = createStore<ViewItem[]>([])
   const [contextFiles, setContextFiles] = createSignal<string[]>(engine.contextInfo().files)
   const [skills, setSkills] = createSignal(engine.listSkills())
-  const [mcpServers] = createSignal(engine.listMcpServers())
+  const [mcpServers, setMcpServers] = createSignal(engine.listMcpServers())
   const [sessions, setSessions] = createSignal<SessionItem[]>(engine.listSessions())
   const [allSessions, setAllSessions] = createSignal(engine.listAllSessions())
   const runningTools = createMemo(() =>
@@ -108,7 +108,10 @@ export function createAppStore(engine: Engine) {
   )
   const [activeSession, setActiveSession] = createSignal(engine.currentSessionId())
   const [currentCwd, setCurrentCwd] = createSignal(engine.currentCwd())
+  const [roots, setRoots] = createSignal<string[]>(engine.currentRoots())
   const [historyOpen, setHistoryOpen] = createSignal(false)
+  const [dirModalOpen, setDirModalOpen] = createSignal(false)
+  const [mcpModalOpen, setMcpModalOpen] = createSignal(false)
   const refreshSessions = () => {
     setSessions(engine.listSessions())
     setAllSessions(engine.listAllSessions())
@@ -212,11 +215,13 @@ export function createAppStore(engine: Engine) {
       case "session-changed":
         setActiveSession(e.sessionId)
         setCurrentCwd(e.cwd)
+        setRoots(e.roots)
         refreshSessions()
         break
       case "session-loaded":
         setItems(messagesToItems(e.messages))
         setCurrentCwd(e.cwd)
+        setRoots(e.roots)
         setTokens(0)
         setPending(null)
         setAskPending(null)
@@ -241,6 +246,8 @@ export function createAppStore(engine: Engine) {
     { name: "new", description: "start a new session" },
     { name: "clear", description: "clear the conversation (new session)" },
     { name: "history", description: "browse all past sessions (by directory)" },
+    { name: "dir", description: "change or add a working directory" },
+    { name: "mcp", description: "view / add / remove MCP servers" },
     { name: "help", description: "show the keymap" },
     { name: "exit", description: "quit Friday (clean exit)" },
   ]
@@ -261,6 +268,12 @@ export function createAppStore(engine: Engine) {
         return true
       case "history":
         setHistoryOpen(true)
+        return true
+      case "dir":
+        setDirModalOpen(true)
+        return true
+      case "mcp":
+        setMcpModalOpen(true)
         return true
       case "help":
         setOverlayOpen(true)
@@ -343,6 +356,29 @@ export function createAppStore(engine: Engine) {
     engine.deleteSession(id)
     refreshSessions()
   }
+  function setRoot(dir: string) {
+    engine.setRoot(dir)
+    refreshSessions()
+  }
+  function addRoot(dir: string) {
+    engine.addRoot(dir)
+    refreshSessions()
+  }
+  function mcpConfig() {
+    return engine.mcpConfig()
+  }
+  function refreshMcp() {
+    setMcpServers(engine.listMcpServers())
+  }
+  async function addMcpServer(name: string, server: Parameters<Engine["addMcpServer"]>[1]) {
+    const ok = await engine.addMcpServer(name, server)
+    refreshMcp()
+    return ok
+  }
+  function removeMcpServer(name: string) {
+    engine.removeMcpServer(name)
+    refreshMcp()
+  }
 
   const [exitStats, setExitStats] = createSignal<SessionStats | null>(null)
   function quit() {
@@ -394,10 +430,21 @@ export function createAppStore(engine: Engine) {
     switchSession,
     switchSessionByIndex,
     deleteSession,
+    setRoot,
+    addRoot,
+    roots,
     allSessions,
     currentCwd,
     historyOpen,
     setHistoryOpen,
+    dirModalOpen,
+    setDirModalOpen,
+    mcpModalOpen,
+    setMcpModalOpen,
+    mcpConfig,
+    refreshMcp,
+    addMcpServer,
+    removeMcpServer,
     quit,
     exitStats,
     paletteOpen,

@@ -27,6 +27,8 @@ export function Composer() {
     !app.modelModalOpen() &&
     !app.paletteOpen() &&
     !app.historyOpen() &&
+    !app.dirModalOpen() &&
+    !app.mcpModalOpen() &&
     !app.pending() &&
     !app.askPending()
   const maxHeight = () => Math.max(4, Math.floor(dims().height / 3))
@@ -36,10 +38,9 @@ export function Composer() {
   const [files, setFiles] = createSignal<string[]>([])
   const [sel, setSel] = createSignal(0)
 
-  // Load (and reload when the working directory changes via a session switch) the file list.
+  // Load (and reload when the workspace roots change) the file list across all roots.
   createEffect(() => {
-    app.currentCwd()
-    listProjectFiles(app.engine.cwdPath()).then(setFiles)
+    listProjectFiles(app.roots()).then(setFiles)
   })
 
   function refresh() {

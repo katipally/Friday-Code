@@ -11,10 +11,11 @@ export interface ProjectContext {
   files: string[]
 }
 
-/** Load FRIDAY.md / AGENTS.md walking up from cwd, plus a global ~/.friday/FRIDAY.md. */
-export function loadProjectContext(cwd: string): ProjectContext {
+/** Load FRIDAY.md / AGENTS.md walking up from each workspace root, plus a global ~/.friday/FRIDAY.md. */
+export function loadProjectContext(roots: string[]): ProjectContext {
   const found: { file: string; content: string }[] = []
   const seen = new Set<string>()
+  const primary = roots[0] ?? process.cwd()
 
   const tryAdd = (full: string, label: string) => {
     try {
@@ -30,12 +31,14 @@ export function loadProjectContext(cwd: string): ProjectContext {
     }
   }
 
-  let dir = cwd
-  for (let i = 0; i < 8; i++) {
-    for (const n of NAMES) tryAdd(path.join(dir, n), path.relative(cwd, path.join(dir, n)) || n)
-    const parent = path.dirname(dir)
-    if (parent === dir) break
-    dir = parent
+  for (const root of roots) {
+    let dir = root
+    for (let i = 0; i < 8; i++) {
+      for (const n of NAMES) tryAdd(path.join(dir, n), path.relative(primary, path.join(dir, n)) || n)
+      const parent = path.dirname(dir)
+      if (parent === dir) break
+      dir = parent
+    }
   }
   tryAdd(path.join(fridayDir(), "FRIDAY.md"), "~/.friday/FRIDAY.md")
 

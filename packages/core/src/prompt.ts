@@ -14,8 +14,15 @@ function skillsSection(skills?: SkillSummary[]): string {
 }
 
 /** Assemble the system prompt: identity + environment + behavior + mode posture + project context. */
-export function systemPrompt(opts: { cwd: string; mode: ModeId; context?: string; skills?: SkillSummary[] }): string {
+export function systemPrompt(opts: {
+  cwd: string
+  roots?: string[]
+  mode: ModeId
+  context?: string
+  skills?: SkillSummary[]
+}): string {
   const mode = getMode(opts.mode)
+  const extraRoots = (opts.roots ?? []).slice(1)
   return [
     opts.context ? `# Project context\n${opts.context}\n` : "",
     "You are Friday, an expert AI software engineer working inside Friday Code, a terminal coding agent.",
@@ -29,6 +36,7 @@ export function systemPrompt(opts: { cwd: string; mode: ModeId; context?: string
     "",
     "# Environment",
     `- Working directory: ${opts.cwd}`,
+    extraRoots.length ? `- Additional workspace roots: ${extraRoots.join(", ")}` : "",
     `- Platform: ${process.platform} (${os.type()})`,
     `- Current mode: ${mode.label} — ${mode.hint}`,
     "",

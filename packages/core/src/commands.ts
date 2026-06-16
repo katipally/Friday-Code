@@ -18,10 +18,10 @@ function parseFrontmatter(raw: string): { description: string; body: string } {
 }
 
 /** Load markdown slash commands from .friday/commands (project) and ~/.friday/commands (user). */
-export function loadCommands(cwd: string): CustomCommand[] {
+export function loadCommands(roots: string[]): CustomCommand[] {
   const out: CustomCommand[] = []
   const dirs: { dir: string; source: "project" | "user" }[] = [
-    { dir: path.join(cwd, ".friday", "commands"), source: "project" },
+    ...roots.map((r) => ({ dir: path.join(r, ".friday", "commands"), source: "project" as const })),
     { dir: path.join(fridayDir(), "commands"), source: "user" },
   ]
   for (const { dir, source } of dirs) {

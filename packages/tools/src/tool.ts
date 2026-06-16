@@ -1,7 +1,10 @@
 import type { PermissionCategory, ToolDef } from "@friday/shared"
 
 export interface ToolContext {
+  /** primary working directory (= roots[0]) */
   cwd: string
+  /** all workspace roots; search tools span these */
+  roots: string[]
   signal: AbortSignal
 }
 

@@ -21,7 +21,7 @@ import {
   streamProvider,
 } from "@friday/providers"
 import { ASK_USER, BUILTIN_TOOLS, SKILL_TOOL, TASK_TOOL, buildRegistry, toToolDef, type Tool, type ToolResult } from "@friday/tools"
-import { connectServers } from "@friday/mcp"
+import { connectServers, type McpServerConfig } from "@friday/mcp"
 import { loadConfig, saveConfig } from "./config.ts"
 import { subagentPrompt, systemPrompt } from "./prompt.ts"
 import { SessionStore } from "./sessions.ts"
@@ -75,12 +75,13 @@ export class Engine {
   private allTools: Tool[] = [...BUILTIN_TOOLS]
   private registry = buildRegistry(this.allTools)
   private mcpServers: string[] = []
-  private mcpClose?: () => void
-  private cwd: string
+  private mcpConnections = new Map<string, { close: () => void; toolNames: string[] }>()
+  private cwd: string // primary root (= roots[0])
+  private roots: string[]
   private streamFn: StreamFn
   private store: SessionStore
-  private context: ProjectContext
-  private skills: Skill[]
+  private context!: ProjectContext
+  private skills!: Skill[]
 
   private sessionId!: string
   private sessionTitle!: string
@@ -103,10 +104,9 @@ export class Engine {
 
   constructor(opts: EngineOptions) {
     this.cwd = opts.cwd
+    this.roots = [opts.cwd]
     this.streamFn = opts.streamFn ?? (streamProvider as StreamFn)
     this.store = opts.store ?? new SessionStore()
-    this.context = loadProjectContext(opts.cwd)
-    this.skills = loadSkills(opts.cwd)
     const cfg = loadConfig()
     this.mode = cfg.mode ?? DEFAULT_MODE
     this.effort = cfg.effort ?? "medium"
@@ -120,37 +120,70 @@ export class Engine {
         ? this.store.latest(this.cwd)
         : undefined
     if (resumed) this.adoptSession(resumed)
-    else this.adoptSession(this.store.create(this.cwd, crypto.randomUUID(), now()))
+    else this.adoptSession(this.store.create(this.roots, crypto.randomUUID(), now()))
+    this.reloadWorkspace()
+  }
+
+  /** (Re)load project context + skills for the current set of roots. */
+  private reloadWorkspace(): void {
+    this.context = loadProjectContext(this.roots)
+    this.skills = loadSkills(this.roots)
   }
 
   /** Connect configured MCP servers and merge their tools into the registry. Call once at startup. */
   async init(): Promise<void> {
     const cfg = loadConfig()
-    if (!cfg.mcp || !Object.keys(cfg.mcp).length) return
+    for (const [name, server] of Object.entries(cfg.mcp ?? {})) await this.connectMcp(name, server)
+  }
+
+  private async connectMcp(name: string, server: McpServerConfig): Promise<boolean> {
     try {
-      const conn = await connectServers(cfg.mcp)
-      this.mcpClose = conn.close
-      this.mcpServers = conn.servers
-      if (conn.tools.length) {
-        this.allTools.push(...conn.tools)
-        this.registry = buildRegistry(this.allTools)
-      }
+      const conn = await connectServers({ [name]: server })
+      if (!conn.servers.length) return false
+      this.mcpConnections.set(name, { close: conn.close, toolNames: conn.tools.map((t) => t.name) })
+      this.allTools.push(...conn.tools)
+      this.registry = buildRegistry(this.allTools)
+      this.mcpServers = [...this.mcpConnections.keys()]
+      return true
     } catch {
-      /* MCP is optional */
+      return false
     }
   }
 
   listMcpServers(): string[] {
     return this.mcpServers
   }
-
-  dispose(): void {
-    this.mcpClose?.()
+  /** Configured MCP servers (name -> config), regardless of connection state. */
+  mcpConfig(): Record<string, McpServerConfig> {
+    return loadConfig().mcp ?? {}
+  }
+  async addMcpServer(name: string, server: McpServerConfig): Promise<boolean> {
+    saveConfig({ mcp: { ...(loadConfig().mcp ?? {}), [name]: server } })
+    return this.connectMcp(name, server)
+  }
+  removeMcpServer(name: string): void {
+    const c = this.mcpConnections.get(name)
+    if (c) {
+      c.close()
+      this.allTools = this.allTools.filter((t) => !c.toolNames.includes(t.name))
+      this.registry = buildRegistry(this.allTools)
+      this.mcpConnections.delete(name)
+    }
+    const mcp = { ...(loadConfig().mcp ?? {}) }
+    delete mcp[name]
+    saveConfig({ mcp })
+    this.mcpServers = [...this.mcpConnections.keys()]
   }
 
-  private adoptSession(row: { id: string; title: string }): void {
+  dispose(): void {
+    for (const c of this.mcpConnections.values()) c.close()
+  }
+
+  private adoptSession(row: { id: string; title: string; roots: string[] }): void {
     this.sessionId = row.id
     this.sessionTitle = row.title
+    this.roots = row.roots.length ? row.roots : [this.cwd]
+    this.cwd = this.roots[0]!
     this.messages = this.store.loadMessages(row.id)
     this.seq = this.messages.length
     this.sessionStartedAt = now()
@@ -175,7 +208,7 @@ export class Engine {
     title = title.charAt(0).toUpperCase() + title.slice(1)
     this.sessionTitle = title
     this.store.rename(this.sessionId, title, now())
-    this.emit({ type: "session-changed", sessionId: this.sessionId, title, cwd: this.cwd })
+    this.emit({ type: "session-changed", sessionId: this.sessionId, title, cwd: this.cwd, roots: this.roots })
   }
 
   // ---- subscription ----
@@ -194,9 +227,9 @@ export class Engine {
   ready(): void {
     if (this.model && this.providerId)
       this.emit({ type: "model-changed", model: this.model, provider: this.providerId, reasoning: this.modelReasoning })
-    this.emit({ type: "session-changed", sessionId: this.sessionId, title: this.sessionTitle, cwd: this.cwd })
+    this.emit({ type: "session-changed", sessionId: this.sessionId, title: this.sessionTitle, cwd: this.cwd, roots: this.roots })
     if (this.messages.length)
-      this.emit({ type: "session-loaded", sessionId: this.sessionId, title: this.sessionTitle, cwd: this.cwd, messages: this.messages })
+      this.emit({ type: "session-loaded", sessionId: this.sessionId, title: this.sessionTitle, cwd: this.cwd, roots: this.roots, messages: this.messages })
     this.emit({ type: "ready", needsModel: !this.model || !this.providerId })
   }
 
@@ -206,8 +239,28 @@ export class Engine {
     return this.store.list(this.cwd).map((s) => ({ id: s.id, title: s.title }))
   }
   /** Full history across all directories (for the history view). */
-  listAllSessions(): { id: string; title: string; cwd: string; updatedAt: number }[] {
-    return this.store.list().map((s) => ({ id: s.id, title: s.title, cwd: s.cwd, updatedAt: s.updatedAt }))
+  listAllSessions(): { id: string; title: string; cwd: string; roots: string[]; updatedAt: number }[] {
+    return this.store.list().map((s) => ({ id: s.id, title: s.title, cwd: s.cwd, roots: s.roots, updatedAt: s.updatedAt }))
+  }
+  currentRoots(): string[] {
+    return this.roots
+  }
+  /** Add a directory to the current session's workspace (does NOT create a new session). */
+  addRoot(dir: string): void {
+    if (this.roots.includes(dir)) return
+    this.roots = this.store.addRoot(this.sessionId, dir, now())
+    this.reloadWorkspace()
+    this.emit({ type: "session-changed", sessionId: this.sessionId, title: this.sessionTitle, cwd: this.cwd, roots: this.roots })
+  }
+  /** Switch the workspace to a different root — creates a NEW session in that directory. */
+  setRoot(dir: string): void {
+    if (this.busy) return
+    this.cwd = dir
+    this.roots = [dir]
+    this.adoptSession(this.store.create([dir], crypto.randomUUID(), now()))
+    this.reloadWorkspace()
+    this.totalTokens = 0
+    this.emitSessionState([])
   }
   currentSessionId(): string {
     return this.sessionId
@@ -224,7 +277,7 @@ export class Engine {
   }
   newSession(): void {
     if (this.busy) return
-    this.adoptSession(this.store.create(this.cwd, crypto.randomUUID(), now()))
+    this.adoptSession(this.store.create(this.roots, crypto.randomUUID(), now()))
     this.totalTokens = 0
     this.emitSessionState([])
   }
@@ -232,13 +285,9 @@ export class Engine {
     if (this.busy || id === this.sessionId) return
     const row = this.store.get(id)
     if (!row) return
-    // Resuming a session from another directory switches the working directory + project context.
-    if (row.cwd !== this.cwd) {
-      this.cwd = row.cwd
-      this.context = loadProjectContext(this.cwd)
-      this.skills = loadSkills(this.cwd)
-    }
-    this.adoptSession(row)
+    const changedRoots = row.roots.join("|") !== this.roots.join("|")
+    this.adoptSession(row) // sets roots + primary cwd
+    if (changedRoots) this.reloadWorkspace()
     this.totalTokens = 0
     this.emitSessionState(this.messages)
   }
@@ -248,18 +297,18 @@ export class Engine {
     if (id === this.sessionId) {
       const next = this.store.latest(this.cwd)
       if (next) this.adoptSession(next)
-      else this.adoptSession(this.store.create(this.cwd, crypto.randomUUID(), now()))
+      else this.adoptSession(this.store.create(this.roots, crypto.randomUUID(), now()))
       this.totalTokens = 0
       this.emitSessionState(this.messages)
     } else {
       // Active session unchanged — just nudge the UI to refresh its lists.
-      this.emit({ type: "session-changed", sessionId: this.sessionId, title: this.sessionTitle, cwd: this.cwd })
+      this.emit({ type: "session-changed", sessionId: this.sessionId, title: this.sessionTitle, cwd: this.cwd, roots: this.roots })
     }
   }
 
   private emitSessionState(messages: Message[]): void {
-    this.emit({ type: "session-changed", sessionId: this.sessionId, title: this.sessionTitle, cwd: this.cwd })
-    this.emit({ type: "session-loaded", sessionId: this.sessionId, title: this.sessionTitle, cwd: this.cwd, messages })
+    this.emit({ type: "session-changed", sessionId: this.sessionId, title: this.sessionTitle, cwd: this.cwd, roots: this.roots })
+    this.emit({ type: "session-loaded", sessionId: this.sessionId, title: this.sessionTitle, cwd: this.cwd, roots: this.roots, messages })
   }
 
   // ---- queries for the /model modal ----
@@ -290,10 +339,7 @@ export class Engine {
     return { files: this.context.files }
   }
   listCommands(): CustomCommand[] {
-    return loadCommands(this.cwd)
-  }
-  cwdPath(): string {
-    return this.cwd
+    return loadCommands(this.roots)
   }
 
   connectProvider(providerId: string, apiKey: string, baseURL?: string): void {
@@ -425,7 +471,7 @@ export class Engine {
     }
     this.busy = true
     this.abort = new AbortController()
-    const { text: expanded } = expandMentions(text, this.cwd)
+    const { text: expanded } = expandMentions(text, this.roots)
     this.addMessage({ role: "user", text: expanded })
     this.setTitleFromPrompt(text)
     const start = Date.now()
@@ -467,6 +513,7 @@ export class Engine {
             role: "system",
             text: systemPrompt({
               cwd: this.cwd,
+              roots: this.roots,
               mode: this.mode,
               context: this.context.content,
               skills: this.skills.map((s) => ({ name: s.name, description: s.description, whenToUse: s.whenToUse })),
@@ -577,7 +624,7 @@ export class Engine {
 
         let result: ToolResult
         try {
-          result = await tool.execute(safeParse(tc.arguments), { cwd: this.cwd, signal })
+          result = await tool.execute(safeParse(tc.arguments), { cwd: this.cwd, roots: this.roots, signal })
         } catch (e: any) {
           result = { output: `Error: ${e?.message ?? e}`, isError: true }
         }
@@ -642,7 +689,7 @@ export class Engine {
         if (!tool) result = { output: `Unknown or disallowed tool for a sub-agent: ${tc.name}`, isError: true }
         else {
           try {
-            result = await tool.execute(safeParse(tc.arguments), { cwd: this.cwd, signal })
+            result = await tool.execute(safeParse(tc.arguments), { cwd: this.cwd, roots: this.roots, signal })
           } catch (e: any) {
             result = { output: `Error: ${e?.message ?? e}`, isError: true }
           }

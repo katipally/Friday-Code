@@ -18,6 +18,8 @@ import { AskCard } from "./components/AskCard.tsx"
 import { ModelModal } from "./components/ModelModal.tsx"
 import { CommandPalette } from "./components/CommandPalette.tsx"
 import { SessionHistory } from "./components/SessionHistory.tsx"
+import { DirectoryModal } from "./components/DirectoryModal.tsx"
+import { McpModal } from "./components/McpModal.tsx"
 import { ExitScreen } from "./components/ExitScreen.tsx"
 
 function Shell() {
@@ -59,6 +61,12 @@ function Shell() {
       <Show when={app.historyOpen()}>
         <SessionHistory />
       </Show>
+      <Show when={app.dirModalOpen()}>
+        <DirectoryModal />
+      </Show>
+      <Show when={app.mcpModalOpen()}>
+        <McpModal />
+      </Show>
     </box>
   )
 }
@@ -79,6 +87,8 @@ function AppRoot() {
     if (app.modelModalOpen()) return // ModelModal owns keys while open
     if (app.paletteOpen()) return // CommandPalette owns keys while open
     if (app.historyOpen()) return // SessionHistory owns keys while open
+    if (app.dirModalOpen()) return // DirectoryModal owns keys while open
+    if (app.mcpModalOpen()) return // McpModal owns keys while open
     if (app.askPending()) return // AskCard owns keys while open
 
     if (app.pending()) {

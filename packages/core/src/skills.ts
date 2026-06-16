@@ -25,10 +25,10 @@ function parse(raw: string, fallbackName: string): Omit<Skill, "source"> {
 
 /** Load skills from .friday/skills (project) and ~/.friday/skills (user). Supports a flat
  * `<name>.md` file or a `<name>/SKILL.md` directory. */
-export function loadSkills(cwd: string): Skill[] {
+export function loadSkills(roots: string[]): Skill[] {
   const out: Skill[] = []
   const dirs: { dir: string; source: "project" | "user" }[] = [
-    { dir: path.join(cwd, ".friday", "skills"), source: "project" },
+    ...roots.map((r) => ({ dir: path.join(r, ".friday", "skills"), source: "project" as const })),
     { dir: path.join(fridayDir(), "skills"), source: "user" },
   ]
   for (const { dir, source } of dirs) {

@@ -7,6 +7,8 @@ export interface SessionRow {
   id: string
   title: string
   cwd: string
+  /** all directories this session spans (primary = roots[0], = cwd) */
+  roots: string[]
   createdAt: number
   updatedAt: number
 }
@@ -25,6 +27,13 @@ export class SessionStore {
         created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
       );`,
     )
+    // roots column added later — migrate existing dbs.
+    try {
+      this.db.exec("ALTER TABLE sessions ADD COLUMN roots TEXT NOT NULL DEFAULT '[]';")
+    } catch {
+      /* already exists */
+    }
+    this.db.exec("UPDATE sessions SET roots = json_array(cwd) WHERE roots = '[]' OR roots IS NULL;")
     this.db.exec(
       `CREATE TABLE IF NOT EXISTS messages (
         rowid INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL,
@@ -34,15 +43,12 @@ export class SessionStore {
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_msg_session ON messages (session_id, seq);")
   }
 
-  create(cwd: string, id: string, now: number, title = "new session"): SessionRow {
-    this.db.query("INSERT INTO sessions (id, title, cwd, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").run(
-      id,
-      title,
-      cwd,
-      now,
-      now,
-    )
-    return { id, title, cwd, createdAt: now, updatedAt: now }
+  create(roots: string[], id: string, now: number, title = "new session"): SessionRow {
+    const cwd = roots[0]!
+    this.db
+      .query("INSERT INTO sessions (id, title, cwd, roots, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(id, title, cwd, JSON.stringify(roots), now, now)
+    return { id, title, cwd, roots, createdAt: now, updatedAt: now }
   }
 
   get(id: string): SessionRow | undefined {
@@ -50,15 +56,20 @@ export class SessionStore {
     return r ? rowToSession(r) : undefined
   }
 
-  list(cwd?: string): SessionRow[] {
-    const rows = cwd
-      ? (this.db.query("SELECT * FROM sessions WHERE cwd = ? ORDER BY updated_at DESC").all(cwd) as any[])
+  /** Sessions whose roots include `dir` (or all sessions if dir omitted), newest first. */
+  list(dir?: string): SessionRow[] {
+    const rows = dir
+      ? (this.db
+          .query(
+            "SELECT * FROM sessions WHERE EXISTS (SELECT 1 FROM json_each(sessions.roots) WHERE value = ?) ORDER BY updated_at DESC",
+          )
+          .all(dir) as any[])
       : (this.db.query("SELECT * FROM sessions ORDER BY updated_at DESC").all() as any[])
     return rows.map(rowToSession)
   }
 
-  latest(cwd?: string): SessionRow | undefined {
-    return this.list(cwd)[0]
+  latest(dir?: string): SessionRow | undefined {
+    return this.list(dir)[0]
   }
 
   rename(id: string, title: string, now: number): void {
@@ -67,6 +78,15 @@ export class SessionStore {
 
   touch(id: string, now: number): void {
     this.db.query("UPDATE sessions SET updated_at = ? WHERE id = ?").run(now, id)
+  }
+
+  addRoot(id: string, dir: string, now: number): string[] {
+    const row = this.get(id)
+    if (!row) return []
+    if (row.roots.includes(dir)) return row.roots
+    const roots = [...row.roots, dir]
+    this.db.query("UPDATE sessions SET roots = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(roots), now, id)
+    return roots
   }
 
   delete(id: string): void {
@@ -78,6 +98,11 @@ export class SessionStore {
     this.db.query("INSERT INTO messages (session_id, seq, json) VALUES (?, ?, ?)").run(sessionId, seq, JSON.stringify(msg))
   }
 
+  /** Drop messages at or after `seq` (used by undo/rewind). */
+  truncateMessages(sessionId: string, seq: number): void {
+    this.db.query("DELETE FROM messages WHERE session_id = ? AND seq >= ?").run(sessionId, seq)
+  }
+
   loadMessages(sessionId: string): Message[] {
     const rows = this.db.query("SELECT json FROM messages WHERE session_id = ? ORDER BY seq").all(sessionId) as {
       json: string
@@ -87,5 +112,12 @@ export class SessionStore {
 }
 
 function rowToSession(r: any): SessionRow {
-  return { id: r.id, title: r.title, cwd: r.cwd, createdAt: r.created_at, updatedAt: r.updated_at }
+  let roots: string[]
+  try {
+    roots = JSON.parse(r.roots)
+    if (!Array.isArray(roots) || !roots.length) roots = [r.cwd]
+  } catch {
+    roots = [r.cwd]
+  }
+  return { id: r.id, title: r.title, cwd: r.cwd, roots, createdAt: r.created_at, updatedAt: r.updated_at }
 }

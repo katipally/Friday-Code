@@ -1,30 +1,45 @@
 import fs from "node:fs"
 import path from "node:path"
 
-/** Expand `@path` file mentions in a prompt into appended <file> blocks. */
-export function expandMentions(text: string, cwd: string): { text: string; files: string[] } {
-  const files: string[] = []
+/** Resolve a mention against the workspace roots; returns the absolute path of the first file match. */
+function resolveMention(rel: string, roots: string[]): string | undefined {
+  if (path.isAbsolute(rel)) {
+    try {
+      return fs.statSync(rel).isFile() ? rel : undefined
+    } catch {
+      return undefined
+    }
+  }
+  for (const root of roots) {
+    const full = path.join(root, rel)
+    try {
+      if (fs.statSync(full).isFile()) return full
+    } catch {
+      /* try next root */
+    }
+  }
+  return undefined
+}
+
+/** Expand `@path` file mentions in a prompt into appended <file> blocks (searched across all roots). */
+export function expandMentions(text: string, roots: string[]): { text: string; files: string[] } {
+  const matches: { rel: string; full: string }[] = []
   const re = /(?:^|\s)@([^\s@]+)/g
   let m: RegExpExecArray | null
   while ((m = re.exec(text))) {
     const rel = m[1]!
-    const full = path.isAbsolute(rel) ? rel : path.join(cwd, rel)
-    try {
-      if (fs.statSync(full).isFile() && !files.includes(rel)) files.push(rel)
-    } catch {
-      /* not a file */
-    }
+    const full = resolveMention(rel, roots)
+    if (full && !matches.some((x) => x.full === full)) matches.push({ rel, full })
   }
-  if (!files.length) return { text, files: [] }
-  const blocks = files
-    .map((f) => {
+  if (!matches.length) return { text, files: [] }
+  const blocks = matches
+    .map((x) => {
       try {
-        const full = path.isAbsolute(f) ? f : path.join(cwd, f)
-        return `<file path="${f}">\n${fs.readFileSync(full, "utf8").slice(0, 20_000)}\n</file>`
+        return `<file path="${x.rel}">\n${fs.readFileSync(x.full, "utf8").slice(0, 20_000)}\n</file>`
       } catch {
         return ""
       }
     })
     .filter(Boolean)
-  return { text: `${text}\n\n${blocks.join("\n\n")}`, files }
+  return { text: `${text}\n\n${blocks.join("\n\n")}`, files: matches.map((x) => x.rel) }
 }

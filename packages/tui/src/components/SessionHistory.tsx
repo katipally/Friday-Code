@@ -18,10 +18,13 @@ export function SessionHistory() {
   // Flat, navigable list ordered by directory then recency; rows carry their flat index for headers.
   type Row = { dir: string } | { session: { id: string; title: string; cwd: string }; index: number }
   const grouped = createMemo(() => {
+    // A session appears under each of its roots.
     const byDir = new Map<string, { id: string; title: string; cwd: string; updatedAt: number }[]>()
     for (const s of app.allSessions()) {
-      if (!byDir.has(s.cwd)) byDir.set(s.cwd, [])
-      byDir.get(s.cwd)!.push(s)
+      for (const root of s.roots.length ? s.roots : [s.cwd]) {
+        if (!byDir.has(root)) byDir.set(root, [])
+        byDir.get(root)!.push(s)
+      }
     }
     const dirs = [...byDir.keys()].sort()
     const rows: Row[] = []
