@@ -29,10 +29,18 @@
       "name": "@friday/core",
       "version": "0.0.0",
       "dependencies": {
+        "@friday/lsp": "workspace:*",
         "@friday/mcp": "workspace:*",
         "@friday/providers": "workspace:*",
         "@friday/shared": "workspace:*",
         "@friday/tools": "workspace:*",
+      },
+    },
+    "packages/lsp": {
+      "name": "@friday/lsp",
+      "version": "0.0.0",
+      "dependencies": {
+        "@friday/shared": "workspace:*",
       },
     },
     "packages/mcp": {
@@ -135,6 +143,8 @@
     "@friday/cli": ["@friday/cli@workspace:packages/cli"],
 
     "@friday/core": ["@friday/core@workspace:packages/core"],
+
+    "@friday/lsp": ["@friday/lsp@workspace:packages/lsp"],
 
     "@friday/mcp": ["@friday/mcp@workspace:packages/mcp"],
 

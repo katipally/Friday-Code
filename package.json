@@ -8,7 +8,7 @@
     "friday": "bun run packages/cli/src/index.tsx",
     "dev": "bun --watch run packages/cli/src/index.tsx",
     "test": "bun test",
-    "typecheck": "for p in shared providers tools mcp core tui cli; do tsc --noEmit -p packages/$p/tsconfig.json || exit 1; done"
+    "typecheck": "for p in shared providers tools mcp lsp core tui cli; do tsc --noEmit -p packages/$p/tsconfig.json || exit 1; done"
   },
   "dependencies": {
     "@opentui/core": "latest",

@@ -14,10 +14,16 @@ export interface ToolCall {
   arguments: string
 }
 
+/** An image attached to a user message (base64-encoded). */
+export interface ImagePart {
+  data: string
+  mime: string
+}
+
 /** Canonical conversation message kept by the engine. */
 export type Message =
   | { role: "system"; text: string }
-  | { role: "user"; text: string }
+  | { role: "user"; text: string; images?: ImagePart[] }
   | { role: "assistant"; text?: string; reasoning?: string; reasoningSignature?: string; toolCalls?: ToolCall[] }
   | { role: "tool"; callId: string; name: string; result: string; isError?: boolean }
 
@@ -84,3 +90,11 @@ export type ProviderEvent =
 
 /** Tool permission categories, matched against a mode's PermissionPolicy. */
 export type PermissionCategory = "read" | "edit" | "bash" | "network"
+
+/** A single item in the agent's live task list (maintained via the todo_write tool). */
+export type TodoStatus = "pending" | "active" | "done"
+export interface TodoItem {
+  id: string
+  text: string
+  status: TodoStatus
+}

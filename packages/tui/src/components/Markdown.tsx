@@ -19,6 +19,12 @@ function Inline(props: { text: string }) {
           if (s.code) return <CSpan color={CODE_INLINE}>{s.text}</CSpan>
           if (s.bold) return <strong>{s.text}</strong>
           if (s.italic) return <em>{s.text}</em>
+          if (s.strike)
+            return (
+              <CSpan color={theme.textFaint}>
+                <span {...({ attributes: 8 } as any) /* strikethrough */}>{s.text}</span>
+              </CSpan>
+            )
           if (s.href)
             return (
               <CSpan color={theme.info}>
@@ -32,19 +38,46 @@ function Inline(props: { text: string }) {
   )
 }
 
+function pad(s: string, w: number): string {
+  return s.length >= w ? s.slice(0, w) : s + " ".repeat(w - s.length)
+}
+
+/** A monospace-aligned table: header + rule + rows, columns sized to content. */
+function Table(props: { headers: string[]; rows: string[][]; accent: string }) {
+  const cols = props.headers.length
+  const widths = props.headers.map((h, c) =>
+    Math.min(40, Math.max(h.length, ...props.rows.map((r) => (r[c] ?? "").length))),
+  )
+  const rule = widths.map((w) => "─".repeat(w)).join("─┼─")
+  return (
+    <box flexDirection="column" marginTop={1} marginBottom={1}>
+      <text fg={props.accent}>
+        <strong>{props.headers.map((h, c) => pad(h, widths[c]!)).join(" │ ")}</strong>
+      </text>
+      <text fg={theme.borderMuted}>{rule}</text>
+      <For each={props.rows}>
+        {(r) => <text fg={theme.textMuted}>{Array.from({ length: cols }, (_, c) => pad(r[c] ?? "", widths[c]!)).join(" │ ")}</text>}
+      </For>
+    </box>
+  )
+}
+
 function Block(props: { b: MdBlock; accent: string }) {
   const b = props.b
   switch (b.type) {
     case "heading":
       return (
-        <box marginTop={1}>
+        <box marginTop={1} flexDirection="row" gap={1}>
+          <text fg={theme.textFaint}>{"#".repeat(b.level)}</text>
           <text fg={props.accent}>
             <strong>{b.text}</strong>
           </text>
         </box>
       )
     case "hr":
-      return <text fg={theme.borderMuted}>{"─".repeat(40)}</text>
+      return <text fg={theme.borderMuted}>{"─".repeat(48)}</text>
+    case "table":
+      return <Table headers={b.headers} rows={b.rows} accent={props.accent} />
     case "code":
       return (
         <box
@@ -74,10 +107,15 @@ function Block(props: { b: MdBlock; accent: string }) {
       return (
         <box flexDirection="column">
           <For each={b.items}>
-            {(item, i) => (
-              <box flexDirection="row" gap={1}>
-                <text fg={props.accent}>{b.ordered ? `${i() + 1}.` : "•"}</text>
-                <Inline text={item} />
+            {(item) => (
+              <box flexDirection="row" gap={1} paddingLeft={item.depth * 2}>
+                <Show
+                  when={item.task}
+                  fallback={<text fg={props.accent}>{item.ordered ? `${item.index}.` : "•"}</text>}
+                >
+                  <text fg={item.checked ? theme.success : theme.textFaint}>{item.checked ? "☑" : "☐"}</text>
+                </Show>
+                <Inline text={item.text} />
               </box>
             )}
           </For>

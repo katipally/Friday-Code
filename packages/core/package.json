@@ -8,6 +8,7 @@
     "@friday/shared": "workspace:*",
     "@friday/providers": "workspace:*",
     "@friday/tools": "workspace:*",
-    "@friday/mcp": "workspace:*"
+    "@friday/mcp": "workspace:*",
+    "@friday/lsp": "workspace:*"
   }
 }

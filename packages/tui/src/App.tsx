@@ -1,6 +1,6 @@
-import { Match, onMount, Show, Switch } from "solid-js"
-import { useKeyboard, useRenderer, useSelectionHandler } from "@opentui/solid"
-import { theme, getMode } from "@friday/shared"
+import { createSignal, Match, onMount, Show, Switch } from "solid-js"
+import { useKeyboard, useRenderer, useSelectionHandler, useTerminalDimensions } from "@opentui/solid"
+import { theme } from "@friday/shared"
 import type { Engine } from "@friday/core"
 import { AppProvider, createAppStore, useApp } from "./store.tsx"
 import { Splash } from "./components/Splash.tsx"
@@ -22,29 +22,51 @@ import { DirectoryModal } from "./components/DirectoryModal.tsx"
 import { McpModal } from "./components/McpModal.tsx"
 import { CheckpointHistory } from "./components/CheckpointHistory.tsx"
 import { ExitScreen } from "./components/ExitScreen.tsx"
+import { Onboarding } from "./components/Onboarding.tsx"
+import { Toasts } from "./components/Toasts.tsx"
 
 function Shell() {
   const app = useApp()
-  const accent = () => getMode(app.mode()).accent
+  const dims = useTerminalDimensions()
+
+  // Panel resize is driven from this row (not the divider) so drag events keep landing even when
+  // the handle reflows out from under the cursor — the bug that made the right panel glitch.
+  // Width math is absolute (startW + delta), so a double-delivered event is idempotent.
+  const [dragSide, setDragSide] = createSignal<null | "left" | "right">(null)
+  let startX = 0
+  let startW = 0
+  function grab(side: "left" | "right", e: any) {
+    setDragSide(side)
+    startX = typeof e?.x === "number" ? e.x : 0
+    startW = side === "left" ? app.leftWidth() : app.rightWidth()
+  }
+  function onRowDrag(e: any) {
+    const side = dragSide()
+    if (!side || typeof e?.x !== "number") return
+    const max = Math.floor(dims().width / 2)
+    const delta = e.x - startX
+    if (side === "left") app.setLeftWidth(Math.max(14, Math.min(max, startW + delta)))
+    else app.setRightWidth(Math.max(16, Math.min(max, startW - delta)))
+  }
+  const endDrag = () => setDragSide(null)
 
   return (
     <box width="100%" height="100%" backgroundColor={theme.bg}>
-      <box flexGrow={1} flexDirection="column" border borderStyle="rounded" borderColor={accent()} backgroundColor={theme.bg}>
+      {/* The single outermost frame stays black; mode accent lives on badges, panels and focus rings. */}
+      <box flexGrow={1} flexDirection="column" border borderStyle="rounded" borderColor={theme.frame} backgroundColor={theme.bg}>
         <TopBar />
-        <box flexDirection="row" flexGrow={1} minHeight={0}>
+        <box flexDirection="row" flexGrow={1} minHeight={0} onMouseDrag={onRowDrag} onMouseUp={endDrag} onMouseDragEnd={endDrag}>
           <SessionsPanel />
           <Show when={app.leftOpen()}>
-            <Divider side="left" />
+            <Divider side="left" active={dragSide() === "left"} onGrab={(e) => grab("left", e)} onDrag={onRowDrag} onEnd={endDrag} />
           </Show>
           <box flexGrow={1} minHeight={0} flexDirection="column" paddingLeft={1} paddingRight={1}>
             <Chat />
-            <PermissionCard />
-            <AskCard />
             <StatusStrip />
             <Composer />
           </box>
           <Show when={app.rightOpen()}>
-            <Divider side="right" />
+            <Divider side="right" active={dragSide() === "right"} onGrab={(e) => grab("right", e)} onDrag={onRowDrag} onEnd={endDrag} />
           </Show>
           <ContextPanel />
         </box>
@@ -71,6 +93,13 @@ function Shell() {
       <Show when={app.checkpointsOpen()}>
         <CheckpointHistory />
       </Show>
+      <Show when={app.onboardingOpen()}>
+        <Onboarding />
+      </Show>
+      {/* HITL prompts render as centered overlays above the (dimmed) shell. */}
+      <PermissionCard />
+      <AskCard />
+      <Toasts />
     </box>
   )
 }
@@ -82,6 +111,7 @@ function AppRoot() {
   onMount(() => app.engine.ready())
 
   let lastEsc = 0
+  let stopArmedAt = 0
   useKeyboard((key) => {
     if (app.view() === "exit") return // ExitScreen owns keys
     if (key.ctrl && key.name === "c") return app.quit()
@@ -89,6 +119,7 @@ function AppRoot() {
       if (["return", "enter", "space", "escape"].includes(key.name)) app.setView("shell")
       return
     }
+    if (app.onboardingOpen()) return // Onboarding owns keys while open
     if (app.modelModalOpen()) return // ModelModal owns keys while open
     if (app.paletteOpen()) return // CommandPalette owns keys while open
     if (app.historyOpen()) return // SessionHistory owns keys while open
@@ -98,9 +129,14 @@ function AppRoot() {
     if (app.askPending()) return // AskCard owns keys while open
 
     if (app.pending()) {
-      if (key.name === "a" || key.name === "return" || key.name === "enter") return app.replyPermission("allow-once")
+      const decisions = ["allow-once", "allow-always", "deny"] as const
+      if (key.name === "a") return app.replyPermission("allow-once")
       if (key.name === "s") return app.replyPermission("allow-always")
       if (key.name === "d" || key.name === "escape") return app.replyPermission("deny")
+      if (key.name === "up" || key.name === "k") return app.setPermSel((s) => (s + 2) % 3)
+      if (key.name === "down" || key.name === "j" || (key.name === "tab" && !key.shift)) return app.setPermSel((s) => (s + 1) % 3)
+      if (key.name === "tab" && key.shift) return app.setPermSel((s) => (s + 2) % 3)
+      if (key.name === "return" || key.name === "enter") return app.replyPermission(decisions[app.permSel()]!)
       return
     }
     if (app.overlayOpen()) {
@@ -115,7 +151,22 @@ function AppRoot() {
     if (key.ctrl && key.name === "y") return app.setHistoryOpen(true)
     if (key.name?.toLowerCase() === "f1" || (key.ctrl && key.name === "/")) return app.setOverlayOpen(true)
     if (key.name === "escape") {
-      if (app.busy()) return app.abort()
+      if (app.busy()) {
+        // Double-Esc to stop: first Esc arms (shows a hint), a second within 1.5s aborts.
+        // A stray single Esc is a no-op, so the agent isn't killed by an accidental tap.
+        const t = Date.now()
+        if (app.stopArmed() && t - stopArmedAt < 1500) {
+          stopArmedAt = 0
+          app.setStopArmed(false)
+          return app.abort()
+        }
+        stopArmedAt = t
+        app.setStopArmed(true)
+        setTimeout(() => {
+          if (Date.now() - stopArmedAt >= 1450) app.setStopArmed(false)
+        }, 1500)
+        return
+      }
       // Double-tap Esc (within 500ms) opens the checkpoint / undo history.
       const t = Date.now()
       if (t - lastEsc < 500) {

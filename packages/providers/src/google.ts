@@ -10,7 +10,10 @@ function toGoogle(messages: Message[]): { system?: string; contents: unknown[] }
     if (m.role === "system") {
       system = system ? `${system}\n\n${m.text}` : m.text
     } else if (m.role === "user") {
-      contents.push({ role: "user", parts: [{ text: m.text }] })
+      const parts: Record<string, unknown>[] = []
+      if (m.text) parts.push({ text: m.text })
+      for (const img of m.images ?? []) parts.push({ inlineData: { mimeType: img.mime, data: img.data } })
+      contents.push({ role: "user", parts: parts.length ? parts : [{ text: m.text }] })
     } else if (m.role === "assistant") {
       const parts: Record<string, unknown>[] = []
       if (m.text) parts.push({ text: m.text })

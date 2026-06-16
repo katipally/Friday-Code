@@ -12,7 +12,7 @@ function newEngine() {
   return new Engine({ cwd: fs.mkdtempSync(path.join(os.tmpdir(), "friday-cwd-")) })
 }
 
-test("App mounts, splash, then the shell; first-run opens /model", async () => {
+test("App mounts, splash, then the shell; first-run shows onboarding", async () => {
   const t = await testRender(() => <App engine={newEngine()} />, { width: 120, height: 36 })
   await t.renderOnce()
 
@@ -22,18 +22,17 @@ test("App mounts, splash, then the shell; first-run opens /model", async () => {
   t.mockInput.pressEnter()
   await t.flush()
 
-  // first run with no model -> /model connector opens automatically
+  // first run with no model -> welcome/onboarding overlay
   const shell = t.captureCharFrame()
-  expect(shell).toContain("/model")
-  expect(shell).toContain("Anthropic")
-  expect(shell).toContain("needs key")
+  expect(shell).toContain("connect a model")
+  expect(shell).toContain("reduced motion")
 
-  // close it; underlying shell is present
+  // skip it (backdrop click); underlying shell is present
   await t.mockMouse.click(2, 2)
   await t.flush()
   const bare = t.captureCharFrame()
   expect(bare).toContain("sessions")
-  expect(bare).toContain("context")
+  expect(bare).toContain("stats")
 
   t.renderer.destroy()
 })

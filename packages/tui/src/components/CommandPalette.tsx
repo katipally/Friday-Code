@@ -1,8 +1,9 @@
-import { createMemo, createSignal, For, onMount } from "solid-js"
+import { createMemo, createSignal, onMount } from "solid-js"
 import { useKeyboard } from "@opentui/solid"
 import { theme, getMode } from "@friday/shared"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
+import { SelectList } from "./SelectList.tsx"
 
 /** Ctrl/Cmd+K fuzzy command palette over built-in + custom commands. */
 export function CommandPalette() {
@@ -31,7 +32,7 @@ export function CommandPalette() {
     if (key.name === "escape") return app.setPaletteOpen(false)
     if (key.name === "up") return setSel((s) => (s - 1 + items.length) % Math.max(1, items.length))
     if (key.name === "down") return setSel((s) => (s + 1) % Math.max(1, items.length))
-    if (key.name === "return" || key.name === "enter") return run(sel())
+    if (key.name === "return" || key.name === "enter" || (key.name === "tab" && !key.shift)) return run(sel())
     queueMicrotask(() => {
       setQuery(input?.plainText ?? "")
       setSel(0)
@@ -62,25 +63,15 @@ export function CommandPalette() {
           </box>
         </box>
         <box flexDirection="column" maxHeight={12}>
-          <For each={filtered()}>
-            {(c, i) => (
-              <box
-                flexDirection="row"
-                gap={1}
-                paddingLeft={1}
-                paddingRight={1}
-                backgroundColor={sel() === i() ? theme.bgHover : "transparent"}
-                onMouseDown={() => run(i())}
-              >
-                <box width={20}>
-                  <text fg={sel() === i() ? accent() : theme.text}>/{c.name}</text>
-                </box>
-                <text fg={theme.textFaint}>{c.description}</text>
-              </box>
-            )}
-          </For>
+          <SelectList
+            items={filtered().map((c) => ({ id: c.name, label: `/${c.name}`, hint: c.description }))}
+            selected={sel()}
+            accent={accent()}
+            onHover={(i) => setSel(i)}
+            onChoose={(i) => run(i)}
+          />
         </box>
-        <text fg={theme.textFaint}>↑↓ move · ⏎ run · esc close</text>
+        <text fg={theme.textFaint}>↑↓ move · ⏎/⭾ run · esc close</text>
       </box>
     </Scrim>
   )

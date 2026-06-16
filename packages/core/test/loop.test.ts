@@ -133,9 +133,9 @@ test("ask_user pauses the loop and feeds the answer back", async () => {
 
   const ask = events.find((e) => e.type === "ask-user") as Extract<EngineEvent, { type: "ask-user" }>
   expect(ask).toBeTruthy()
-  expect(ask.options).toEqual(["solid", "react"])
+  expect(ask.questions[0]!.options).toEqual(["solid", "react"])
 
-  engine.send({ type: "ask-reply", requestId: ask.requestId, answer: "solid" })
+  engine.send({ type: "ask-reply", requestId: ask.requestId, answers: { [ask.questions[0]!.id]: "solid" } })
   await Bun.sleep(20)
 
   const result = events.find((e) => e.type === "tool-result") as Extract<EngineEvent, { type: "tool-result" }>

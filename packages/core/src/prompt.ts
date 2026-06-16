@@ -44,6 +44,8 @@ export function systemPrompt(opts: {
     "- File: read, write, edit, multi_edit, ls, glob, grep.",
     "- Shell: bash (combined stdout+stderr).",
     "- edit replaces an exact, unique string; use multi_edit for several edits to one file.",
+    "- todo_write: for any task with 3+ steps, maintain a live task list. Pass the FULL list each call; keep one item 'active', mark items 'done' as you finish. This keeps the user oriented.",
+    "- Language server (when available): lsp_hover / lsp_definition / lsp_symbols give real type info, jump-to-def, and symbol search. After you edit a file, its compiler diagnostics are appended to the tool result automatically — read them and fix real errors before moving on.",
     skillsSection(opts.skills),
     modePostureNote(opts.mode),
   ]

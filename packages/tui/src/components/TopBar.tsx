@@ -1,45 +1,32 @@
 import { Show } from "solid-js"
-import { theme, getMode } from "@friday/shared"
+import { theme, getMode, BRAND } from "@friday/shared"
 import { useApp } from "../store.tsx"
+import { shimmerAccent } from "../motion/index.ts"
 
 function home(p: string): string {
   const h = process.env.HOME
   const s = h && p.startsWith(h) ? "~" + p.slice(h.length) : p
-  return s.length > 28 ? "…" + s.slice(-27) : s
+  return s.length > 40 ? "…" + s.slice(-39) : s
 }
 
-/** Top row inside the frame: wordmark + working directory left, mode badge + model right. */
+/** Top rail: a single clean row — the `friday code` wordmark + version + working directory. */
 export function TopBar() {
   const app = useApp()
-  const mode = () => getMode(app.mode())
+  const accent = () => shimmerAccent(getMode(app.mode()).accent)
   const extra = () => app.roots().length - 1
 
   return (
-    <box flexDirection="row" height={1} paddingLeft={1} paddingRight={1} alignItems="center" gap={1}>
-      <text fg={mode().accent}>⬡</text>
-      <text fg={theme.text}>friday</text>
-      <text fg={theme.textFaint}>code</text>
+    <box flexDirection="row" height={1} paddingLeft={1} paddingRight={1} alignItems="center" justifyContent="center" gap={1}>
+      <text fg={accent()}>
+        <strong>{BRAND.name}</strong>
+      </text>
+      <text fg={theme.textMuted}>{BRAND.suffix}</text>
+      <text fg={theme.textFaint}>v{BRAND.version}</text>
       <text fg={theme.textFaint}>·</text>
       <box flexDirection="row" gap={1} onMouseDown={() => app.setDirModalOpen(true)}>
         <text fg={theme.textMuted}>{home(app.currentCwd())}</text>
         <Show when={extra() > 0}>
-          <text fg={mode().accent}>+{extra()}</text>
-        </Show>
-      </box>
-      <box flexGrow={1} />
-      <box
-        flexDirection="row"
-        gap={1}
-        onMouseDown={() => app.toggleMode(1)}
-      >
-        <text fg={mode().accent}>{mode().glyph}</text>
-        <text fg={mode().accent}>{mode().label}</text>
-      </box>
-      <text fg={theme.textFaint}> · </text>
-      <box flexDirection="row" gap={1} onMouseDown={() => app.setModelModalOpen(true)}>
-        <text fg={theme.textMuted}>{app.model()}</text>
-        <Show when={app.reasoningModel()}>
-          <text fg={theme.textFaint}>◇ {app.effort()}</text>
+          <text fg={accent()}>+{extra()}</text>
         </Show>
       </box>
     </box>

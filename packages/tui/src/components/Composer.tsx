@@ -2,7 +2,9 @@ import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { theme, getMode } from "@friday/shared"
 import { useApp } from "../store.tsx"
+import { shimmerAccent } from "../motion/index.ts"
 import { listProjectFiles } from "../util/files.ts"
+import { parseMentions, chipIcon } from "../util/mentions.ts"
 
 type Suggestion = { label: string; hint: string; apply: () => void }
 
@@ -21,14 +23,17 @@ export function Composer() {
   const app = useApp()
   const dims = useTerminalDimensions()
   const mode = () => getMode(app.mode())
+  const accentS = () => shimmerAccent(mode().accent)
   const focused = () =>
     app.view() === "shell" &&
     !app.overlayOpen() &&
+    !app.onboardingOpen() &&
     !app.modelModalOpen() &&
     !app.paletteOpen() &&
     !app.historyOpen() &&
     !app.dirModalOpen() &&
     !app.mcpModalOpen() &&
+    !app.checkpointsOpen() &&
     !app.pending() &&
     !app.askPending()
   const maxHeight = () => Math.max(4, Math.floor(dims().height / 3))
@@ -85,6 +90,10 @@ export function Composer() {
     setSel(0)
   })
 
+  // File/folder/image references in the prompt, shown as compact chips above the input.
+  // Images become vision input on submit; all chips are click-to-open.
+  const chips = createMemo(() => parseMentions(text(), app.roots()))
+
   function submit() {
     const value: string = ta?.plainText ?? ""
     if (value.trim()) app.submit(value)
@@ -130,12 +139,33 @@ export function Composer() {
         </box>
       </Show>
 
+      <Show when={chips().length > 0}>
+        <box flexDirection="row" gap={1} marginBottom={1} flexShrink={0} flexWrap="wrap">
+          <For each={chips()}>
+            {(chip) => (
+              <box
+                border
+                borderStyle="rounded"
+                borderColor={chip.abs ? mode().accent : theme.border}
+                paddingLeft={1}
+                paddingRight={1}
+                onMouseDown={() => app.openPath(chip.rel)}
+              >
+                <text fg={chip.abs ? theme.text : theme.textFaint}>
+                  {chipIcon(chip.kind)} {truncate(chip.rel.split("/").pop() || chip.rel, 24)}
+                </text>
+              </box>
+            )}
+          </For>
+        </box>
+      </Show>
+
       <box
         flexDirection="row"
         flexShrink={0}
         border
         borderStyle="rounded"
-        borderColor={focused() ? mode().accent : theme.border}
+        borderColor={focused() ? accentS() : theme.border}
         backgroundColor={theme.bgComposer}
         paddingLeft={1}
         paddingRight={1}
@@ -159,7 +189,7 @@ export function Composer() {
           />
         </box>
         <box flexDirection="row" gap={1} marginLeft={1} alignItems="center" flexShrink={0}>
-          <text fg={mode().accent}>{mode().glyph}</text>
+          <text fg={accentS()}>{mode().glyph}</text>
           <text fg={theme.textFaint}>{mode().label}</text>
         </box>
       </box>
