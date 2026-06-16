@@ -1,4 +1,4 @@
-import { createContext, createSignal, useContext, type JSX } from "solid-js"
+import { createContext, createMemo, createSignal, useContext, type JSX } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import {
   DEFAULT_MODE,
@@ -100,7 +100,11 @@ export function createAppStore(engine: Engine) {
 
   const [items, setItems] = createStore<ViewItem[]>([])
   const [contextFiles] = createSignal<string[]>(engine.contextInfo().files)
+  const [skills] = createSignal(engine.listSkills())
   const [sessions, setSessions] = createSignal<SessionItem[]>(engine.listSessions())
+  const runningTools = createMemo(() =>
+    items.filter((i) => i.kind === "tool" && i.status === "running").map((i) => (i as any).title ?? (i as any).name),
+  )
   const [activeSession, setActiveSession] = createSignal(engine.currentSessionId())
   const refreshSessions = () => setSessions(engine.listSessions())
 
@@ -373,6 +377,8 @@ export function createAppStore(engine: Engine) {
     listCommands,
     runCommand,
     contextFiles,
+    skills,
+    runningTools,
   }
 }
 

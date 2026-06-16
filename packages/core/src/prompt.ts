@@ -1,8 +1,20 @@
 import os from "node:os"
 import { getMode, type ModeId } from "@friday/shared"
 
+export interface SkillSummary {
+  name: string
+  description: string
+  whenToUse?: string
+}
+
+function skillsSection(skills?: SkillSummary[]): string {
+  if (!skills?.length) return ""
+  const lines = skills.map((s) => `- ${s.name}: ${s.description}${s.whenToUse ? ` (use when: ${s.whenToUse})` : ""}`)
+  return `\n# Skills\nThese skills are available — call skill({ name }) to load one's instructions when it fits:\n${lines.join("\n")}`
+}
+
 /** Assemble the system prompt: identity + environment + behavior + mode posture + project context. */
-export function systemPrompt(opts: { cwd: string; mode: ModeId; context?: string }): string {
+export function systemPrompt(opts: { cwd: string; mode: ModeId; context?: string; skills?: SkillSummary[] }): string {
   const mode = getMode(opts.mode)
   return [
     opts.context ? `# Project context\n${opts.context}\n` : "",
@@ -24,10 +36,27 @@ export function systemPrompt(opts: { cwd: string; mode: ModeId; context?: string
     "- File: read, write, edit, multi_edit, ls, glob, grep.",
     "- Shell: bash (combined stdout+stderr).",
     "- edit replaces an exact, unique string; use multi_edit for several edits to one file.",
+    skillsSection(opts.skills),
     modePostureNote(opts.mode),
   ]
     .filter(Boolean)
     .join("\n")
+}
+
+/** Focused system prompt for a read-only research sub-agent. */
+export function subagentPrompt(agent: string | undefined, cwd: string): string {
+  const role =
+    agent === "explore"
+      ? "You are an exploration sub-agent: locate where things live and how they connect."
+      : "You are a research sub-agent."
+  return [
+    role,
+    "",
+    "You are READ-ONLY: you may read, list, glob and grep, but you CANNOT edit files or run shell commands.",
+    "Investigate thoroughly, then return a concise summary that directly answers the request, citing file paths.",
+    "",
+    `Working directory: ${cwd}`,
+  ].join("\n")
 }
 
 function modePostureNote(mode: ModeId): string {

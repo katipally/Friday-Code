@@ -57,6 +57,18 @@ export function ContextPanel() {
             <text fg={theme.textMuted}>model</text>
             <text fg={theme.textFaint}>{app.model()}</text>
           </box>
+          <Show when={app.skills().length}>
+            <box flexDirection="column">
+              <text fg={theme.textMuted}>skills</text>
+              <For each={app.skills()}>{(s) => <text fg={theme.textFaint}>• {s.name}</text>}</For>
+            </box>
+          </Show>
+          <Show when={app.runningTools().length}>
+            <box flexDirection="column">
+              <text fg={theme.textMuted}>active</text>
+              <For each={app.runningTools()}>{(t) => <text fg={theme.warning}>⟳ {t}</text>}</For>
+            </box>
+          </Show>
         </box>
       </box>
     </Show>

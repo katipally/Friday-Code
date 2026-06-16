@@ -20,13 +20,14 @@ import {
   setProviderKey,
   streamProvider,
 } from "@friday/providers"
-import { ASK_USER, buildRegistry, type Tool, type ToolResult } from "@friday/tools"
+import { ASK_USER, SKILL_TOOL, TASK_TOOL, buildRegistry, toToolDef, type Tool, type ToolResult } from "@friday/tools"
 import { loadConfig, saveConfig } from "./config.ts"
-import { systemPrompt } from "./prompt.ts"
+import { subagentPrompt, systemPrompt } from "./prompt.ts"
 import { SessionStore } from "./sessions.ts"
 import { loadProjectContext, type ProjectContext } from "./context.ts"
 import { expandMentions } from "./mentions.ts"
 import { loadCommands, type CustomCommand } from "./commands.ts"
+import { loadSkills, type Skill } from "./skills.ts"
 
 let now = () => Date.now()
 
@@ -75,6 +76,7 @@ export class Engine {
   private streamFn: StreamFn
   private store: SessionStore
   private context: ProjectContext
+  private skills: Skill[]
 
   private sessionId!: string
   private sessionTitle!: string
@@ -99,6 +101,7 @@ export class Engine {
     this.streamFn = opts.streamFn ?? (streamProvider as StreamFn)
     this.store = opts.store ?? new SessionStore()
     this.context = loadProjectContext(opts.cwd)
+    this.skills = loadSkills(opts.cwd)
     const cfg = loadConfig()
     this.mode = cfg.mode ?? DEFAULT_MODE
     this.effort = cfg.effort ?? "medium"
@@ -339,7 +342,15 @@ export class Engine {
       const req = {
         model: this.model!,
         messages: [
-          { role: "system", text: systemPrompt({ cwd: this.cwd, mode: this.mode, context: this.context.content }) } as Message,
+          {
+            role: "system",
+            text: systemPrompt({
+              cwd: this.cwd,
+              mode: this.mode,
+              context: this.context.content,
+              skills: this.skills.map((s) => ({ name: s.name, description: s.description, whenToUse: s.whenToUse })),
+            }),
+          } as Message,
           ...this.messages,
         ],
         tools: this.registry.defs,
@@ -412,6 +423,25 @@ export class Engine {
         this.emit({ type: "mascot", state: "working" })
         this.emit({ type: "status", text: `running ${tc.name}…`, elapsedMs: Date.now() - start })
 
+        if (tc.name === SKILL_TOOL) {
+          const a = safeParse(tc.arguments) as { name?: string }
+          const skill = this.skills.find((s) => s.name === a.name)
+          const output = skill ? skill.content : `Unknown skill: ${a.name}. Available: ${this.skills.map((s) => s.name).join(", ") || "(none)"}`
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output, isError: !skill })
+          this.emit({ type: "tool-result", callId: tc.id, ok: !!skill, output, title: `skill ${a.name ?? ""}` })
+          continue
+        }
+
+        if (tc.name === TASK_TOOL) {
+          const a = safeParse(tc.arguments) as { description?: string; prompt?: string; agent?: string }
+          this.emit({ type: "mascot", state: "working" })
+          this.emit({ type: "status", text: `subagent: ${a.description ?? "task"}…` })
+          const summary = await this.runSubagent(a.prompt ?? "", a.agent)
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: summary })
+          this.emit({ type: "tool-result", callId: tc.id, ok: true, output: summary, title: `task: ${a.description ?? "subagent"}` })
+          continue
+        }
+
         if (tc.name === ASK_USER) {
           const a = safeParse(tc.arguments) as { question?: string; options?: unknown }
           const requestId = this.nextId()
@@ -462,6 +492,73 @@ export class Engine {
         })
       }
     }
+  }
+
+  listSkills(): { name: string; description: string }[] {
+    return this.skills.map((s) => ({ name: s.name, description: s.description }))
+  }
+
+  /** Run a read-only research sub-agent to completion and return its final summary. */
+  private async runSubagent(prompt: string, agent?: string): Promise<string> {
+    const provider = this.resolveProvider()
+    const apiKey = getProviderKey(provider.id)
+    const signal = this.abort!.signal
+    const tools = this.registry.list.filter(
+      (t) => t.permission === "read" && t.name !== SKILL_TOOL && t.name !== TASK_TOOL && t.name !== ASK_USER,
+    )
+    const defs = tools.map(toToolDef)
+    const get = (n: string) => tools.find((t) => t.name === n)
+    const messages: Message[] = [
+      { role: "system", text: subagentPrompt(agent, this.cwd) },
+      { role: "user", text: prompt },
+    ]
+    let lastText = ""
+
+    for (let step = 0; step < 15; step++) {
+      if (signal.aborted) break
+      const calls = new Map<number, { id: string; name: string; args: string }>()
+      let text = ""
+      for await (const ev of this.streamFn(
+        provider,
+        apiKey,
+        { model: this.model!, messages, tools: defs, effort: this.effort, maxTokens: 4096 },
+        signal,
+      )) {
+        if (signal.aborted) break
+        if (ev.type === "text") text += ev.delta
+        else if (ev.type === "tool_start") {
+          const c = calls.get(ev.index) ?? { id: "", name: "", args: "" }
+          if (ev.id) c.id = ev.id
+          if (ev.name) c.name = ev.name
+          calls.set(ev.index, c)
+        } else if (ev.type === "tool_delta") {
+          const c = calls.get(ev.index) ?? { id: "", name: "", args: "" }
+          c.args += ev.argsDelta
+          calls.set(ev.index, c)
+        } else if (ev.type === "usage") this.totalTokens += ev.input + ev.output
+      }
+      const toolCalls = [...calls.values()]
+        .filter((c) => c.name)
+        .map((c) => ({ id: c.id || this.nextId(), name: c.name, arguments: c.args || "{}" }))
+      messages.push({ role: "assistant", text: text || undefined, toolCalls: toolCalls.length ? toolCalls : undefined })
+      if (text) lastText = text
+      if (!toolCalls.length) return lastText || "(no result)"
+
+      for (const tc of toolCalls) {
+        const tool = get(tc.name)
+        let result: ToolResult
+        if (!tool) result = { output: `Unknown or disallowed tool for a sub-agent: ${tc.name}`, isError: true }
+        else {
+          try {
+            result = await tool.execute(safeParse(tc.arguments), { cwd: this.cwd, signal })
+          } catch (e: any) {
+            result = { output: `Error: ${e?.message ?? e}`, isError: true }
+          }
+        }
+        messages.push({ role: "tool", callId: tc.id, name: tc.name, result: result.output, isError: result.isError })
+      }
+    }
+    return lastText || "(subagent reached its step limit)"
   }
 
   private async checkPermission(tool: Tool, tc: ToolCall): Promise<"allow" | "deny"> {
