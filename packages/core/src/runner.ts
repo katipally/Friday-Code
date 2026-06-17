@@ -31,12 +31,13 @@ import { LspManager, formatDiagnostics } from "@friday/lsp"
 import { runHooks, type HookEvent, type HookPayload, type HooksConfig } from "./hooks.ts"
 import { gitStatus, gitDiff, gitCommitAll } from "./git.ts"
 import { bashRisk, matchesList } from "./safety.ts"
-import { subagentPrompt, systemPrompt } from "./prompt.ts"
+import { subagentPrompt, customAgentPrompt, systemPrompt } from "./prompt.ts"
 import type { SessionStore } from "./sessions.ts"
 import { loadProjectContext, type ProjectContext } from "./context.ts"
 import { expandMentions, collectImages } from "./mentions.ts"
 import { loadCommands, type CustomCommand } from "./commands.ts"
 import { loadSkills, type Skill } from "./skills.ts"
+import { loadAgents, type AgentDef } from "./agents.ts"
 import { applyFiles, readOrNull, snapshotFile, type Checkpoint } from "./checkpoints.ts"
 import { COMPACTION, estimateTokens, renderTranscript, safeCutIndex } from "./compaction.ts"
 import type { StreamFn } from "./stream.ts"
@@ -146,6 +147,7 @@ export class SessionRunner {
 
   private context: ProjectContext
   private skills: Skill[]
+  private agents: AgentDef[]
   private lsp: LspManager
   /** files with outstanding diagnostics, for the Files panel */
   private diag = new Map<string, { errors: number; warnings: number }>()
@@ -180,6 +182,7 @@ export class SessionRunner {
     this.seq = this.messages.length
     this.context = loadProjectContext(this.roots)
     this.skills = loadSkills(this.roots)
+    this.agents = loadAgents(this.roots)
     this.lsp = new LspManager(this.cwd)
     void this.hook("SessionStart")
   }
@@ -259,6 +262,7 @@ export class SessionRunner {
     this.roots = this.host.store.addRoot(this.sessionId, dir, now())
     this.context = loadProjectContext(this.roots)
     this.skills = loadSkills(this.roots)
+    this.agents = loadAgents(this.roots)
     this.emit({ type: "session-changed", sessionId: this.sessionId, title: this.title, cwd: this.cwd, roots: this.roots })
   }
 
@@ -564,6 +568,7 @@ export class SessionRunner {
               mode: sel.mode,
               context: this.context.content,
               skills: this.skills.map((s) => ({ name: s.name, description: s.description, whenToUse: s.whenToUse })),
+              agents: this.agents.map((a) => ({ name: a.name, description: a.description })),
             }),
           } as Message,
           ...this.sendMessages(),
@@ -741,15 +746,21 @@ export class SessionRunner {
     const provider = this.host.resolveProvider()
     const apiKey = getProviderKey(provider.id)
     const signal = this.abort!.signal
-    const tools = this.host
+    // A custom agent type (.friday/agents/<name>.md) can supply its own prompt, model and
+    // a narrowed tool allowlist. Sub-agents stay read-only — a custom `tools` list can only
+    // pick from the read-only set, never escalate to edit/bash (which have no nested UI gate).
+    const def = agent ? this.agents.find((a) => a.name === agent) : undefined
+    let tools = this.host
       .registry()
       .list.filter(
         (t) => t.permission === "read" && t.name !== SKILL_TOOL && t.name !== TASK_TOOL && t.name !== ASK_USER && t.name !== TODO_WRITE && !LSP_TOOLS.has(t.name),
       )
+    if (def?.tools?.length) tools = tools.filter((t) => def.tools!.includes(t.name))
     const defs = tools.map(toToolDef)
     const get = (n: string) => tools.find((t) => t.name === n)
+    const model = def?.model ?? sel.model!
     const messages: Message[] = [
-      { role: "system", text: subagentPrompt(agent, this.cwd) },
+      { role: "system", text: def ? customAgentPrompt(def.content, this.cwd) : subagentPrompt(agent, this.cwd) },
       { role: "user", text: prompt },
     ]
     let lastText = ""
@@ -757,7 +768,7 @@ export class SessionRunner {
     for (let step = 0; step < 15; step++) {
       if (signal.aborted) break
       const { text, reasoning, reasoningSignature, toolCalls } = await this.collectTurn(
-        this.host.streamFn(provider, apiKey, { model: sel.model!, messages, tools: defs, effort: sel.reasoning ? sel.effort : undefined, maxTokens: 4096 }, signal),
+        this.host.streamFn(provider, apiKey, { model, messages, tools: defs, effort: sel.reasoning ? sel.effort : undefined, maxTokens: 4096 }, signal),
         signal,
         { usage: (i, o) => (this.totalTokens += i + o) },
       )
@@ -774,12 +785,23 @@ export class SessionRunner {
       for (const tc of toolCalls) {
         const tool = get(tc.name)
         let result: ToolResult
-        if (!tool) result = { output: `Unknown or disallowed tool for a sub-agent: ${tc.name}`, isError: true }
-        else {
-          try {
-            result = await tool.execute(safeParse(tc.arguments), { cwd: this.cwd, roots: this.roots, signal })
-          } catch (e: any) {
-            result = { output: `Error: ${e?.message ?? e}`, isError: true }
+        if (!tool) {
+          result = { output: `Unknown or disallowed tool for a sub-agent: ${tc.name}`, isError: true }
+        } else {
+          let args = safeParse(tc.arguments)
+          // Sub-agent tool calls go through the same PreToolUse/PostToolUse hooks as the
+          // main loop, so security gates apply uniformly.
+          const pre = await this.hook("PreToolUse", { tool_name: tc.name, tool_input: args }, tc.name)
+          if (pre.block) {
+            result = { output: `Blocked by a PreToolUse hook${pre.reason ? `: ${pre.reason}` : "."}`, isError: true }
+          } else {
+            if (pre.input !== undefined) args = pre.input
+            try {
+              result = await tool.execute(args, { cwd: this.cwd, roots: this.roots, signal })
+            } catch (e: any) {
+              result = { output: `Error: ${e?.message ?? e}`, isError: true }
+            }
+            void this.hook("PostToolUse", { tool_name: tc.name, tool_input: args, tool_response: result.output }, tc.name)
           }
         }
         messages.push({ role: "tool", callId: tc.id, name: tc.name, result: result.output, isError: result.isError })

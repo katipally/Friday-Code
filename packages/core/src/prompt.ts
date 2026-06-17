@@ -13,6 +13,12 @@ function skillsSection(skills?: SkillSummary[]): string {
   return `\n# Skills\nThese skills are available — call skill({ name }) to load one's instructions when it fits:\n${lines.join("\n")}`
 }
 
+function agentsSection(agents?: { name: string; description: string }[]): string {
+  if (!agents?.length) return ""
+  const lines = agents.map((a) => `- ${a.name}: ${a.description}`)
+  return `\n# Sub-agents\nSpawn a focused read-only sub-agent with task({ agent, prompt }). Besides the built-in "explore", these custom agents are available:\n${lines.join("\n")}`
+}
+
 /** Assemble the system prompt: identity + environment + behavior + mode posture + project context. */
 export function systemPrompt(opts: {
   cwd: string
@@ -20,6 +26,7 @@ export function systemPrompt(opts: {
   mode: ModeId
   context?: string
   skills?: SkillSummary[]
+  agents?: { name: string; description: string }[]
 }): string {
   const mode = getMode(opts.mode)
   const extraRoots = (opts.roots ?? []).slice(1)
@@ -47,6 +54,7 @@ export function systemPrompt(opts: {
     "- todo_write: for any task with 3+ steps, maintain a live task list. Pass the FULL list each call; keep one item 'active', mark items 'done' as you finish. This keeps the user oriented.",
     "- Language server (when available): lsp_hover / lsp_definition / lsp_symbols give real type info, jump-to-def, and symbol search. After you edit a file, its compiler diagnostics are appended to the tool result automatically — read them and fix real errors before moving on.",
     skillsSection(opts.skills),
+    agentsSection(opts.agents),
     modePostureNote(opts.mode),
   ]
     .filter(Boolean)
@@ -63,6 +71,18 @@ export function subagentPrompt(agent: string | undefined, cwd: string): string {
     role,
     "",
     "You are READ-ONLY: you may read, list, glob and grep, but you CANNOT edit files or run shell commands.",
+    "Investigate thoroughly, then return a concise summary that directly answers the request, citing file paths.",
+    "",
+    `Working directory: ${cwd}`,
+  ].join("\n")
+}
+
+/** Wrap a custom agent's body (.friday/agents/<name>.md) with the read-only sub-agent contract. */
+export function customAgentPrompt(body: string, cwd: string): string {
+  return [
+    body.trim(),
+    "",
+    "You are a READ-ONLY sub-agent: you may read, list, glob and grep, but you CANNOT edit files or run shell commands.",
     "Investigate thoroughly, then return a concise summary that directly answers the request, citing file paths.",
     "",
     `Working directory: ${cwd}`,
