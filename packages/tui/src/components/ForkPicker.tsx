@@ -55,6 +55,7 @@ export function ForkPicker() {
                   gap={1}
                   paddingLeft={1}
                   backgroundColor={sel() === i() ? theme.bgHover : "transparent"}
+                  onMouseOver={() => setSel(i())}
                   onMouseDown={() => app.forkFrom(p.index)}
                 >
                   <text fg={sel() === i() ? accent() : theme.textFaint}>{sel() === i() ? "⑂" : " "}</text>

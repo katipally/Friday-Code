@@ -1,6 +1,7 @@
 import { createEffect, createSignal, onCleanup, Show } from "solid-js"
 import { theme, getMode, MASCOT, type MascotState } from "@friday/shared"
 import { useApp } from "../store.tsx"
+import { Pressable } from "./Pressable.tsx"
 import { useMascotFrame } from "../util/useMascot.ts"
 import { useBreathe } from "../motion/index.ts"
 
@@ -79,14 +80,10 @@ export function StatusStrip() {
       </Show>
       <box flexGrow={1} />
       {/* Cost + token usage live in the side panel (stats); the rail stays a calm status line. */}
-      <box flexDirection="row" gap={1} alignItems="center">
-        <box onMouseDown={() => app.setModelModalOpen(true)}>
-          <text fg={theme.textMuted}>{app.model()}</text>
-        </box>
+      <box flexDirection="row" alignItems="center">
+        <Pressable label={app.model()} fg={theme.textMuted} onClick={() => app.setModelModalOpen(true)} />
         <Show when={app.reasoningModel()}>
-          <box onMouseDown={() => app.setEffortOpen(true)}>
-            <text fg={theme.textFaint}>◇ {app.effort()}</text>
-          </box>
+          <Pressable label={`◇ ${app.effort()}`} onClick={() => app.setEffortOpen(true)} />
         </Show>
       </box>
     </box>

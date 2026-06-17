@@ -3,6 +3,7 @@ import { useKeyboard } from "@opentui/solid"
 import { allowedEfforts, theme, getMode, type ProviderInfo } from "@friday/shared"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
+import { EffortGauge } from "./EffortSlider.tsx"
 
 type Step = "provider" | "key" | "model" | "effort"
 
@@ -16,7 +17,7 @@ function fmtCost(c?: { input: number; output: number }): string {
   return `$${r(c.input)}/${r(c.output)}`
 }
 
-function Row(props: { active: boolean; accent: string; onClick: () => void; children: any; id?: string }) {
+function Row(props: { active: boolean; accent: string; onClick: () => void; onHover?: () => void; children: any; id?: string }) {
   return (
     <box
       id={props.id}
@@ -25,6 +26,7 @@ function Row(props: { active: boolean; accent: string; onClick: () => void; chil
       paddingLeft={1}
       paddingRight={1}
       backgroundColor={props.active ? theme.bgHover : "transparent"}
+      onMouseOver={props.onHover}
       onMouseDown={props.onClick}
     >
       <text fg={props.active ? props.accent : theme.textFaint}>{props.active ? "›" : " "}</text>
@@ -165,8 +167,8 @@ export function ModelModal() {
         else if (query().trim()) chooseModel(query().trim()) // custom id when no match
       }
     } else if (step() === "effort") {
-      if (key.name === "up") setEIndex((i) => Math.max(0, i - 1))
-      else if (key.name === "down") setEIndex((i) => Math.min(efforts().length - 1, i + 1))
+      if (key.name === "up" || key.name === "left") setEIndex((i) => Math.max(0, i - 1))
+      else if (key.name === "down" || key.name === "right") setEIndex((i) => Math.min(efforts().length - 1, i + 1))
       else if (key.name === "return" || key.name === "enter") finalize()
     }
   })
@@ -196,7 +198,7 @@ export function ModelModal() {
             <box flexDirection="column">
               <For each={providers}>
                 {(p, i) => (
-                  <Row active={pIndex() === i()} accent={accent()} onClick={() => chooseProvider(p)}>
+                  <Row active={pIndex() === i()} accent={accent()} onHover={() => setPIndex(i())} onClick={() => chooseProvider(p)}>
                     <box width={26}>
                       <text fg={pIndex() === i() ? theme.text : theme.textMuted}>{p.name}</text>
                     </box>
@@ -275,7 +277,7 @@ export function ModelModal() {
               <scrollbox ref={(r: any) => (scrollRef = r)} maxHeight={12}>
                 <For each={filtered()}>
                   {(m, i) => (
-                    <Row id={`m-${i()}`} active={mIndex() === i()} accent={accent()} onClick={() => chooseModel(m.id)}>
+                    <Row id={`m-${i()}`} active={mIndex() === i()} accent={accent()} onHover={() => setMIndex(i())} onClick={() => chooseModel(m.id)}>
                       <text fg={mIndex() === i() ? theme.text : theme.textMuted}>{m.name}</text>
                       <box flexGrow={1} />
                       <Show when={m.reasoning}>
@@ -296,16 +298,15 @@ export function ModelModal() {
           </Match>
 
           <Match when={step() === "effort"}>
-            <box flexDirection="column">
+            <box flexDirection="column" gap={1}>
               <text fg={theme.text}>reasoning effort for {chosenModel()}</text>
-              <For each={efforts()}>
-                {(eff, i) => (
-                  <Row active={eIndex() === i()} accent={accent()} onClick={() => { setEIndex(i()); finalize() }}>
-                    <text fg={eIndex() === i() ? theme.text : theme.textMuted}>{eff}</text>
-                  </Row>
-                )}
-              </For>
-              <text fg={theme.textFaint}>↑↓ move · ⏎ confirm · esc back</text>
+              <EffortGauge
+                levels={efforts()}
+                index={eIndex()}
+                onScrub={(i) => setEIndex(i)}
+                onPick={(i) => { setEIndex(i); finalize() }}
+              />
+              <text fg={theme.textFaint}>←/→ move · click · ⏎ confirm · esc back</text>
             </box>
           </Match>
         </Switch>

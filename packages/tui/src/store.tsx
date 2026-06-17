@@ -26,6 +26,9 @@ export type ViewItem =
       done: boolean
       startedAt: number
       durationMs?: number
+      /** per-turn token usage, attributed on turn-done (shown in the action row) */
+      inputTokens?: number
+      outputTokens?: number
       /** the mode this reply ran in — colors its ⏺ marker so you can tell at a glance */
       mode?: ModeId
     }
@@ -203,6 +206,26 @@ export function createAppStore(engine: Engine) {
   let localId = 0
   const nextLocalId = () => `u${++localId}`
 
+  // Latest cumulative usage per session, attributed to the assistant bubble on turn-done.
+  const lastUsage = new Map<string, { input: number; output: number }>()
+
+  // The composer textarea renderable. OpenTUI's autoFocus blurs it when another focusable
+  // element is clicked; we keep a handle so focus can be re-asserted (so the user never has
+  // to click back into the prompt before typing).
+  let composerEl: { focus?: () => void; setText?: (s: string) => void; cursorOffset?: number } | null = null
+  function registerComposer(el: any) {
+    composerEl = el
+  }
+  function focusComposer() {
+    composerEl?.focus?.()
+  }
+  /** Replace the composer text (e.g. when rewinding to a past prompt) and focus it. */
+  function setComposerText(text: string) {
+    composerEl?.setText?.(text)
+    if (composerEl) composerEl.cursorOffset = text.length
+    focusComposer()
+  }
+
   // True when a non-focused session has produced output since we last looked at it.
   const sessionActivity = (id: string) =>
     id !== activeSession() && (sessionItems[id]?.length ?? 0) > (sessionSeenLen()[id] ?? 0)
@@ -369,13 +392,28 @@ export function createAppStore(engine: Engine) {
         if (!focused) pushToast(`◐ ${titleOf(sid)} has a plan ready`, "input")
         break
       }
-      case "turn-done":
+      case "turn-done": {
         if (sessionBusy()[sid] && !focused) pushToast(`✓ ${titleOf(sid)} finished`, "done")
         setKey(setSessionBusy, sid, false)
         flushItem(e.id) // apply any buffered tail before finalizing so no token is lost
-        patchItemIn(sid, e.id, (it) => it.kind === "assistant" && ((it.done = true), (it.thinkingOpen = false), (it.durationMs = Date.now() - it.startedAt)))
+        const u = lastUsage.get(sid)
+        patchItemIn(sid, e.id, (it) => {
+          if (it.kind !== "assistant") return
+          it.done = true
+          it.thinkingOpen = false
+          it.durationMs = Date.now() - it.startedAt
+          if (u) {
+            it.inputTokens = u.input
+            it.outputTokens = u.output
+          }
+        })
+        lastUsage.delete(sid)
         break
+      }
       case "usage":
+        // `input`/`output` are cumulative for the whole turn — remember the latest snapshot so it
+        // can be attributed to the assistant bubble when the turn finalizes (per-message metadata).
+        lastUsage.set(sid, { input: e.input, output: e.output })
         setKey(setSessionTokens, sid, e.input + e.output)
         if (e.costUsd != null) setKey(setSessionCost, sid, e.costUsd)
         break
@@ -452,12 +490,12 @@ export function createAppStore(engine: Engine) {
     { name: "new", description: "start a new session" },
     { name: "clear", description: "clear the conversation (new session)" },
     { name: "resume", description: "resume or switch to another session" },
-    { name: "fork", description: "branch a new session from a past turn" },
+    { name: "fork", description: "branch a session from a past turn" },
     { name: "dir", description: "change or add a working directory" },
     { name: "mcp", description: "view / add / remove MCP servers" },
-    { name: "compact", description: "summarize older context to reclaim the window" },
-    { name: "commit", description: "stage all changes and commit (drafts a message)" },
-    { name: "undo", description: "rewind files + conversation to a checkpoint" },
+    { name: "compact", description: "summarize old context to free space" },
+    { name: "commit", description: "stage all & commit (drafts message)" },
+    { name: "undo", description: "rewind files + chat to a checkpoint" },
     { name: "help", description: "show the keymap" },
     { name: "exit", description: "quit Friday (clean exit)" },
   ]
@@ -660,9 +698,48 @@ export function createAppStore(engine: Engine) {
     refreshMcp()
   }
   function restoreCheckpoint(id: string) {
+    // The engine truncates messages and re-emits session-loaded; clear the seeded flag so the
+    // transcript is actually rebuilt from the truncated messages (otherwise it stays stale).
+    seeded.delete(activeSession())
     engine.restoreCheckpoint(id)
     setCheckpointsOpen(false)
     refreshSessions()
+  }
+
+  /** Rewind to the snapshot taken before a user turn, then drop that prompt back in the composer.
+   * Matches the in-memory checkpoint by its label (the prompt text). Snapshots only exist for turns
+   * made in the current process, so resumed-session turns can't be rewound this way. */
+  function rewindToPrompt(text: string) {
+    const norm = text.replace(/\s+/g, " ").trim().slice(0, 60)
+    const cp = engine.listCheckpoints().find((c) => c.label === norm)
+    if (!cp) {
+      pushToast("no snapshot for that turn — can't rewind", "input")
+      return
+    }
+    seeded.delete(activeSession())
+    engine.restoreCheckpoint(cp.id)
+    refreshSessions()
+    setComposerText(text)
+  }
+
+  /** Fork a new session branching from the turn whose user prompt matches `text` (used by the
+   * per-message fork action). Includes the AI response + any tools of that turn (everything up to
+   * the next user turn) so the new chat picks up right after the reply. Falls back to forking the
+   * whole conversation if no exact turn is found. */
+  function forkFromText(text: string) {
+    const norm = text.replace(/\s+/g, " ").trim().slice(0, 80)
+    const points = engine.forkPoints()
+    let k = -1
+    for (let i = points.length - 1; i >= 0; i--) if (points[i]!.text === norm) { k = i; break }
+    if (k < 0) {
+      engine.forkSession() // whole conversation
+    } else {
+      // Up to (but not including) the next user turn → keeps this turn's assistant reply + tools.
+      const next = points[k + 1]
+      engine.forkSession(next ? next.index - 1 : undefined)
+    }
+    refreshSessions()
+    pushToast("forked a new session from that turn", "input")
   }
   function redoLast() {
     engine.redoLast()
@@ -758,6 +835,11 @@ export function createAppStore(engine: Engine) {
     forkOpen,
     setForkOpen,
     forkFrom,
+    forkFromText,
+    rewindToPrompt,
+    registerComposer,
+    focusComposer,
+    setComposerText,
     redoLast,
     quit,
     exitStats,

@@ -78,11 +78,9 @@ test("/fork opens the fork picker listing the conversation's user turns", async 
   await Bun.sleep(40)
   await t.flush()
 
-  // Run /fork. With a suggestion highlighted, the first Enter COMPLETES it (to "/fork "),
-  // the second Enter submits/runs the command.
+  // Run /fork. With the command highlighted in the autocomplete, Enter runs it directly
+  // (Tab would complete to "/fork " for adding args).
   await t.mockInput.typeText("/fork")
-  await t.flush()
-  t.mockInput.pressEnter() // apply suggestion
   await t.flush()
   t.mockInput.pressEnter() // run /fork
   await t.flush()

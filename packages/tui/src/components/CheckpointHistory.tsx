@@ -62,6 +62,7 @@ export function CheckpointHistory() {
                   gap={1}
                   paddingLeft={1}
                   backgroundColor={sel() === i() ? theme.bgHover : "transparent"}
+                  onMouseOver={() => setSel(i())}
                   onMouseDown={() => app.restoreCheckpoint(c.id)}
                 >
                   <text fg={sel() === i() ? accent() : theme.textFaint}>{sel() === i() ? "↺" : " "}</text>

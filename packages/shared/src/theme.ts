@@ -6,13 +6,13 @@
  * (see modes.ts) and applies to the frame border + active focus rings.
  */
 export const theme = {
-  // surfaces — clearly separated greys (no blue tint). Each step is visibly distinct so
-  // panels, composer and modals read as separate layers.
-  bg: "#101012", // chat / base canvas (clean dark grey)
-  bgComposer: "#151517", // the input box — clearly above the canvas
-  bgPanel: "#18181b", // side panels — distinct from canvas
-  bgElevated: "#222226", // cards / modals — a clear step up
-  bgHover: "#2a2a2e", // selection / hover — readable without shouting
+  // surfaces — true-black canvas (like opencode) with neutral grey layers stepped far
+  // enough apart to survive 256-color quantization (Terminal.app has no truecolor).
+  bg: "#000000", // chat / base canvas — true black
+  bgComposer: "#0d0d0f", // the input box — first step above black
+  bgPanel: "#0d0d0f", // side panels — distinct from canvas
+  bgElevated: "#161618", // cards / modals — a clear step up
+  bgHover: "#1f1f23", // selection / hover — readable without shouting
 
   // text — high contrast, but never harsh
   text: "#f2f3f5",
@@ -20,12 +20,12 @@ export const theme = {
   textFaint: "#7a818c", // tertiary info, still legible
 
   // lines — borders are visible enough to define panels but not noisy
-  border: "#35353a", // panel / card edges
-  borderMuted: "#2a2a2e",
+  border: "#2a2a2e", // panel / card edges
+  borderMuted: "#1f1f23",
   /** hover / active edge — brighter than `border` for clear affordance */
-  borderActive: "#4a4a52",
+  borderActive: "#3a3a42",
   /** the single outermost frame around the whole app — subtle, clean */
-  frame: "#1c1c1f",
+  frame: "#161618",
 
   // roles
   user: "#9aa5ce", // user message accent (calm)
@@ -61,7 +61,7 @@ export const theme = {
   diffRemoved: "#f7768e",
   diffAddedBg: "#16241a",
   diffRemovedBg: "#2a1620",
-  diffContextBg: "#101012",
+  diffContextBg: "#000000",
 } as const
 
 export type Theme = typeof theme

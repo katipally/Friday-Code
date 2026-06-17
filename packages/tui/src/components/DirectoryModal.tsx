@@ -160,7 +160,7 @@ export function DirectoryModal() {
           <box flexDirection="column">
             <For each={suggestions()}>
               {(d, i) => (
-                <box paddingLeft={1} backgroundColor={sel() === i() ? theme.bgHover : "transparent"} onMouseDown={() => setComposer(d + "/")}>
+                <box paddingLeft={1} backgroundColor={sel() === i() ? theme.bgHover : "transparent"} onMouseOver={() => setSel(i())} onMouseDown={() => setComposer(d + "/")}>
                   <text fg={sel() === i() ? accent() : theme.textMuted}> {home(d)}</text>
                 </box>
               )}

@@ -92,7 +92,7 @@ export function SessionHistory() {
               const s = row.session
               const active = () => sel() === row.index
               return (
-                <box flexDirection="row" gap={1} paddingLeft={1} backgroundColor={active() ? theme.bgHover : "transparent"}>
+                <box flexDirection="row" gap={1} paddingLeft={1} backgroundColor={active() ? theme.bgHover : "transparent"} onMouseOver={() => setSel(row.index)}>
                   <box flexGrow={1} onMouseDown={() => resume(row.index)}>
                     <text fg={active() ? accent() : theme.text}>
                       {app.activeSession() === s.id ? "● " : "  "}

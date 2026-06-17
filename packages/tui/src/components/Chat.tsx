@@ -1,56 +1,69 @@
 import { createMemo, For, Match, Show, Switch } from "solid-js"
-import { useKeyboard } from "@opentui/solid"
+import { useKeyboard, useRenderer } from "@opentui/solid"
 import { theme, getMode, type ModeId } from "@friday/shared"
 import { useApp, type ViewItem } from "../store.tsx"
 import { ThinkingCard } from "./ThinkingCard.tsx"
 import { ToolCard } from "./ToolCard.tsx"
 import { Markdown } from "./Markdown.tsx"
-import { Logo } from "./Logo.tsx"
-import { parseMentions, chipIcon } from "../util/mentions.ts"
+import { EmptyHome } from "./EmptyHome.tsx"
+import { Pressable } from "./Pressable.tsx"
+import { FileChip } from "./FileChip.tsx"
+import { copyText } from "../util/clipboard.ts"
+import { parseMentions } from "../util/mentions.ts"
 import { Appear, shimmerAccent } from "../motion/index.ts"
+
+function fmtTok(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
+}
+function fmtElapsed(ms?: number): string {
+  if (ms == null) return ""
+  const s = ms / 1000
+  if (s < 60) return `${s.toFixed(1)}s`
+  const m = Math.floor(s / 60)
+  return `${m}m${Math.round(s % 60).toString().padStart(2, "0")}s`
+}
 
 /** User prompt: a right-aligned rounded bubble whose border is colored by the mode it was sent in. */
 function UserBubble(props: { item: Extract<ViewItem, { kind: "user" }> }) {
   const app = useApp()
+  const renderer = useRenderer()
   const accent = () => shimmerAccent(getMode((props.item.mode as ModeId) ?? app.mode()).accent)
   // File references in the prompt show as click-to-open chips beneath the text.
   const chips = createMemo(() => parseMentions(props.item.text, app.roots()))
+  const copy = () => {
+    copyText(props.item.text, renderer)
+    app.focusComposer()
+  }
+  // Undo rewinds files + conversation to the snapshot before this turn and drops the prompt back
+  // into the composer (everything after is erased), so you can re-run from that exact point.
+  const undo = () => app.rewindToPrompt(props.item.text)
   return (
-    <box flexDirection="row" justifyContent="flex-end" marginBottom={1}>
-      <box
-        flexDirection="column"
-        gap={1}
-        maxWidth="85%"
-        border
-        borderStyle="rounded"
-        borderColor={accent()}
-        backgroundColor={theme.bgComposer}
-        paddingLeft={1}
-        paddingRight={1}
-      >
-        <text fg={theme.text} selectable>
-          {props.item.text}
-        </text>
-        <Show when={chips().length > 0}>
-          <box flexDirection="row" gap={1} flexWrap="wrap">
-            <For each={chips()}>
-              {(chip) => (
-                <box
-                  border
-                  borderStyle="rounded"
-                  borderColor={chip.abs ? accent() : theme.border}
-                  paddingLeft={1}
-                  paddingRight={1}
-                  onMouseDown={() => app.openPath(chip.rel)}
-                >
-                  <text fg={chip.abs ? theme.text : theme.textFaint}>
-                    {chipIcon(chip.kind)} {chip.rel.split("/").pop() || chip.rel}
-                  </text>
-                </box>
-              )}
-            </For>
-          </box>
-        </Show>
+    <box flexDirection="column" marginBottom={1}>
+      <box flexDirection="row" justifyContent="flex-end">
+        <box
+          flexDirection="column"
+          gap={1}
+          maxWidth="85%"
+          border
+          borderStyle="rounded"
+          borderColor={accent()}
+          backgroundColor={theme.bgComposer}
+          paddingLeft={1}
+          paddingRight={1}
+        >
+          <text fg={theme.text} selectable>
+            {props.item.text}
+          </text>
+          <Show when={chips().length > 0}>
+            <box flexDirection="row" gap={1} flexWrap="wrap">
+              <For each={chips()}>{(chip) => <FileChip chip={chip} accent={accent()} onOpen={() => app.openPath(chip.rel)} />}</For>
+            </box>
+          </Show>
+        </box>
+      </box>
+      <box flexDirection="row" justifyContent="flex-end" paddingRight={1}>
+        <Pressable label="⧉ copy" onClick={copy} />
+        <Pressable label="↶ undo" onClick={undo} />
       </box>
     </box>
   )
@@ -60,7 +73,29 @@ function UserBubble(props: { item: Extract<ViewItem, { kind: "user" }> }) {
  * ran in (so you can tell at a glance whether it was plan/default/accept/yolo); reasoning is a ╰ branch. */
 function AssistantMessage(props: { item: Extract<ViewItem, { kind: "assistant" }> }) {
   const app = useApp()
+  const renderer = useRenderer()
   const accent = () => shimmerAccent(getMode((props.item.mode as ModeId) ?? app.mode()).accent)
+  const copy = () => {
+    copyText(props.item.text, renderer)
+    app.focusComposer()
+  }
+  // Fork branches a new session from this point — including this reply (and its tools) — so the
+  // new chat starts right after the AI responded.
+  const fork = () => {
+    const items = app.items()
+    const idx = items.findIndex((i) => i.id === props.item.id)
+    for (let j = idx - 1; j >= 0; j--) {
+      const it = items[j]
+      if (it && it.kind === "user") return app.forkFromText(it.text)
+    }
+    app.forkFromText(props.item.text)
+  }
+  const meta = () => {
+    const it = props.item
+    const tok = it.inputTokens != null || it.outputTokens != null ? `↑${fmtTok(it.inputTokens ?? 0)} ↓${fmtTok(it.outputTokens ?? 0)}` : ""
+    const t = fmtElapsed(it.durationMs)
+    return [tok, t].filter(Boolean).join(" · ")
+  }
   return (
     <box flexDirection="column" marginBottom={1}>
       <ThinkingCard item={props.item} />
@@ -71,6 +106,17 @@ function AssistantMessage(props: { item: Extract<ViewItem, { kind: "assistant" }
             <Markdown content={props.item.text} streaming={!props.item.done} />
             <Show when={!props.item.done}>
               <text fg={theme.textFaint}>▋</text>
+            </Show>
+            <Show when={props.item.done}>
+              <box flexDirection="row" alignItems="center" paddingTop={0}>
+                <Pressable label="⧉ copy" onClick={copy} />
+                <Pressable label="⑂ fork" onClick={fork} />
+                <Show when={meta()}>
+                  <box paddingLeft={1}>
+                    <text fg={theme.textFaint}>◇ {meta()}</text>
+                  </box>
+                </Show>
+              </box>
             </Show>
           </box>
         </box>
@@ -108,14 +154,17 @@ export function Chat() {
     app.view() === "shell" &&
     !app.overlayOpen() &&
     !app.modelModalOpen() &&
+    !app.effortOpen() &&
     !app.paletteOpen() &&
     !app.historyOpen() &&
     !app.dirModalOpen() &&
     !app.mcpModalOpen() &&
     !app.checkpointsOpen() &&
+    !app.forkOpen() &&
     !app.onboardingOpen() &&
     !app.askPending() &&
-    !app.pending()
+    !app.pending() &&
+    !app.planPending()
 
   // Keyboard scroll-back through history (keys that don't collide with composer typing).
   useKeyboard((key) => {
@@ -131,12 +180,7 @@ export function Chat() {
   return (
     <Show
       when={app.items().length > 0}
-      fallback={
-        // Empty state: the logo, dead-center on both axes — nothing else.
-        <box flexGrow={1} minHeight={0} flexDirection="column" justifyContent="center" alignItems="center">
-          <Logo />
-        </box>
-      }
+      fallback={<EmptyHome />}
     >
       {/* paddingRight leaves a buffer so the scrollbar never overlaps the message text. */}
       <scrollbox ref={(r: any) => (sb = r)} flexGrow={1} minHeight={0} stickyScroll stickyStart="bottom" paddingTop={1} paddingRight={1}>

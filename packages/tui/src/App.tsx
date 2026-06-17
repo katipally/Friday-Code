@@ -36,8 +36,10 @@ function Shell() {
   let startX = 0
   let startW = 0
 
-  const MIN_RIGHT = 18
-  const maxRight = () => Math.max(MIN_RIGHT, Math.floor(dims().width * 0.55))
+  // Min wide enough that stat labels/numbers never wrap; max capped so the panel can't swallow
+  // the chat. Dragging below the min snaps the panel fully closed.
+  const MIN_RIGHT = 24
+  const maxRight = () => Math.max(MIN_RIGHT, Math.floor(dims().width * 0.5))
 
   function grab(e: any) {
     setDragging(true)

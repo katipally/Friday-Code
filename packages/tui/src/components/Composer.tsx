@@ -4,11 +4,15 @@ import { theme, getMode } from "@friday/shared"
 import { useApp } from "../store.tsx"
 import { shimmerAccent } from "../motion/index.ts"
 import { listProjectFiles } from "../util/files.ts"
-import { parseMentions, chipIcon } from "../util/mentions.ts"
+import { FileChip } from "./FileChip.tsx"
+import { parseMentions } from "../util/mentions.ts"
 
-type Suggestion = { label: string; hint: string; apply: () => void }
+type Suggestion = { label: string; hint: string; apply: () => void; run?: () => void }
 
-const MAX_SUGGESTIONS = 6
+// Keep enough matches that every command is reachable; the dropdown scrolls to reveal them all
+// instead of cycling within a handful.
+const MAX_SUGGESTIONS = 50
+const VISIBLE_SUGGESTIONS = 8
 
 function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n - 1) + "…" : s
@@ -29,13 +33,16 @@ export function Composer() {
     !app.overlayOpen() &&
     !app.onboardingOpen() &&
     !app.modelModalOpen() &&
+    !app.effortOpen() &&
     !app.paletteOpen() &&
     !app.historyOpen() &&
     !app.dirModalOpen() &&
     !app.mcpModalOpen() &&
     !app.checkpointsOpen() &&
+    !app.forkOpen() &&
     !app.pending() &&
-    !app.askPending()
+    !app.askPending() &&
+    !app.planPending()
   const maxHeight = () => Math.max(4, Math.floor(dims().height / 3))
 
   let ta: any
@@ -47,6 +54,25 @@ export function Composer() {
   createEffect(() => {
     listProjectFiles(app.roots()).then(setFiles)
   })
+
+  // Re-assert focus whenever the app returns to the editable shell state (e.g. a modal closes),
+  // since OpenTUI only re-applies the `focused` prop when its *value* changes.
+  createEffect(() => {
+    const f = focused()
+    queueMicrotask(() => {
+      try {
+        if (f) ta?.focus?.()
+        else ta?.blur?.()
+      } catch {}
+    })
+  })
+
+  // OpenTUI's autoFocus blurs the textarea when another focusable element (the chat scrollbox,
+  // a list, …) is clicked. While we're still in the editable state, grab focus straight back so
+  // the user can keep typing without having to click into the composer again.
+  const onBlur = () => {
+    if (focused()) queueMicrotask(() => { try { ta?.focus?.() } catch {} })
+  }
 
   function refresh() {
     queueMicrotask(() => setText(ta?.plainText ?? ""))
@@ -70,7 +96,17 @@ export function Composer() {
         .listCommands()
         .filter((c) => c.name.toLowerCase().includes(token))
         .slice(0, MAX_SUGGESTIONS)
-        .map((c) => ({ label: `/${c.name}`, hint: c.description, apply: () => setComposer(`/${c.name} `) }))
+        .map((c) => ({
+          label: `/${c.name}`,
+          hint: c.description,
+          // Tab completes to "/name " (so you can add args); Enter runs it straight away.
+          apply: () => setComposer(`/${c.name} `),
+          run: () => {
+            ta?.clear?.()
+            setText("")
+            app.runCommand(c.name)
+          },
+        }))
     }
 
     const at = t.match(/(^|\s)@(\S*)$/)
@@ -90,6 +126,14 @@ export function Composer() {
     setSel(0)
   })
 
+  // Keep the highlighted suggestion in view as the user arrows through a scrolling list.
+  let sgScroll: any
+  createEffect(() => {
+    const i = sel()
+    suggestions().length
+    queueMicrotask(() => sgScroll?.scrollChildIntoView?.(`sg-${i}`))
+  })
+
   // File/folder/image references in the prompt, shown as compact chips above the input.
   // Images become vision input on submit; all chips are click-to-open.
   const chips = createMemo(() => parseMentions(text(), app.roots()))
@@ -99,7 +143,10 @@ export function Composer() {
     // @file) rather than submitting the whole composer — you then press Enter again to send.
     const items = suggestions()
     if (items.length) {
-      items[sel()]?.apply()
+      const it = items[sel()]
+      // Enter runs a highlighted slash command immediately; for @file it inserts the path.
+      if (it?.run) return it.run()
+      it?.apply()
       return
     }
     const value: string = ta?.plainText ?? ""
@@ -133,37 +180,25 @@ export function Composer() {
           paddingRight={1}
           marginBottom={1}
         >
-          <For each={suggestions()}>
-            {(s, i) => (
-              <box flexDirection="row" gap={2} backgroundColor={sel() === i() ? theme.bgHover : "transparent"}>
-                <text fg={sel() === i() ? mode().accent : theme.text}>{s.label}</text>
-                <box flexGrow={1} />
-                <text fg={theme.textFaint}>{truncate(s.hint, 28)}</text>
-              </box>
-            )}
-          </For>
-          <text fg={theme.textFaint}>↑↓ move · ⭾/⏎ complete</text>
+          <scrollbox ref={(r: any) => (sgScroll = r)} maxHeight={VISIBLE_SUGGESTIONS}>
+            <For each={suggestions()}>
+              {(s, i) => (
+                <box id={`sg-${i()}`} flexDirection="row" gap={1} backgroundColor={sel() === i() ? theme.bgHover : "transparent"}>
+                  <box width={18} flexShrink={0}>
+                    <text fg={sel() === i() ? mode().accent : theme.text}>{truncate(s.label, 18)}</text>
+                  </box>
+                  <text fg={theme.textFaint}>{truncate(s.hint, 36)}</text>
+                </box>
+              )}
+            </For>
+          </scrollbox>
+          <text fg={theme.textFaint}>↑↓ move · ⏎ run · ⭾ complete · {suggestions().length}</text>
         </box>
       </Show>
 
       <Show when={chips().length > 0}>
         <box flexDirection="row" gap={1} marginBottom={1} flexShrink={0} flexWrap="wrap">
-          <For each={chips()}>
-            {(chip) => (
-              <box
-                border
-                borderStyle="rounded"
-                borderColor={chip.abs ? mode().accent : theme.border}
-                paddingLeft={1}
-                paddingRight={1}
-                onMouseDown={() => app.openPath(chip.rel)}
-              >
-                <text fg={chip.abs ? theme.text : theme.textFaint}>
-                  {chipIcon(chip.kind)} {truncate(chip.rel.split("/").pop() || chip.rel, 24)}
-                </text>
-              </box>
-            )}
-          </For>
+          <For each={chips()}>{(chip) => <FileChip chip={chip} accent={mode().accent} max={24} onOpen={() => app.openPath(chip.rel)} />}</For>
         </box>
       </Show>
 
@@ -180,7 +215,11 @@ export function Composer() {
       >
         <box flexGrow={1}>
           <textarea
-            ref={(r: any) => (ta = r)}
+            ref={(r: any) => {
+              ta = r
+              app.registerComposer(r)
+              r?.on?.("blurred", onBlur)
+            }}
             onSubmit={submit}
             keyBindings={[
               { name: "return", action: "submit" },

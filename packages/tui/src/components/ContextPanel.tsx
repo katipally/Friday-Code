@@ -1,12 +1,19 @@
 import { createEffect, createSignal, For, Show, type JSX } from "solid-js"
 import { theme, getMode } from "@friday/shared"
 import { useApp } from "../store.tsx"
-import { Reveal, shimmerAccent } from "../motion/index.ts"
+import { Reveal, shimmerAccent, useHover } from "../motion/index.ts"
 import { CloseButton } from "./PanelChrome.tsx"
 import { CollapseTab } from "./Divider.tsx"
+import { Pressable } from "./Pressable.tsx"
 
 function fmtTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
+}
+
+/** Truncate to fit the panel width, keeping the tail of paths (the filename) visible. */
+function truncate(s: string, n: number, fromStart = false): string {
+  if (s.length <= n) return s
+  return fromStart ? "…" + s.slice(s.length - (n - 1)) : s.slice(0, n - 1) + "…"
 }
 
 /** A collapsible section that flags `*new` and auto-opens when its content changes. */
@@ -18,11 +25,12 @@ function Section(props: {
   onToggle: () => void
   children: JSX.Element
 }) {
+  const h = useHover({ base: theme.bgPanel, hover: theme.bgHover })
   return (
     <box flexDirection="column">
-      <box flexDirection="row" gap={1} onMouseDown={props.onToggle}>
-        <text fg={theme.textMuted}>{props.open ? "▾" : "▸"}</text>
-        <text fg={theme.textMuted}>{props.label}</text>
+      <box flexDirection="row" gap={1} backgroundColor={h.bg()} onMouseOver={h.onMouseOver} onMouseOut={h.onMouseOut} onMouseDown={props.onToggle}>
+        <text fg={h.hovered() ? theme.text : theme.textMuted}>{props.open ? "▾" : "▸"}</text>
+        <text fg={h.hovered() ? theme.text : theme.textMuted}>{props.label}</text>
         <Show when={props.count != null}>
           <text fg={theme.textFaint}>({props.count})</text>
         </Show>
@@ -99,7 +107,12 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
     setPlansNew(false)
   }
 
+  const mcpHover = useHover({ base: theme.bgPanel, hover: theme.bgHover })
+  const [planHov, setPlanHov] = createSignal(-1)
   const pct = () => (app.contextWindow() > 0 ? Math.min(100, Math.round((app.tokens() / app.contextWindow()) * 100)) : 0)
+  // Usable text width inside the panel (width minus borders/padding) — drives truncation so long
+  // model ids and file paths never wrap and deform the layout at the minimum width.
+  const innerW = () => Math.max(8, (props.fullscreen ? 60 : (props.widthOverride ?? app.rightWidth())) - 4)
 
   return (
     <Show
@@ -123,13 +136,9 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
           <box flexDirection="column" gap={1}>
             {/* Always-on stat block. */}
             <box flexDirection="column">
-              <box onMouseDown={() => app.setModelModalOpen(true)}>
-                <text fg={theme.text}>{app.model()}</text>
-              </box>
+              <Pressable label={truncate(app.model(), innerW() - 2)} fg={theme.text} onClick={() => app.setModelModalOpen(true)} />
               <Show when={app.reasoningModel()}>
-                <box onMouseDown={() => app.setEffortOpen(true)}>
-                  <text fg={theme.textFaint}>◇ {app.effort()} · tap to change</text>
-                </box>
+                <Pressable label={`◇ ${app.effort()} · tap to change`} onClick={() => app.setEffortOpen(true)} />
               </Show>
             </box>
 
@@ -148,15 +157,15 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
               </Show>
             </box>
 
-            <box flexDirection="row" gap={1} onMouseDown={() => app.setMcpModalOpen(true)}>
+            <box flexDirection="row" gap={1} backgroundColor={mcpHover.bg()} onMouseOver={mcpHover.onMouseOver} onMouseOut={mcpHover.onMouseOut} onMouseDown={() => app.setMcpModalOpen(true)}>
               <text fg={app.mcpServers().length ? theme.success : theme.textFaint}>⚡ {app.mcpServers().length} mcp</text>
-              <text fg={theme.textFaint}>· {app.skills().length} skills</text>
+              <text fg={mcpHover.hovered() ? theme.text : theme.textFaint}>· {app.skills().length} skills</text>
             </box>
             <Show when={app.contextFiles().length}>
               <text fg={theme.textFaint}>✓ {app.contextFiles().length} context files</text>
             </Show>
 
-            <text fg={theme.borderMuted}>{"─".repeat(Math.max(0, app.rightWidth() - 4))}</text>
+            <text fg={theme.borderMuted}>{"─".repeat(innerW())}</text>
 
             {/* Todos — auto-reveals when the agent rewrites the task list. */}
             <Section label="todos" count={app.todos().length} open={todosOpen()} fresh={todosNew()} onToggle={toggleTodos}>
@@ -178,10 +187,17 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
             <Section label="plans" count={app.plans().length} open={plansOpen()} fresh={plansNew()} onToggle={togglePlans}>
               <Show when={app.plans().length} fallback={<text fg={theme.textFaint}>none yet</text>}>
                 <For each={app.plans()}>
-                  {(p) => (
-                    <box flexDirection="row" gap={1} onMouseDown={() => app.viewPlan(p)}>
+                  {(p, i) => (
+                    <box
+                      flexDirection="row"
+                      gap={1}
+                      backgroundColor={planHov() === i() ? theme.bgHover : "transparent"}
+                      onMouseOver={() => setPlanHov(i())}
+                      onMouseOut={() => setPlanHov(-1)}
+                      onMouseDown={() => app.viewPlan(p)}
+                    >
                       <text fg={getMode("plan").accent}>◐</text>
-                      <text fg={theme.textMuted}>{p.title}</text>
+                      <text fg={planHov() === i() ? theme.text : theme.textMuted}>{truncate(p.title, innerW() - 3)}</text>
                     </box>
                   )}
                 </For>
@@ -201,7 +217,7 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
                   {(f) => (
                     <box flexDirection="row" gap={1}>
                       <text fg={theme.warning}>{f.status}</text>
-                      <text fg={theme.textMuted}>{f.path}</text>
+                      <text fg={theme.textMuted}>{truncate(f.path, innerW() - 6, true)}</text>
                       <Show when={f.added || f.removed}>
                         <text fg={theme.success}>+{f.added}</text>
                         <text fg={theme.error}>−{f.removed}</text>
@@ -213,7 +229,7 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
                   {(d) => (
                     <box flexDirection="row" gap={1}>
                       <text fg={d.errors ? theme.error : theme.warning}>{d.errors ? "✗" : "⚠"}</text>
-                      <text fg={theme.textMuted}>{d.path}</text>
+                      <text fg={theme.textMuted}>{truncate(d.path, innerW() - 8, true)}</text>
                       <Show when={d.errors}>
                         <text fg={theme.error}>{d.errors}e</text>
                       </Show>
