@@ -2,7 +2,8 @@ import { createEffect, createSignal, For, Show, type JSX } from "solid-js"
 import { theme, getMode } from "@friday/shared"
 import { useApp } from "../store.tsx"
 import { Reveal, shimmerAccent } from "../motion/index.ts"
-import { CloseButton, ReopenStub } from "./PanelChrome.tsx"
+import { CloseButton } from "./PanelChrome.tsx"
+import { CollapseTab } from "./Divider.tsx"
 
 function fmtTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
@@ -103,7 +104,7 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
   return (
     <Show
       when={app.rightOpen()}
-      fallback={<ReopenStub glyph="‹" onOpen={() => app.setRightOpen(true)} />}
+      fallback={<CollapseTab side="right" onOpen={() => app.setRightOpen(true)} />}
     >
       <box
         width={props.fullscreen ? "100%" : (props.widthOverride ?? app.rightWidth())}

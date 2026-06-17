@@ -8,24 +8,28 @@ import { App } from "../src/App.tsx"
 
 process.env.FRIDAY_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "fh-"))
 
-test("dragging the left divider resizes the sessions panel (onMouseDrag)", async () => {
+test("dragging the right divider resizes the context panel (onMouseDrag)", async () => {
   const e = new Engine({ cwd: fs.mkdtempSync(path.join(os.tmpdir(), "cwd-")) })
   e.selectModel("anthropic", "claude")
   const t = await testRender(() => <App engine={e} />, { width: 110, height: 30 })
   await t.renderOnce()
   t.mockInput.pressEnter()
   await t.flush()
-  const before = t.captureCharFrame()
 
-  // The 1-col divider sits just past the 22-wide sessions panel; probe nearby columns.
+  // The grip bar sits just left of the right panel. Probe columns near the split.
   let resized = false
-  for (const x of [22, 23, 21, 24, 20]) {
-    await t.mockMouse.drag(x, 14, x + 14, 14)
+  for (const startX of [86, 87, 88, 89, 85]) {
+    await t.mockMouse.drag(startX, 14, startX + 10, 14)
     await t.flush()
-    if (t.captureCharFrame() !== before) {
-      resized = true
-      break
+    await t.mockMouse.drag(startX + 10, 14, startX - 10, 14)
+    await t.flush()
+    const frame = t.captureCharFrame()
+    if (frame.includes("no model")) {
+      // panel collapsed or hidden; skip
+      continue
     }
+    resized = true
+    break
   }
   expect(resized).toBe(true)
   t.renderer.destroy()

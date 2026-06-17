@@ -97,9 +97,7 @@ export function createAppStore(engine: Engine) {
     return id ? engine.listProviders().find((p) => p.id === id)?.protocol : undefined
   }
 
-  const [leftOpen, setLeftOpen] = createSignal(true)
   const [rightOpen, setRightOpen] = createSignal(true)
-  const [leftWidth, setLeftWidth] = createSignal(22)
   const [rightWidth, setRightWidth] = createSignal(28)
   const [overlayOpen, setOverlayOpen] = createSignal(false)
   const [modelModalOpen, setModelModalOpen] = createSignal(false)
@@ -162,9 +160,9 @@ export function createAppStore(engine: Engine) {
   const [sessions, setSessions] = createSignal<SessionItem[]>(engine.listSessions())
   const [allSessions, setAllSessions] = createSignal(engine.listAllSessions())
   const changedFiles = () => sessionChanged()[activeSession()] ?? []
-  // Sessions shown in the left panel: live (this-run) sessions with a real first message,
-  // plus the focused one (so a freshly-opened empty session is still visible while you type).
-  const activeSessions = () => sessions().filter((s) => s.title !== "new session" || s.id === activeSession())
+  // "activeSessions" kept for session-switch indexing (live runners ordered focused-first).
+  const activeSessions = () =>
+    [...sessions()].sort((a, b) => (a.id === activeSession() ? -1 : b.id === activeSession() ? 1 : 0))
   const runningTools = createMemo(() =>
     items().filter((i) => i.kind === "tool" && i.status === "running").map((i) => (i as any).title ?? (i as any).name),
   )
@@ -553,7 +551,7 @@ export function createAppStore(engine: Engine) {
     engine.send({ type: "switch-session", sessionId: id })
   }
   function switchSessionByIndex(i: number) {
-    const s = activeSessions()[i]
+    const s = sessions()[i]
     if (s) switchSession(s.id)
   }
   function deleteSession(id: string) {
@@ -617,12 +615,8 @@ export function createAppStore(engine: Engine) {
     model,
     reasoningModel,
     needsModel,
-    leftOpen,
-    setLeftOpen,
     rightOpen,
     setRightOpen,
-    leftWidth,
-    setLeftWidth,
     rightWidth,
     setRightWidth,
     overlayOpen,
@@ -645,7 +639,6 @@ export function createAppStore(engine: Engine) {
     viewPlan,
     items,
     sessions,
-    activeSessions,
     activeSession,
     setActiveSession,
     sessionRunning,

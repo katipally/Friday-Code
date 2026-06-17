@@ -1,18 +1,13 @@
 import { createSignal } from "solid-js"
 import { theme, getMode } from "@friday/shared"
 import { useApp } from "../store.tsx"
-import { shimmerAccent } from "../motion/index.ts"
+import { shimmerAccent, useHover } from "../motion/index.ts"
 
 /**
- * A draggable divider for resizing the side panels. Presentational: the actual drag math lives
- * on the parent row (App.tsx) so events keep landing even when the handle reflows out from under
- * the cursor (which is what made the *right* panel glitch). Here we just paint a clearly-visible
- * full-height rule that brightens on hover and shimmers while dragging, and report grab/drag/end.
- *
- * The visible rule is a 1-col bar centered in a 3-col grab area so it's easy to hit.
+ * A vertical draggable grip bar that sits between the chat and the right panel.
+ * It brightens on hover, shimmers while dragging, and is wide enough to grab easily.
  */
-export function Divider(props: {
-  side: "left" | "right"
+export function GripDivider(props: {
   active: boolean
   onGrab: (e: any) => void
   onDrag: (e: any) => void
@@ -25,7 +20,7 @@ export function Divider(props: {
 
   return (
     <box
-      width={3}
+      width={2}
       height="100%"
       backgroundColor={theme.bg}
       alignItems="center"
@@ -38,6 +33,28 @@ export function Divider(props: {
       onMouseUp={props.onEnd}
     >
       <box width={1} height="100%" backgroundColor={ruleColor()} />
+    </box>
+  )
+}
+
+/**
+ * A thin clickable/draggable strip that appears when the right panel is collapsed.
+ * Click or drag it to reopen the panel. It sits flush with the right edge.
+ */
+export function CollapseTab(props: { side: "right"; onOpen: () => void }) {
+  const h = useHover({ base: theme.bgPanel })
+  return (
+    <box
+      width={2}
+      height="100%"
+      backgroundColor={h.bg()}
+      alignItems="center"
+      paddingTop={1}
+      onMouseOver={h.onMouseOver}
+      onMouseOut={h.onMouseOut}
+      onMouseDown={props.onOpen}
+    >
+      <text fg={h.hovered() ? theme.text : theme.textMuted}>{props.side === "right" ? "‹" : "›"}</text>
     </box>
   )
 }
