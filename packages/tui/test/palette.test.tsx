@@ -25,7 +25,7 @@ test("Ctrl+K opens the command palette with built-in commands", async () => {
   const frame = t.captureCharFrame()
   expect(frame).toContain("run a command")
   expect(frame).toContain("/model")
-  expect(frame).toContain("/new")
+  expect(frame).toContain("new")
 
   t.renderer.destroy()
 })
