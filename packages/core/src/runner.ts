@@ -399,6 +399,14 @@ export class SessionRunner {
       }
       void this.hook("Stop")
       this.emitSessionFiles()
+      // In plan mode a completed turn yields a proposal — surface it so the UI can offer an
+      // execute/keep-planning gate. The plan is the last assistant message produced this turn.
+      if (!aborted && this.host.selection().mode === "plan") {
+        const last = [...this.messages].reverse().find((m) => m.role === "assistant" && !!m.text)
+        if (last && last.role === "assistant" && last.text && last.text.trim().length > 12) {
+          this.emit({ type: "plan-ready", plan: last.text })
+        }
+      }
       this.emit({ type: "mascot", state: "idle" })
       this.emit({ type: "status", text: aborted ? "stopped" : "ready" })
     }

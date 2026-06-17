@@ -8,7 +8,7 @@ import {
   type ProviderInfo,
   type UICommand,
 } from "@friday/shared"
-import { BUILTIN_PROVIDERS, fetchModels, getProviderKey, loadAuth, setProviderKey, streamProvider } from "@friday/providers"
+import { BUILTIN_PROVIDERS, fetchModels, getProviderKey, loadAuth, setProviderKey, streamProvider, validateKey } from "@friday/providers"
 import { BUILTIN_TOOLS, buildRegistry, type Tool } from "@friday/tools"
 import { connectServers, type McpServerConfig } from "@friday/mcp"
 import { loadConfig, saveConfig } from "./config.ts"
@@ -359,6 +359,35 @@ export class Engine {
   }
   connectProvider(providerId: string, apiKey: string, baseURL?: string): void {
     setProviderKey(providerId, apiKey, baseURL)
+  }
+  /** What credentials a provider already has — so the connect UI can offer to reuse or override. */
+  providerKeyInfo(id: string): { stored?: string; envVar?: string; baseURL?: string } {
+    const auth = loadAuth()
+    const p = this.listProviders().find((x) => x.id === id)
+    const envVar = (p?.envKeys ?? []).find((k) => !!process.env[k])
+    return { stored: auth.providers[id]?.apiKey, envVar, baseURL: auth.providers[id]?.baseURL }
+  }
+  /**
+   * Validate a provider key against its live endpoint, persisting it only on success. Pass an empty
+   * apiKey to validate the existing stored/env key (e.g. when the user keeps their current key).
+   * Returns `{ ok: true }` when models can be listed, or an error message for the UI to show.
+   */
+  async connectAndValidate(providerId: string, apiKey?: string, baseURL?: string): Promise<{ ok: boolean; error?: string }> {
+    const provider = this.listProviders().find((x) => x.id === providerId)
+    if (!provider) return { ok: false, error: "unknown provider" }
+    const storedBase = loadAuth().providers[providerId]?.baseURL
+    const effBase = baseURL || storedBase || provider.baseURL
+    const probe = { ...provider, baseURL: effBase }
+    const typed = apiKey?.trim()
+    const key = typed || getProviderKey(providerId)
+    if (!key && !provider.keyless) return { ok: false, error: "enter an API key to connect" }
+    const v = await validateKey(probe, key)
+    if (!v.ok) return v
+    // Persist only after a successful probe so a bad key never overwrites a working one.
+    const baseOverride = baseURL && baseURL !== provider.baseURL ? baseURL : undefined
+    if (typed) setProviderKey(providerId, typed, baseOverride)
+    else if (baseOverride && getProviderKey(providerId)) setProviderKey(providerId, getProviderKey(providerId)!, baseOverride)
+    return { ok: true }
   }
   selectModel(providerId: string, model: string, reasoning = false, contextWindow?: number, cost?: { input: number; output: number }): void {
     this.providerId = providerId

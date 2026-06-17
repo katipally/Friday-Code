@@ -21,7 +21,7 @@ function Inline(props: { text: string }) {
           if (s.italic) return <em>{s.text}</em>
           if (s.strike)
             return (
-              <CSpan color={theme.textFaint}>
+              <CSpan color={theme.textMuted}>
                 <span {...({ attributes: 8 } as any) /* strikethrough */}>{s.text}</span>
               </CSpan>
             )
@@ -92,7 +92,7 @@ function Block(props: { b: MdBlock; accent: string }) {
           marginBottom={1}
         >
           <Show when={b.lang}>
-            <text fg={theme.textFaint}>{b.lang}</text>
+            <text fg={theme.textMuted}>{b.lang}</text>
           </Show>
           <For each={b.lines}>
             {(line) => (
@@ -113,7 +113,7 @@ function Block(props: { b: MdBlock; accent: string }) {
                   when={item.task}
                   fallback={<text fg={props.accent}>{item.ordered ? `${item.index}.` : "•"}</text>}
                 >
-                  <text fg={item.checked ? theme.success : theme.textFaint}>{item.checked ? "☑" : "☐"}</text>
+                  <text fg={item.checked ? theme.success : theme.textMuted}>{item.checked ? "☑" : "☐"}</text>
                 </Show>
                 <Inline text={item.text} />
               </box>
@@ -124,7 +124,7 @@ function Block(props: { b: MdBlock; accent: string }) {
     case "quote":
       return (
         <box flexDirection="row" gap={1}>
-          <text fg={theme.borderMuted}>│</text>
+          <text fg={props.accent}>│</text>
           <box flexDirection="column">
             <For each={b.lines}>{(l) => <text fg={theme.textMuted}>{l}</text>}</For>
           </box>

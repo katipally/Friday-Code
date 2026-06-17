@@ -6,6 +6,17 @@
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max"
 export const EFFORTS: readonly Effort[] = ["low", "medium", "high", "xhigh", "max"] as const
 
+/**
+ * The effort levels a model meaningfully supports, given its provider protocol. OpenAI's
+ * `reasoning_effort` only accepts low/medium/high (xhigh/max collapse to high), while Anthropic and
+ * Google take a thinking-token budget and honor all five. A non-reasoning model supports none.
+ */
+export function allowedEfforts(protocol?: "openai" | "anthropic" | "google", reasoning = true): readonly Effort[] {
+  if (!reasoning) return []
+  if (protocol === "openai") return ["low", "medium", "high"]
+  return EFFORTS
+}
+
 /** A pending or completed tool call as the model expressed it. */
 export interface ToolCall {
   id: string

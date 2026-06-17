@@ -1,5 +1,5 @@
 import { createEffect, createSignal, onCleanup, Show, untrack } from "solid-js"
-import { theme, getMode } from "@friday/shared"
+import { theme, getMode, MASCOT, type MascotState } from "@friday/shared"
 import { useApp } from "../store.tsx"
 import { useMascotFrame } from "../util/useMascot.ts"
 import { useBreathe } from "../motion/index.ts"
@@ -14,9 +14,22 @@ function fmtTokens(n: number): string {
  */
 export function StatusStrip() {
   const app = useApp()
-  const accent = () => getMode(app.mode()).accent
-  const frame = useMascotFrame(app.mascot)
-  const glow = useBreathe(accent, app.busy)
+  // Effective mascot state: a pending permission/question makes Friday "wait" regardless of the
+  // engine's last mascot event, so the face reads the moment-to-moment situation.
+  const mstate = (): MascotState => (app.pending() || app.askPending() ? "waiting" : app.mascot())
+  // Mood tint: error→red, done→green, waiting→amber, otherwise the current mode's accent.
+  const moodAccent = () => {
+    const s = mstate()
+    if (s === "error") return theme.error
+    if (s === "done") return theme.success
+    if (s === "waiting") return theme.warning
+    return getMode(app.mode()).accent
+  }
+  const frame = useMascotFrame(mstate)
+  const glow = useBreathe(moodAccent, () => app.busy() || mstate() === "waiting")
+  // Always-on personality line — shown when idle/done/waiting/error; the factual engine status
+  // takes over while busy (so tool names etc. stay visible).
+  const mascotLine = () => MASCOT[mstate()].line ?? "ready"
 
   // Tick a clock while busy so the elapsed timer + tokens/sec update live. We `untrack`
   // tokens inside the effect so it depends ONLY on busy — otherwise the effect re-ran on
@@ -51,7 +64,7 @@ export function StatusStrip() {
   return (
     <box flexDirection="row" height={1} paddingLeft={1} paddingRight={1} gap={1} alignItems="center">
       <text fg={glow()}>{frame()}</text>
-      <Show when={stopped()} fallback={<text fg={app.busy() ? theme.text : theme.textMuted}>{app.status()}</text>}>
+      <Show when={stopped()} fallback={<text fg={app.busy() ? theme.text : theme.textMuted}>{app.busy() ? app.status() : mascotLine()}</text>}>
         <text fg={theme.textFaint}>⏹ stopped</text>
       </Show>
       <Show when={app.busy() && elapsedS() > 0}>
@@ -75,10 +88,14 @@ export function StatusStrip() {
         </Show>
       </Show>
       <box flexGrow={1} />
-      <box flexDirection="row" gap={1} alignItems="center" onMouseDown={() => app.setModelModalOpen(true)}>
-        <text fg={theme.textMuted}>{app.model()}</text>
+      <box flexDirection="row" gap={1} alignItems="center">
+        <box onMouseDown={() => app.setModelModalOpen(true)}>
+          <text fg={theme.textMuted}>{app.model()}</text>
+        </box>
         <Show when={app.reasoningModel()}>
-          <text fg={theme.textFaint}>◇ {app.effort()}</text>
+          <box onMouseDown={() => app.setEffortOpen(true)}>
+            <text fg={theme.textFaint}>◇ {app.effort()}</text>
+          </box>
         </Show>
       </box>
     </box>

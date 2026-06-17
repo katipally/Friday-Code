@@ -45,6 +45,7 @@ export type ViewItem =
 
 export type PendingPermission = { requestId: string; tool: string; summary: string; detail?: string; risk?: string }
 export type PendingAsk = { requestId: string; questions: AskQuestion[] }
+export type PlanEntry = { id: string; title: string; text: string }
 export type SessionItem = { id: string; title: string; cwd: string; roots: string[] }
 export type ChangedFile = { path: string; status: string; added: number; removed: number }
 
@@ -87,7 +88,14 @@ export function createAppStore(engine: Engine) {
   const [effort, setEffortSig] = createSignal<Effort>(engine.selection().effort ?? "medium")
   const [model, setModel] = createSignal<string>(engine.selection().model ?? "no model — open /model")
   const [reasoningModel, setReasoningModel] = createSignal<boolean>(engine.selection().reasoning ?? false)
+  const [providerId, setProviderId] = createSignal<string | undefined>(engine.selection().providerId)
   const [needsModel, setNeedsModel] = createSignal(false)
+  const [effortOpen, setEffortOpen] = createSignal(false)
+  // The wire protocol of the connected provider — drives which effort levels the slider offers.
+  const providerProtocol = () => {
+    const id = providerId()
+    return id ? engine.listProviders().find((p) => p.id === id)?.protocol : undefined
+  }
 
   const [leftOpen, setLeftOpen] = createSignal(true)
   const [rightOpen, setRightOpen] = createSignal(true)
@@ -119,6 +127,9 @@ export function createAppStore(engine: Engine) {
   const [sessionTodos, setSessionTodos] = createSignal<Record<string, TodoItem[]>>({})
   const [sessionPending, setSessionPending] = createSignal<Record<string, PendingPermission>>({})
   const [sessionAsk, setSessionAsk] = createSignal<Record<string, PendingAsk>>({})
+  // Plans proposed this session (viewable any time) + the one currently awaiting an execute decision.
+  const [sessionPlans, setSessionPlans] = createSignal<Record<string, PlanEntry[]>>({})
+  const [sessionPlanPending, setSessionPlanPending] = createSignal<Record<string, PlanEntry | null>>({})
   const [sessionDiag, setSessionDiag] = createSignal<Record<string, { path: string; errors: number; warnings: number }[]>>({})
   const [sessionCost, setSessionCost] = createSignal<Record<string, number>>({})
   // Status / mascot / git are per-session too, so switching shows the focused
@@ -172,10 +183,13 @@ export function createAppStore(engine: Engine) {
   const todos = () => sessionTodos()[activeSession()] ?? []
   const pending = () => sessionPending()[activeSession()] ?? null
   const askPending = () => sessionAsk()[activeSession()] ?? null
+  const plans = () => sessionPlans()[activeSession()] ?? []
+  const planPending = () => sessionPlanPending()[activeSession()] ?? null
   const diagnostics = () => sessionDiag()[activeSession()] ?? []
   const cost = () => sessionCost()[activeSession()] ?? 0
   const sessionRunning = (id: string) => !!sessionBusy()[id]
   const sessionNeedsInput = (id: string) => !!sessionNeeds()[id]
+  const sessionTokenCount = (id: string) => sessionTokens()[id] ?? 0
 
   const titleOf = (id: string) =>
     allSessions().find((s) => s.id === id)?.title ?? sessions().find((s) => s.id === id)?.title ?? "session"
@@ -229,6 +243,7 @@ export function createAppStore(engine: Engine) {
       case "model-changed":
         setModel(e.model)
         setReasoningModel(e.reasoning)
+        setProviderId(e.provider)
         if (e.contextWindow != null) setContextWindow(e.contextWindow)
         setNeedsModel(false)
         break
@@ -275,6 +290,21 @@ export function createAppStore(engine: Engine) {
         setKey(setSessionNeeds, sid, true)
         if (!focused) pushToast(`⚠ ${titleOf(sid)} asks a question`, "input")
         break
+      case "plan-ready": {
+        const title =
+          e.plan
+            .split("\n")
+            .map((s) => s.trim())
+            .find(Boolean)
+            ?.replace(/^#+\s*/, "")
+            .slice(0, 60) ?? "plan"
+        const entry: PlanEntry = { id: nextLocalId(), title, text: e.plan }
+        setSessionPlans((m) => ({ ...m, [sid]: [...(m[sid] ?? []), entry] }))
+        setKey(setSessionPlanPending, sid, entry)
+        setKey(setSessionNeeds, sid, true)
+        if (!focused) pushToast(`◐ ${titleOf(sid)} has a plan ready`, "input")
+        break
+      }
       case "turn-done":
         if (sessionBusy()[sid] && !focused) pushToast(`✓ ${titleOf(sid)} finished`, "done")
         setKey(setSessionBusy, sid, false)
@@ -353,6 +383,7 @@ export function createAppStore(engine: Engine) {
 
   const BUILTIN_COMMANDS: { name: string; description: string }[] = [
     { name: "model", description: "connect a provider / pick a model" },
+    { name: "effort", description: "set reasoning effort (slider)" },
     { name: "new", description: "start a new session" },
     { name: "clear", description: "clear the conversation (new session)" },
     { name: "history", description: "browse all past sessions (by directory)" },
@@ -379,6 +410,13 @@ export function createAppStore(engine: Engine) {
     switch (name) {
       case "model":
         setModelModalOpen(true)
+        return true
+      case "effort":
+        if (!reasoningModel()) {
+          pushToast("the current model has no adjustable reasoning effort", "input")
+          return true
+        }
+        setEffortOpen(true)
         return true
       case "new":
       case "clear":
@@ -464,6 +502,27 @@ export function createAppStore(engine: Engine) {
     engine.send({ type: "ask-reply", requestId: a.requestId, answers })
     delKey(setSessionAsk, activeSession())
     delKey(setSessionNeeds, activeSession())
+  }
+
+  // ---- plan-mode gate ----
+  /** Close the plan card without acting (used by "keep planning" and "custom input"). */
+  function dismissPlan() {
+    delKey(setSessionPlanPending, activeSession())
+    delKey(setSessionNeeds, activeSession())
+  }
+  /** Switch to the chosen mode and tell the agent to carry out the plan it just proposed. */
+  function executePlan(targetMode: ModeId) {
+    dismissPlan()
+    if (targetMode !== mode()) {
+      setModeSig(targetMode)
+      engine.setMode(targetMode)
+      engine.send({ type: "set-mode", mode: targetMode })
+    }
+    submitRaw("Carry out the plan you just proposed, step by step.")
+  }
+  /** Re-open a previously proposed plan in the plan card (read-only viewing, no needs flag). */
+  function viewPlan(entry: PlanEntry) {
+    setKey(setSessionPlanPending, activeSession(), entry)
   }
 
   function connectAndSelect(
@@ -552,6 +611,9 @@ export function createAppStore(engine: Engine) {
     mode,
     effort,
     setEffort,
+    effortOpen,
+    setEffortOpen,
+    providerProtocol,
     model,
     reasoningModel,
     needsModel,
@@ -576,6 +638,11 @@ export function createAppStore(engine: Engine) {
     pending,
     askPending,
     replyAsk,
+    plans,
+    planPending,
+    dismissPlan,
+    executePlan,
+    viewPlan,
     items,
     sessions,
     activeSessions,
@@ -583,6 +650,7 @@ export function createAppStore(engine: Engine) {
     setActiveSession,
     sessionRunning,
     sessionNeedsInput,
+    sessionTokenCount,
     sessionActivity,
     toggleMode,
     submit,

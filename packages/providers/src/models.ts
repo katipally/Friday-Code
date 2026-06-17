@@ -82,6 +82,24 @@ function enrich(l: LiveModel, meta: any, providerId: string): ModelInfo {
 }
 
 /**
+ * Probe a provider's live endpoint with a key to confirm it authenticates. Unlike fetchModels
+ * (which silently falls back to the offline catalog), this surfaces auth/connection failures so the
+ * connect flow can show an error and let the user retry. `ok: true` means the key works.
+ */
+export async function validateKey(provider: ProviderInfo, apiKey?: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    if (provider.protocol === "anthropic") await fetchAnthropic(provider.baseURL, apiKey)
+    else if (provider.protocol === "google") await fetchGoogle(provider.baseURL, apiKey)
+    else await fetchOpenAICompat(provider.baseURL, apiKey)
+    return { ok: true }
+  } catch (e: any) {
+    const msg = String(e?.message ?? e ?? "connection failed")
+    if (/401|403|unauthor|forbidden|invalid/i.test(msg)) return { ok: false, error: "invalid API key — check it and retry" }
+    return { ok: false, error: `couldn't connect (${msg})` }
+  }
+}
+
+/**
  * Live model list for a provider, enriched with models.dev metadata. Falls back to the models.dev
  * catalog, then the offline snapshot, if the live endpoint is unavailable.
  */

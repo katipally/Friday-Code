@@ -43,13 +43,15 @@ function Section(props: {
  * cost, mcp/skills) plus Todos and Files sections that auto-reveal (with a `*new` flag)
  * the moment the agent updates them.
  */
-export function ContextPanel() {
+export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: number } = {}) {
   const app = useApp()
   const accent = () => shimmerAccent(getMode(app.mode()).accent)
   const [todosOpen, setTodosOpen] = createSignal(false)
   const [todosNew, setTodosNew] = createSignal(false)
   const [filesOpen, setFilesOpen] = createSignal(false)
   const [filesNew, setFilesNew] = createSignal(false)
+  const [plansOpen, setPlansOpen] = createSignal(false)
+  const [plansNew, setPlansNew] = createSignal(false)
 
   // Auto-reveal Todos/Files when their backing data changes (signature compare).
   const todoSig = () => app.todos().map((t) => `${t.status}:${t.text}`).join("|")
@@ -73,6 +75,15 @@ export function ContextPanel() {
     }
     prevFile = sig
   })
+  let prevPlan: number | null = null
+  createEffect(() => {
+    const n = app.plans().length
+    if (prevPlan !== null && n !== prevPlan && n) {
+      setPlansOpen(true)
+      setPlansNew(true)
+    }
+    prevPlan = n
+  })
 
   const toggleTodos = () => {
     setTodosOpen(!todosOpen())
@@ -81,6 +92,10 @@ export function ContextPanel() {
   const toggleFiles = () => {
     setFilesOpen(!filesOpen())
     setFilesNew(false)
+  }
+  const togglePlans = () => {
+    setPlansOpen(!plansOpen())
+    setPlansNew(false)
   }
 
   const pct = () => (app.contextWindow() > 0 ? Math.min(100, Math.round((app.tokens() / app.contextWindow()) * 100)) : 0)
@@ -91,12 +106,12 @@ export function ContextPanel() {
       fallback={<ReopenStub glyph="‹" onOpen={() => app.setRightOpen(true)} />}
     >
       <box
-        width={app.rightWidth()}
+        width={props.fullscreen ? "100%" : (props.widthOverride ?? app.rightWidth())}
         height="100%"
         flexDirection="column"
         border
         borderStyle="rounded"
-        borderColor={theme.border}
+        borderColor={props.fullscreen ? getMode(app.mode()).accent : theme.border}
         backgroundColor={theme.bgPanel}
       >
         <box flexDirection="row" paddingRight={1} alignItems="center">
@@ -108,10 +123,14 @@ export function ContextPanel() {
         <scrollbox flexGrow={1} minHeight={0} paddingLeft={1} paddingRight={1} paddingTop={1}>
           <box flexDirection="column" gap={1}>
             {/* Always-on stat block. */}
-            <box flexDirection="column" onMouseDown={() => app.setModelModalOpen(true)}>
-              <text fg={theme.text}>{app.model()}</text>
+            <box flexDirection="column">
+              <box onMouseDown={() => app.setModelModalOpen(true)}>
+                <text fg={theme.text}>{app.model()}</text>
+              </box>
               <Show when={app.reasoningModel()}>
-                <text fg={theme.textFaint}>◇ {app.effort()}</text>
+                <box onMouseDown={() => app.setEffortOpen(true)}>
+                  <text fg={theme.textFaint}>◇ {app.effort()} · tap to change</text>
+                </box>
               </Show>
             </box>
 
@@ -150,6 +169,20 @@ export function ContextPanel() {
                         {t.status === "done" ? "☑" : t.status === "active" ? "▸" : "☐"}
                       </text>
                       <text fg={t.status === "active" ? theme.text : theme.textMuted}>{t.text}</text>
+                    </box>
+                  )}
+                </For>
+              </Show>
+            </Section>
+
+            {/* Plans proposed this session — click one to re-open the full plan + execute gate. */}
+            <Section label="plans" count={app.plans().length} open={plansOpen()} fresh={plansNew()} onToggle={togglePlans}>
+              <Show when={app.plans().length} fallback={<text fg={theme.textFaint}>none yet</text>}>
+                <For each={app.plans()}>
+                  {(p) => (
+                    <box flexDirection="row" gap={1} onMouseDown={() => app.viewPlan(p)}>
+                      <text fg={getMode("plan").accent}>◐</text>
+                      <text fg={theme.textMuted}>{p.title}</text>
                     </box>
                   )}
                 </For>

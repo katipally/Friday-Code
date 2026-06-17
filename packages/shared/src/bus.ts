@@ -22,6 +22,8 @@ export type EngineEventBody =
   | { type: "permission-request"; requestId: string; tool: string; summary: string; detail?: string; risk?: string }
   | { type: "ask-user"; requestId: string; questions: AskQuestion[] }
   | { type: "turn-done"; id: string }
+  /** A plan-mode turn finished with a proposed plan; the UI offers an execute/keep-planning gate. */
+  | { type: "plan-ready"; plan: string }
   | { type: "usage"; input: number; output: number; costUsd?: number }
   | { type: "mascot"; state: MascotState }
   | { type: "status"; text: string; elapsedMs?: number; tokens?: number }

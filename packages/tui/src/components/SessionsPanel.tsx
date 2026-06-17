@@ -5,6 +5,10 @@ import { useSpinner } from "../util/useSpinner.ts"
 import { useBreathe, shimmerAccent } from "../motion/index.ts"
 import { CloseButton, ReopenStub } from "./PanelChrome.tsx"
 
+function fmtTokens(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
+}
+
 function shortDir(p: string): string {
   const h = process.env.HOME
   const rel = h && p.startsWith(h) ? "~" + p.slice(h.length) : p
@@ -18,7 +22,7 @@ function shortDir(p: string): string {
  * grouped by their working directory so multi-project work is easy to scan. Empty "new session"
  * placeholders are discarded automatically. Full persisted history lives in the /history modal.
  */
-export function SessionsPanel() {
+export function SessionsPanel(props: { fullscreen?: boolean; widthOverride?: number } = {}) {
   const app = useApp()
   const accent = () => getMode(app.mode()).accent
   const spin = useSpinner()
@@ -41,12 +45,12 @@ export function SessionsPanel() {
       fallback={<ReopenStub glyph="›" onOpen={() => app.setLeftOpen(true)} />}
     >
       <box
-        width={app.leftWidth()}
+        width={props.fullscreen ? "100%" : (props.widthOverride ?? app.leftWidth())}
         height="100%"
         flexDirection="column"
         border
         borderStyle="rounded"
-        borderColor={theme.border}
+        borderColor={props.fullscreen ? accent() : theme.border}
         backgroundColor={theme.bgPanel}
       >
         <box flexDirection="row" alignItems="center" paddingLeft={1}>
@@ -71,17 +75,30 @@ export function SessionsPanel() {
                     const isBusy = () => app.sessionRunning(s.id)
                     const needs = () => app.sessionNeedsInput(s.id)
                     const unseen = () => app.sessionActivity(s.id)
+                    const toks = () => app.sessionTokenCount(s.id)
                     const dot = () => (needs() ? "⚠" : isBusy() ? spin() : isActive() ? "●" : "○")
-                    const dotColor = () => (needs() ? theme.warning : isBusy() ? accent() : isActive() ? liveDot() : theme.textFaint)
+                    const dotColor = () => (needs() ? theme.warning : isBusy() ? accent() : isActive() ? liveDot() : theme.textMuted)
                     return (
-                      <box flexDirection="row" gap={1}>
+                      <box flexDirection="row" gap={1} backgroundColor={isActive() ? theme.bgHover : "transparent"}>
+                        {/* accent left-bar marks the focused (active) session at a glance */}
+                        <text fg={isActive() ? accent() : theme.bgPanel}>▎</text>
                         <box flexGrow={1} flexDirection="row" gap={1} onMouseDown={() => app.switchSession(s.id)}>
                           <text fg={dotColor()}>{dot()}</text>
                           <text fg={isActive() ? theme.text : theme.textMuted}>
                             {index < 9 ? `${index + 1} ` : "  "}
                             {s.title}
                           </text>
-                          <Show when={unseen()}>
+                          <box flexGrow={1} />
+                          <Show when={needs()}>
+                            <text fg={theme.warning}>waiting</text>
+                          </Show>
+                          <Show when={isActive() && !needs()}>
+                            <text fg={liveDot()}>LIVE</text>
+                          </Show>
+                          <Show when={toks() > 0}>
+                            <text fg={theme.textFaint}>{fmtTokens(toks())}</text>
+                          </Show>
+                          <Show when={unseen() && !isActive()}>
                             <text fg={shimmerAccent(accent())}>•</text>
                           </Show>
                         </box>

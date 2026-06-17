@@ -3,8 +3,9 @@
 A new kind of terminal AI coding agent — built on [OpenTUI](https://opentui.com) (Solid),
 with a hand-rolled, dependency-light multi-provider engine.
 
-> Rounded, animated, mouse-first. Dark-grey theme with mode-colored accents. A cute hyperactive
-> mascot named **Friday** lives above your composer and reacts to what the agent is doing.
+> Rounded, animated, mouse-first. Neutral near-black theme with mode-colored accents. A cute,
+> expressive mascot named **Friday** lives above your composer — it blinks, glances, celebrates on
+> success and shakes on errors, with a mood tint that follows the current mode and effort.
 
 ## Quick start
 
@@ -14,7 +15,8 @@ bun run friday          # launch the TUI
 ```
 
 On first run, a short **onboarding** appears, then the `/model` connector — pick a provider, paste a
-key, choose a model. Then just talk to Friday.
+key (it's **validated** against the provider before it's saved, so a bad key is caught early), then
+choose a model. Then just talk to Friday.
 
 Requires [Bun](https://bun.sh) ≥ 1.3.
 
@@ -38,8 +40,15 @@ Requires [Bun](https://bun.sh) ≥ 1.3.
 - **Providers (zero-SDK)** — one OpenAI-compatible adapter (OpenAI, OpenRouter, Groq, Kimi/Moonshot,
   MiniMax, DeepSeek, xAI, OpenCode Zen, Together, Ollama, llama.cpp), plus **Anthropic** and
   **Google Gemini**. Model catalog from [models.dev](https://models.dev) with an offline snapshot.
-- **Modes** — `plan` / `default` / `accept-edit` / `yolo`, cycled with **Shift+Tab**. Per-mode
-  permission posture, plus bash allow/deny lists and risky-command warnings.
+- **Modes** — `plan` / `default` / `accept-edit` / `yolo`, cycled with **Shift+Tab** (icons ◐ ◈ ✎ ⚡).
+  Per-mode permission posture, plus bash allow/deny lists and risky-command warnings.
+- **Plan-mode approval gate** — in `plan` mode Friday investigates read-only and proposes a plan; a
+  card then shows the **full plan** and lets you run it in `default` / `accept-edit` / `yolo`, keep
+  planning, or give custom input. Every plan is saved to the right panel's **plans** section to re-open.
+- **Reasoning effort** — `/effort` (or click the `◇ effort` badge) opens a slider; the levels offered
+  are capped to what the model supports (OpenAI → low/med/high · Anthropic/Google → up to max).
+- **Responsive layout** — side panels auto-collapse as the terminal narrows so the chat keeps focus;
+  on small terminals an opened panel takes the full screen, and closing it returns you to the chat.
 - **Tools** — read, write, edit, multi-edit, ls, glob, grep, bash, webfetch, websearch, ask_user,
   skill, task (read-only sub-agent), todo_write, lsp_*.
 - **Sessions** — multi-session tabs, `bun:sqlite` persistence, `Ctrl+1-9` to switch, clean-exit

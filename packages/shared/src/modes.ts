@@ -28,7 +28,7 @@ export const MODES: readonly Mode[] = [
   {
     id: "default",
     label: "default",
-    glyph: "⬡",
+    glyph: "◈", // guarded — asks before edits & commands
     accent: "#9aa5ce", // slate blue-grey — neutral & calm, so default mode doesn't visually shout
     hint: "asks before edits & commands",
     policy: { edit: "ask", bash: "ask", network: "ask" },
@@ -38,13 +38,13 @@ export const MODES: readonly Mode[] = [
     label: "plan",
     glyph: "◐",
     accent: "#38bdf8", // cyan/blue
-    hint: "read-only · proposes a plan, never edits",
+    hint: "read-only · proposes a plan you review, then run",
     policy: { edit: "deny", bash: "ask", network: "ask" },
   },
   {
     id: "accept-edit",
     label: "accept edits",
-    glyph: "◓",
+    glyph: "✎", // auto-applies edits
     accent: "#f5a623", // amber/gold
     hint: "auto-applies edits · asks for bash & network",
     policy: { edit: "allow", bash: "ask", network: "ask" },
@@ -52,7 +52,7 @@ export const MODES: readonly Mode[] = [
   {
     id: "yolo",
     label: "yolo",
-    glyph: "◆",
+    glyph: "⚡", // full auto — no prompts
     accent: "#f7768e", // red/magenta
     hint: "full auto · no prompts",
     policy: { edit: "allow", bash: "allow", network: "allow" },

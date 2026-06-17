@@ -15,7 +15,7 @@ const KEYWORDS = new Set(
 const KEYWORD_COLOR = "#7dcfff"
 const STRING_COLOR = "#9ece6a"
 const NUMBER_COLOR = "#e0af68"
-const COMMENT_COLOR = "#565b64"
+const COMMENT_COLOR = "#7b818c" // legible-but-quiet on the near-black canvas
 
 /** A small, language-agnostic syntax highlighter (reliable, no tree-sitter). */
 export function highlightLine(line: string): Segment[] {
