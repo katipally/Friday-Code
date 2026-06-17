@@ -95,6 +95,13 @@ export function Composer() {
   const chips = createMemo(() => parseMentions(text(), app.roots()))
 
   function submit() {
+    // If an autocomplete suggestion is highlighted, Enter applies it (completes the /command or
+    // @file) rather than submitting the whole composer — you then press Enter again to send.
+    const items = suggestions()
+    if (items.length) {
+      items[sel()]?.apply()
+      return
+    }
     const value: string = ta?.plainText ?? ""
     if (value.trim()) app.submit(value)
     ta?.clear?.()
@@ -135,7 +142,7 @@ export function Composer() {
               </box>
             )}
           </For>
-          <text fg={theme.textFaint}>↑↓ move · ⭾ complete</text>
+          <text fg={theme.textFaint}>↑↓ move · ⭾/⏎ complete</text>
         </box>
       </Show>
 

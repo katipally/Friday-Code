@@ -78,10 +78,13 @@ test("/fork opens the fork picker listing the conversation's user turns", async 
   await Bun.sleep(40)
   await t.flush()
 
-  // Run /fork
+  // Run /fork. With a suggestion highlighted, the first Enter COMPLETES it (to "/fork "),
+  // the second Enter submits/runs the command.
   await t.mockInput.typeText("/fork")
   await t.flush()
-  t.mockInput.pressEnter()
+  t.mockInput.pressEnter() // apply suggestion
+  await t.flush()
+  t.mockInput.pressEnter() // run /fork
   await t.flush()
 
   const frame = t.captureCharFrame()
@@ -113,7 +116,8 @@ test("native markdown renders headings + fenced code blocks", async () => {
   await t.mockInput.typeText("show me code")
   await t.flush()
   t.mockInput.pressEnter()
-  await Bun.sleep(80)
+  // Native markdown highlights code via async tree-sitter; allow time under full-suite load.
+  await Bun.sleep(250)
   await t.flush()
 
   const frame = t.captureCharFrame()

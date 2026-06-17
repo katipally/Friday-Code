@@ -60,6 +60,7 @@ function getSyntaxRules(): Rule[] {
 }
 
 let _cached: SyntaxStyle | null = null
+let _muted: SyntaxStyle | null = null
 
 /**
  * The shared SyntaxStyle for every native <code>/<markdown>/<diff>. Built lazily on first
@@ -68,4 +69,15 @@ let _cached: SyntaxStyle | null = null
  */
 export function syntaxStyle(): SyntaxStyle {
   return (_cached ??= SyntaxStyle.fromTheme(getSyntaxRules()))
+}
+
+/**
+ * A uniformly-greyed style: every scope is forced to `textFaint` (bold/italic kept for
+ * structure). Used for reasoning/thinking so it reads as clearly secondary to the colorful
+ * answer (opencode's subtle-syntax idea).
+ */
+export function mutedSyntaxStyle(): SyntaxStyle {
+  return (_muted ??= SyntaxStyle.fromTheme(
+    getSyntaxRules().map((r) => ({ ...r, style: { ...r.style, foreground: theme.textFaint, background: undefined } })),
+  ))
 }

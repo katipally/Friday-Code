@@ -110,10 +110,8 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
         width={props.fullscreen ? "100%" : (props.widthOverride ?? app.rightWidth())}
         height="100%"
         flexDirection="column"
-        border
-        borderStyle="rounded"
-        borderColor={props.fullscreen ? getMode(app.mode()).accent : theme.border}
         backgroundColor={theme.bgPanel}
+        paddingTop={1}
       >
         <box flexDirection="row" paddingRight={1} alignItems="center">
           <CloseButton hint="⌃G" onClose={() => app.setRightOpen(false)} />

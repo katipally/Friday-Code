@@ -35,7 +35,12 @@ export function SelectList(props: {
   onHover?: (i: number) => void
   onChange?: (i: number) => void
   onChoose: (i: number) => void
+  /** Max visible rows before the list scrolls internally (native select needs a bounded height). */
+  maxRows?: number
 }) {
+  // The native <select> only paginates/scrolls when it has a definite height; without one it
+  // lays out every row (overflowing its container with no scrollbar). Bound it to maxRows.
+  const rows = () => Math.min(Math.max(1, props.items.length), props.maxRows ?? 10)
   // Native <select> is single-select and shows no per-row check state, so for multi-select
   // we fold the checkbox glyph into the option label to keep the chosen set visible.
   const options = () =>
@@ -46,6 +51,8 @@ export function SelectList(props: {
     }))
   return (
     <select
+      height={rows()}
+      wrapSelection
       options={options()}
       selectedIndex={props.selected}
       backgroundColor={theme.bgElevated}

@@ -230,6 +230,71 @@ export function createAppStore(engine: Engine) {
     setSessionItems(sid, messagesToItems(messages))
   }
 
+  // ---- streaming coalescing ----
+  // A fast provider stream (e.g. GPT-5) emits many small text/reasoning deltas. Patching the
+  // store on every one re-parses the markdown and re-renders the whole rail per token, which
+  // saturates the event loop and starves keyboard input (dropped Esc, laggy typing). Instead we
+  // accumulate deltas per assistant item and flush them in ONE store update at ~30fps.
+  const streamBuf = new Map<string, { sid: string; id: string; text: string; reasoning: string }>()
+  const streamSeen = new Set<string>() // `${id}:${field}` that already had their first (instant) delta
+  let flushTimer: ReturnType<typeof setInterval> | null = null
+  function applyAccumulated(sid: string, id: string, text: string, reasoning: string) {
+    setSessionItems(
+      produce((m) => {
+        const it = m[sid]?.find((i) => i.id === id)
+        if (it?.kind === "assistant") {
+          if (text) it.text += text
+          if (reasoning) it.reasoning += reasoning
+        }
+      }),
+    )
+  }
+  function flushStream() {
+    if (streamBuf.size === 0) {
+      if (flushTimer) {
+        clearInterval(flushTimer)
+        flushTimer = null
+      }
+      return
+    }
+    const pending = [...streamBuf.values()]
+    streamBuf.clear()
+    setSessionItems(
+      produce((m) => {
+        for (const b of pending) {
+          const it = m[b.sid]?.find((i) => i.id === b.id)
+          if (it?.kind === "assistant") {
+            if (b.text) it.text += b.text
+            if (b.reasoning) it.reasoning += b.reasoning
+          }
+        }
+      }),
+    )
+  }
+  function bufferDelta(sid: string, id: string, field: "text" | "reasoning", delta: string) {
+    // The first delta of each field renders immediately (instant first-token feedback); the rest
+    // are coalesced and flushed at ~30fps so a fast stream can't starve the event loop / input.
+    const key = `${id}:${field}`
+    if (!streamSeen.has(key)) {
+      streamSeen.add(key)
+      applyAccumulated(sid, id, field === "text" ? delta : "", field === "reasoning" ? delta : "")
+      return
+    }
+    let b = streamBuf.get(id)
+    if (!b) streamBuf.set(id, (b = { sid, id, text: "", reasoning: "" }))
+    b[field] += delta
+    if (!flushTimer) flushTimer = setInterval(flushStream, 33)
+  }
+  /** Apply any buffered deltas for one item immediately (used when its turn finalizes). */
+  function flushItem(id: string) {
+    streamSeen.delete(`${id}:text`)
+    streamSeen.delete(`${id}:reasoning`)
+    const b = streamBuf.get(id)
+    if (!b) return
+    streamBuf.delete(id)
+    applyAccumulated(b.sid, id, b.text, b.reasoning)
+  }
+
   // ---- engine event handling ----
   engine.subscribe((e: EngineEvent) => {
     const sid = e.sessionId
@@ -260,10 +325,10 @@ export function createAppStore(engine: Engine) {
         })
         break
       case "text":
-        patchItemIn(sid, e.id, (it) => it.kind === "assistant" && (it.text += e.delta))
+        bufferDelta(sid, e.id, "text", e.delta)
         break
       case "reasoning":
-        patchItemIn(sid, e.id, (it) => it.kind === "assistant" && (it.reasoning += e.delta))
+        bufferDelta(sid, e.id, "reasoning", e.delta)
         break
       case "tool-call":
         appendItem(sid, { kind: "tool", id: e.callId, name: e.name, input: e.input, status: "running", output: "", open: false })
@@ -307,6 +372,7 @@ export function createAppStore(engine: Engine) {
       case "turn-done":
         if (sessionBusy()[sid] && !focused) pushToast(`✓ ${titleOf(sid)} finished`, "done")
         setKey(setSessionBusy, sid, false)
+        flushItem(e.id) // apply any buffered tail before finalizing so no token is lost
         patchItemIn(sid, e.id, (it) => it.kind === "assistant" && ((it.done = true), (it.thinkingOpen = false), (it.durationMs = Date.now() - it.startedAt)))
         break
       case "usage":
@@ -385,9 +451,8 @@ export function createAppStore(engine: Engine) {
     { name: "effort", description: "set reasoning effort (slider)" },
     { name: "new", description: "start a new session" },
     { name: "clear", description: "clear the conversation (new session)" },
-    { name: "sessions", description: "switch between sessions (Ctrl+1–9)" },
+    { name: "resume", description: "resume or switch to another session" },
     { name: "fork", description: "branch a new session from a past turn" },
-    { name: "history", description: "browse all past sessions (by directory)" },
     { name: "dir", description: "change or add a working directory" },
     { name: "mcp", description: "view / add / remove MCP servers" },
     { name: "compact", description: "summarize older context to reclaim the window" },
@@ -423,7 +488,8 @@ export function createAppStore(engine: Engine) {
       case "clear":
         newSession()
         return true
-      case "sessions":
+      case "resume":
+      case "sessions": // aliases for the old command names
       case "history":
         setHistoryOpen(true)
         return true

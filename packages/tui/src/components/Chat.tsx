@@ -138,7 +138,8 @@ export function Chat() {
         </box>
       }
     >
-      <scrollbox ref={(r: any) => (sb = r)} flexGrow={1} minHeight={0} stickyScroll stickyStart="bottom" paddingTop={1}>
+      {/* paddingRight leaves a buffer so the scrollbar never overlaps the message text. */}
+      <scrollbox ref={(r: any) => (sb = r)} flexGrow={1} minHeight={0} stickyScroll stickyStart="bottom" paddingTop={1} paddingRight={1}>
         <For each={app.items()}>
           {(item) => (
             <Appear distance={1} duration={170}>

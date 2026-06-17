@@ -154,7 +154,9 @@ export function AskCard() {
             gap={1}
           >
             <box flexDirection="row" gap={1} alignItems="center">
-              <text fg={theme.info}>? friday asks</text>
+              <text fg={theme.info}>
+                <strong>? question</strong>
+              </text>
               <Show when={a().questions.length > 1}>
                 <text fg={theme.textFaint}>
                   · {qIdx() + 1} of {a().questions.length}

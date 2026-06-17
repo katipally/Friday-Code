@@ -63,10 +63,13 @@ export function EffortSlider() {
         when={levels().length}
         fallback={<text fg={theme.textMuted}>the current model has no adjustable reasoning effort.</text>}
       >
+        {/* The native horizontal slider has no intrinsic height, so it must be given one or it
+            collapses to nothing. One row reads as a clean track. */}
         <slider
           orientation="horizontal"
+          height={1}
           min={0}
-          max={levels().length - 1}
+          max={Math.max(1, levels().length - 1)}
           value={idx()}
           onChange={(v: number) => setIdx(Math.round(v))}
           backgroundColor={theme.border}

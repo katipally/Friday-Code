@@ -82,18 +82,22 @@ function Shell() {
     <box width="100%" height="100%" backgroundColor={theme.bg}>
       {/* The single outermost frame stays subtle; mode accent lives on badges, focus rings, active divider. */}
       <box flexGrow={1} flexDirection="column" border borderStyle="rounded" borderColor={theme.frame} backgroundColor={theme.bg}>
-        <TopBar />
-        {/* Drag is handled at the row (not the grip) so events keep landing once the cursor
-            leaves the 2-col handle — otherwise resize stalls the instant you move off it. */}
+        {/* The right panel is a full-height sidebar that PUSHES the main column (it never hovers).
+            Drag is handled at the row so resize keeps tracking once the cursor leaves the grip. */}
         <box flexDirection="row" flexGrow={1} minHeight={0} onMouseDrag={onDrag} onMouseUp={endDrag} onMouseDragEnd={endDrag}>
-          {/* Chat column uses the full width now that the left sessions panel is gone. */}
-          <box flexGrow={1} minHeight={0} flexDirection="column" paddingLeft={1} paddingRight={1}>
-            <Chat />
+          {/* Main column — top bar, chat, status, composer, footer. Everything centers over the
+              chat area, which narrows as the sidebar opens, keeping the UI balanced. */}
+          <box flexGrow={1} minHeight={0} flexDirection="column">
+            <TopBar />
+            <box flexGrow={1} minHeight={0} flexDirection="column" paddingLeft={1} paddingRight={1}>
+              <Chat />
+            </box>
             <StatusStrip />
             <Composer />
+            <FooterHints />
           </box>
 
-          {/* Right panel with a draggable vertical grip bar and a collapse tab when closed. */}
+          {/* Full-height right sidebar with a draggable grip; a collapse tab shows when closed. */}
           <Show when={!narrow()} fallback={<CollapseTab side="right" onOpen={() => app.setRightOpen(true)} />}>
             <Show when={app.rightOpen()} fallback={<CollapseTab side="right" onOpen={() => app.setRightOpen(true)} />}>
               <GripDivider active={dragging()} onGrab={grab} onDrag={onDrag} onEnd={endDrag} />
@@ -101,7 +105,6 @@ function Shell() {
             </Show>
           </Show>
         </box>
-        <FooterHints />
       </box>
 
       {/* Narrow-terminal fullscreen overlay for the right panel. */}
