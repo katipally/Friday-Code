@@ -1,35 +1,31 @@
-import { For, Show } from "solid-js"
+import { SyntaxStyle } from "@opentui/core"
 import { theme } from "@friday/shared"
 
-const MAX_LINES = 60
-
-function lineColor(line: string): string {
-  if (line.startsWith("+")) return theme.success
-  if (line.startsWith("-")) return theme.error
-  if (line.startsWith("@@") || line.trimStart().startsWith("⋮")) return theme.textFaint
-  return theme.textMuted
-}
-
-/** Renders a unified-diff string (space/+/- prefixed lines) with colors. No tree-sitter. */
+/** Diff card using OpenTUI's native `<diff>` renderable.
+ *  Tool diffs are lightweight unified lines without file/hunk headers, so we
+ *  normalise them into a parseable patch before handing them to OpenTUI.
+ */
 export function DiffCard(props: { diff: string }) {
-  const all = () => props.diff.split("\n")
-  const shown = () => all().slice(0, MAX_LINES)
-  const extra = () => Math.max(0, all().length - MAX_LINES)
-
+  const style = SyntaxStyle.fromStyles({
+    text: { fg: theme.textMuted },
+    added: { fg: theme.success },
+    removed: { fg: theme.error },
+    info: { fg: theme.textFaint },
+  })
+  const diff = () => {
+    const d = props.diff.trim()
+    if (!d) return ""
+    // Already a full patch?
+    if (d.includes("--- ") && d.includes("+++ ")) return d
+    // Wrap raw +/- lines in a synthetic hunk so the parser renders them.
+    const lines = d.split("\n")
+    const added = lines.filter((l) => l.startsWith("+")).length
+    const removed = lines.filter((l) => l.startsWith("-")).length
+    return `--- a/file\n+++ b/file\n@@ -1,${removed} +1,${added} @@\n${d}`
+  }
   return (
-    <box
-      flexDirection="column"
-      border
-      borderStyle="rounded"
-      borderColor={theme.borderMuted}
-      backgroundColor={theme.bg}
-      paddingLeft={1}
-      paddingRight={1}
-    >
-      <For each={shown()}>{(line) => <text fg={lineColor(line)} selectable>{line || " "}</text>}</For>
-      <Show when={extra() > 0}>
-        <text fg={theme.textFaint}>… {extra()} more lines</text>
-      </Show>
+    <box border borderStyle="rounded" borderColor={theme.borderMuted} backgroundColor={theme.bg} paddingLeft={1} paddingRight={1}>
+      <diff diff={diff()} view="unified" syntaxStyle={style} fg={theme.textMuted} />
     </box>
   )
 }

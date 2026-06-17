@@ -51,7 +51,7 @@ test("full render path: prompt -> tool card + diff -> assistant text", async () 
   const frame = t.captureCharFrame()
   expect(frame).toContain("create foo.txt") // user bubble
   expect(frame).toContain("write foo.txt") // tool card title
-  expect(frame).toContain("+hello") // diff added line
+  expect(frame).toContain("+ hello") // diff added line
   expect(frame).toContain("Created foo.txt") // assistant text
   expect(fs.existsSync(path.join(cwd, "foo.txt"))).toBe(true)
 
