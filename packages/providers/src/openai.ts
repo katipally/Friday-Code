@@ -1,5 +1,6 @@
 import type { ChatRequest, Message, ProviderEvent, ToolDef } from "@friday/shared"
 import { sseLines } from "./sse.ts"
+import { createThinkSplitter } from "./think.ts"
 
 /** Convert canonical messages to OpenAI Chat Completions format. */
 function toMessages(messages: Message[]): unknown[] {
@@ -82,10 +83,15 @@ export async function* streamOpenAI(opts: {
     throw new Error(`HTTP ${res.status}: ${text.slice(0, 400) || res.statusText}`)
   }
 
+  // Splits inline <think> spans out of `content` for models that leak them there.
+  const think = createThinkSplitter()
   for await (const line of sseLines(res.body)) {
     if (!line.startsWith("data:")) continue
     const payload = line.slice(5).trim()
     if (payload === "[DONE]") {
+      const tail = think.flush()
+      if (tail.reasoning) yield { type: "reasoning", delta: tail.reasoning }
+      if (tail.text) yield { type: "text", delta: tail.text }
       yield { type: "done", stopReason: "stop" }
       return
     }
@@ -107,7 +113,12 @@ export async function* streamOpenAI(opts: {
     const delta = choice.delta ?? {}
     const reasoning = delta.reasoning_content ?? delta.reasoning
     if (typeof reasoning === "string" && reasoning) yield { type: "reasoning", delta: reasoning }
-    if (typeof delta.content === "string" && delta.content) yield { type: "text", delta: delta.content }
+    if (typeof delta.content === "string" && delta.content) {
+      // Route any inline <think> spans to reasoning; the rest is the real answer.
+      const split = think.process(delta.content)
+      if (split.reasoning) yield { type: "reasoning", delta: split.reasoning }
+      if (split.text) yield { type: "text", delta: split.text }
+    }
     if (Array.isArray(delta.tool_calls)) {
       for (const tc of delta.tool_calls) {
         const index = tc.index ?? 0
@@ -118,5 +129,8 @@ export async function* streamOpenAI(opts: {
       }
     }
   }
+  const tail = think.flush()
+  if (tail.reasoning) yield { type: "reasoning", delta: tail.reasoning }
+  if (tail.text) yield { type: "text", delta: tail.text }
   yield { type: "done", stopReason: "stop" }
 }
