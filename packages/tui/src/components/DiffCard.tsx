@@ -1,17 +1,11 @@
-import { SyntaxStyle } from "@opentui/core"
 import { theme } from "@friday/shared"
+import { syntaxStyle } from "../util/syntax.ts"
 
 /** Diff card using OpenTUI's native `<diff>` renderable.
  *  Tool diffs are lightweight unified lines without file/hunk headers, so we
  *  normalise them into a parseable patch before handing them to OpenTUI.
  */
 export function DiffCard(props: { diff: string }) {
-  const style = SyntaxStyle.fromStyles({
-    text: { fg: theme.textMuted },
-    added: { fg: theme.success },
-    removed: { fg: theme.error },
-    info: { fg: theme.textFaint },
-  })
   const diff = () => {
     const d = props.diff.trim()
     if (!d) return ""
@@ -25,7 +19,16 @@ export function DiffCard(props: { diff: string }) {
   }
   return (
     <box border borderStyle="rounded" borderColor={theme.borderMuted} backgroundColor={theme.bg} paddingLeft={1} paddingRight={1}>
-      <diff diff={diff()} view="unified" syntaxStyle={style} fg={theme.textMuted} />
+      <diff
+        diff={diff()}
+        view="unified"
+        syntaxStyle={syntaxStyle()}
+        fg={theme.textMuted}
+        addedBg={theme.diffAddedBg}
+        removedBg={theme.diffRemovedBg}
+        addedSignColor={theme.diffAdded}
+        removedSignColor={theme.diffRemoved}
+      />
     </box>
   )
 }

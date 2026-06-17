@@ -33,6 +33,35 @@ export const theme = {
   warning: "#e0af68",
   error: "#f7768e",
   info: "#7dcfff",
+
+  // syntax highlighting (tree-sitter scopes) — drives native <code>/<markdown>/<diff>.
+  // Calm, balanced palette that reads clearly on the near-black canvas.
+  syntaxComment: "#6b7280",
+  syntaxKeyword: "#bb9af7", // soft violet
+  syntaxFunction: "#7aa2f7", // blue
+  syntaxVariable: "#f2f3f5", // base text
+  syntaxString: "#9ece6a", // green
+  syntaxNumber: "#e0af68", // amber
+  syntaxType: "#2ac3de", // cyan
+  syntaxOperator: "#89ddff", // light cyan
+  syntaxPunctuation: "#a5adba",
+
+  // markdown markup
+  markdownHeading: "#7dcfff",
+  markdownStrong: "#f2f3f5",
+  markdownEmph: "#c0caf5",
+  markdownLink: "#7dcfff",
+  markdownLinkText: "#9ece6a",
+  markdownCode: "#e0af68",
+  markdownQuote: "#9aa0a8",
+  markdownListMarker: "#7aa2f7",
+
+  // diff
+  diffAdded: "#9ece6a",
+  diffRemoved: "#f7768e",
+  diffAddedBg: "#16241a",
+  diffRemovedBg: "#2a1620",
+  diffContextBg: "#101012",
 } as const
 
 export type Theme = typeof theme

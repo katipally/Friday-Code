@@ -47,6 +47,13 @@ function Shell() {
     if (!dragging() || typeof e?.x !== "number") return
     const delta = startX - e.x
     const target = startW + delta
+    // Dragging the grip past the minimum collapses the panel — the CollapseTab then
+    // drags it back open. We keep rightWidth at its last valid size so reopening restores it.
+    if (target < MIN_RIGHT - 4) {
+      app.setRightOpen(false)
+      endDrag()
+      return
+    }
     app.setRightWidth(Math.max(MIN_RIGHT, Math.min(maxRight(), target)))
   }
   const endDrag = () => setDragging(false)
@@ -75,7 +82,9 @@ function Shell() {
       {/* The single outermost frame stays subtle; mode accent lives on badges, focus rings, active divider. */}
       <box flexGrow={1} flexDirection="column" border borderStyle="rounded" borderColor={theme.frame} backgroundColor={theme.bg}>
         <TopBar />
-        <box flexDirection="row" flexGrow={1} minHeight={0}>
+        {/* Drag is handled at the row (not the grip) so events keep landing once the cursor
+            leaves the 2-col handle — otherwise resize stalls the instant you move off it. */}
+        <box flexDirection="row" flexGrow={1} minHeight={0} onMouseDrag={onDrag} onMouseUp={endDrag} onMouseDragEnd={endDrag}>
           {/* Chat column uses the full width now that the left sessions panel is gone. */}
           <box flexGrow={1} minHeight={0} flexDirection="column" paddingLeft={1} paddingRight={1}>
             <Chat />

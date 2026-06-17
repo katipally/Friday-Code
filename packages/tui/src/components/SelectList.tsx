@@ -36,9 +36,17 @@ export function SelectList(props: {
   onChange?: (i: number) => void
   onChoose: (i: number) => void
 }) {
+  // Native <select> is single-select and shows no per-row check state, so for multi-select
+  // we fold the checkbox glyph into the option label to keep the chosen set visible.
+  const options = () =>
+    props.items.map((it) => ({
+      name: props.multi ? `${props.checked?.has(it.id) ? "☑" : "☐"} ${it.label}` : it.label,
+      description: it.hint ?? "",
+      value: it.id,
+    }))
   return (
     <select
-      options={toOptions(props.items)}
+      options={options()}
       selectedIndex={props.selected}
       backgroundColor={theme.bgElevated}
       textColor={theme.textMuted}

@@ -384,6 +384,7 @@ export function createAppStore(engine: Engine) {
     { name: "effort", description: "set reasoning effort (slider)" },
     { name: "new", description: "start a new session" },
     { name: "clear", description: "clear the conversation (new session)" },
+    { name: "sessions", description: "switch between sessions (Ctrl+1–9)" },
     { name: "history", description: "browse all past sessions (by directory)" },
     { name: "dir", description: "change or add a working directory" },
     { name: "mcp", description: "view / add / remove MCP servers" },
@@ -420,6 +421,7 @@ export function createAppStore(engine: Engine) {
       case "clear":
         newSession()
         return true
+      case "sessions":
       case "history":
         setHistoryOpen(true)
         return true

@@ -58,3 +58,36 @@ test("full render path: prompt -> tool card + diff -> assistant text", async () 
   t.renderer.destroy()
   fs.rmSync(cwd, { recursive: true, force: true })
 })
+
+test("native markdown renders headings + fenced code blocks", async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "friday-cwd-"))
+  const md = "# Overview\n\nHere is some code:\n\n```js\nconst answer = 42\n```\n\n- first\n- second\n"
+  const streamFn = scripted([
+    [
+      { type: "text", delta: md },
+      { type: "done", stopReason: "stop" },
+    ],
+  ])
+
+  const engine = new Engine({ cwd, streamFn })
+  engine.send({ type: "set-mode", mode: "yolo" })
+  engine.selectModel("anthropic", "mock-model")
+
+  const t = await testRender(() => <App engine={engine} />, { width: 120, height: 40 })
+  await t.renderOnce()
+  t.mockInput.pressEnter()
+  await t.flush()
+  await t.mockInput.typeText("show me code")
+  await t.flush()
+  t.mockInput.pressEnter()
+  await Bun.sleep(80)
+  await t.flush()
+
+  const frame = t.captureCharFrame()
+  expect(frame).toContain("Overview") // heading text
+  expect(frame).toContain("const answer = 42") // fenced code content
+  expect(frame).toContain("first") // list item
+
+  t.renderer.destroy()
+  fs.rmSync(cwd, { recursive: true, force: true })
+})

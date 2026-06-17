@@ -68,7 +68,7 @@ function AssistantMessage(props: { item: Extract<ViewItem, { kind: "assistant" }
         <box flexDirection="row" gap={1}>
           <text fg={accent()}>⏺</text>
           <box flexGrow={1} flexDirection="column">
-            <Markdown content={props.item.text} />
+            <Markdown content={props.item.text} streaming={!props.item.done} />
             <Show when={!props.item.done}>
               <text fg={theme.textFaint}>▋</text>
             </Show>

@@ -34,3 +34,30 @@ test("dragging the right divider resizes the context panel (onMouseDrag)", async
   expect(resized).toBe(true)
   t.renderer.destroy()
 })
+
+test("dragging the grip past minimum collapses the panel (collapse tab appears)", async () => {
+  const e = new Engine({ cwd: fs.mkdtempSync(path.join(os.tmpdir(), "cwd-")) })
+  e.selectModel("anthropic", "claude")
+  const t = await testRender(() => <App engine={e} />, { width: 110, height: 30 })
+  await t.renderOnce()
+  t.mockInput.pressEnter()
+  await t.flush()
+
+  // Panel is open initially -> its "stats" header is visible.
+  expect(t.captureCharFrame()).toContain("stats")
+
+  // Grab the grip (the 2-col handle just left of the panel) and drag hard to the right.
+  // A rightward drag of >14 cols pushes the target width below MIN_RIGHT and collapses it.
+  // Drag is row-driven, so events keep landing once the cursor leaves the handle.
+  let collapsed = false
+  for (const startX of [79, 80, 78, 81]) {
+    await t.mockMouse.drag(startX, 14, startX + 22, 14)
+    await t.flush()
+    if (!t.captureCharFrame().includes("stats")) {
+      collapsed = true
+      break
+    }
+  }
+  expect(collapsed).toBe(true)
+  t.renderer.destroy()
+})

@@ -1,6 +1,7 @@
 import { Show } from "solid-js"
 import { theme, GLYPH } from "@friday/shared"
 import { useApp, type ViewItem } from "../store.tsx"
+import { syntaxStyle } from "../util/syntax.ts"
 
 /** Collapsible reasoning on the timeline (╰ branch). Auto-open while thinking. */
 export function ThinkingCard(props: { item: Extract<ViewItem, { kind: "assistant" }> }) {
@@ -18,11 +19,16 @@ export function ThinkingCard(props: { item: Extract<ViewItem, { kind: "assistant
           <text fg={theme.textFaint}>{props.item.thinkingOpen ? "▾" : "▸"}</text>
         </box>
         <Show when={props.item.thinkingOpen}>
-          <box flexDirection="row" gap={1}>
-            <text fg={theme.borderMuted}> </text>
-            <text fg={theme.textFaint} selectable>
-              {props.item.reasoning}
-            </text>
+          {/* Reasoning rendered as muted markdown with a left rule (opencode pattern). */}
+          <box flexDirection="row" border={["left"]} borderColor={theme.borderMuted} paddingLeft={1} marginTop={0}>
+            <box flexGrow={1}>
+              <markdown
+                content={props.item.reasoning}
+                syntaxStyle={syntaxStyle()}
+                fg={theme.textFaint}
+                streaming={!props.item.done}
+              />
+            </box>
           </box>
         </Show>
       </box>
