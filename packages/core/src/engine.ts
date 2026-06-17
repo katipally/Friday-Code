@@ -283,6 +283,24 @@ export class Engine {
     this.focusedId = runner.sessionId
     runner.emitState(true)
   }
+  /** The user turns of the focused session — the points a fork can branch from. */
+  forkPoints(): { index: number; text: string }[] {
+    return this.focused().forkPoints()
+  }
+  /** Branch a new session from the focused conversation, copying messages up to and including
+   * the turn at `upto` (a message index). Omit `upto` to fork the whole conversation. Focuses it. */
+  forkSession(upto?: number): void {
+    const focused = this.focused()
+    const msgs = focused.snapshotMessages()
+    const cut = upto == null ? msgs.length : Math.max(0, Math.min(upto + 1, msgs.length))
+    const slice = msgs.slice(0, cut)
+    if (!slice.length) return
+    const row = this.store.create(focused.currentRoots(), crypto.randomUUID(), now(), `fork · ${focused.currentTitle()}`)
+    slice.forEach((m, i) => this.store.appendMessage(row.id, i, m))
+    const runner = this.makeRunner(row)
+    this.focusedId = runner.sessionId
+    runner.emitState(true)
+  }
   switchSession(id: string): void {
     if (id === this.focusedId) return
     const runner = this.runnerFor(id)

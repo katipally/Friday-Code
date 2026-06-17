@@ -228,6 +228,18 @@ export class SessionRunner {
   isEmpty(): boolean {
     return this.messages.length === 0
   }
+  /** A copy of this session's messages (for forking a branch). */
+  snapshotMessages(): Message[] {
+    return [...this.messages]
+  }
+  /** The user turns in this conversation, with their message index — the fork/timeline points. */
+  forkPoints(): { index: number; text: string }[] {
+    const out: { index: number; text: string }[] = []
+    this.messages.forEach((m, index) => {
+      if (m.role === "user") out.push({ index, text: (m.text ?? "").replace(/\s+/g, " ").trim().slice(0, 80) })
+    })
+    return out
+  }
   contextInfo(): { files: string[] } {
     return { files: this.context.files }
   }

@@ -172,6 +172,7 @@ export function createAppStore(engine: Engine) {
   const [dirModalOpen, setDirModalOpen] = createSignal(false)
   const [mcpModalOpen, setMcpModalOpen] = createSignal(false)
   const [checkpointsOpen, setCheckpointsOpen] = createSignal(false)
+  const [forkOpen, setForkOpen] = createSignal(false)
 
   // Focused-session views of the per-session maps.
   const status = () => sessionStatus()[activeSession()] ?? "ready"
@@ -385,6 +386,7 @@ export function createAppStore(engine: Engine) {
     { name: "new", description: "start a new session" },
     { name: "clear", description: "clear the conversation (new session)" },
     { name: "sessions", description: "switch between sessions (Ctrl+1–9)" },
+    { name: "fork", description: "branch a new session from a past turn" },
     { name: "history", description: "browse all past sessions (by directory)" },
     { name: "dir", description: "change or add a working directory" },
     { name: "mcp", description: "view / add / remove MCP servers" },
@@ -424,6 +426,9 @@ export function createAppStore(engine: Engine) {
       case "sessions":
       case "history":
         setHistoryOpen(true)
+        return true
+      case "fork":
+        setForkOpen(true)
         return true
       case "dir":
         setDirModalOpen(true)
@@ -597,6 +602,13 @@ export function createAppStore(engine: Engine) {
     engine.redoLast()
     setCheckpointsOpen(false)
   }
+  /** Branch a new session from the chosen past turn and focus it. */
+  function forkFrom(index: number) {
+    engine.forkSession(index)
+    setForkOpen(false)
+    refreshSessions()
+    pushToast("forked a new session from that turn", "input")
+  }
 
   const [exitStats, setExitStats] = createSignal<SessionStats | null>(null)
   function quit() {
@@ -677,6 +689,9 @@ export function createAppStore(engine: Engine) {
     checkpointsOpen,
     setCheckpointsOpen,
     restoreCheckpoint,
+    forkOpen,
+    setForkOpen,
+    forkFrom,
     redoLast,
     quit,
     exitStats,

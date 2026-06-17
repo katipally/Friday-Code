@@ -22,6 +22,7 @@ import { SessionHistory } from "./components/SessionHistory.tsx"
 import { DirectoryModal } from "./components/DirectoryModal.tsx"
 import { McpModal } from "./components/McpModal.tsx"
 import { CheckpointHistory } from "./components/CheckpointHistory.tsx"
+import { ForkPicker } from "./components/ForkPicker.tsx"
 import { ExitScreen } from "./components/ExitScreen.tsx"
 import { Onboarding } from "./components/Onboarding.tsx"
 import { Toasts } from "./components/Toasts.tsx"
@@ -134,6 +135,9 @@ function Shell() {
       <Show when={app.checkpointsOpen()}>
         <CheckpointHistory />
       </Show>
+      <Show when={app.forkOpen()}>
+        <ForkPicker />
+      </Show>
       <Show when={app.onboardingOpen()}>
         <Onboarding />
       </Show>
@@ -169,6 +173,7 @@ function AppRoot() {
     if (app.dirModalOpen()) return
     if (app.mcpModalOpen()) return
     if (app.checkpointsOpen()) return
+    if (app.forkOpen()) return // ForkPicker owns keys while open
     if (app.askPending()) return
     if (app.planPending()) return
 

@@ -59,6 +59,39 @@ test("full render path: prompt -> tool card + diff -> assistant text", async () 
   fs.rmSync(cwd, { recursive: true, force: true })
 })
 
+test("/fork opens the fork picker listing the conversation's user turns", async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "friday-cwd-"))
+  const engine = new Engine({
+    cwd,
+    streamFn: scripted([[{ type: "text", delta: "ok" }, { type: "done", stopReason: "stop" }]]),
+  })
+  engine.send({ type: "set-mode", mode: "yolo" })
+  engine.selectModel("anthropic", "mock-model")
+
+  const t = await testRender(() => <App engine={engine} />, { width: 120, height: 40 })
+  await t.renderOnce()
+  t.mockInput.pressEnter()
+  await t.flush()
+  await t.mockInput.typeText("teach me about closures")
+  await t.flush()
+  t.mockInput.pressEnter()
+  await Bun.sleep(40)
+  await t.flush()
+
+  // Run /fork
+  await t.mockInput.typeText("/fork")
+  await t.flush()
+  t.mockInput.pressEnter()
+  await t.flush()
+
+  const frame = t.captureCharFrame()
+  expect(frame).toContain("branch a new session from a past turn")
+  expect(frame).toContain("teach me about closures")
+
+  t.renderer.destroy()
+  fs.rmSync(cwd, { recursive: true, force: true })
+})
+
 test("native markdown renders headings + fenced code blocks", async () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "friday-cwd-"))
   const md = "# Overview\n\nHere is some code:\n\n```js\nconst answer = 42\n```\n\n- first\n- second\n"
