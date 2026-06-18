@@ -170,23 +170,14 @@ function AppRoot() {
       if (["return", "enter", "space", "escape"].includes(key.name)) app.setView("shell")
       return
     }
-    if (app.onboardingOpen()) return
-    if (app.modelModalOpen()) return
-    if (app.effortOpen()) return
-    if (app.paletteOpen()) return
-    if (app.historyOpen()) return
-    if (app.dirModalOpen()) return
-    if (app.mcpModalOpen()) return
-    if (app.checkpointsOpen()) return
-    if (app.forkOpen()) return // ForkPicker owns keys while open
-    if (app.askPending()) return
-    if (app.planPending()) return
-    if (app.pending()) return // PermissionCard owns keys while open (its own useKeyboard)
-
+    // KeymapOverlay has no useKeyboard of its own — close it on Esc here.
     if (app.overlayOpen()) {
       if (key.name === "escape") app.setOverlayOpen(false)
       return
     }
+    // Every other modal / HITL prompt owns its own keyboard; global shortcuts must not fire under
+    // them. anyModalOpen() is the single source of truth (store), so nothing can be forgotten here.
+    if (app.anyModalOpen()) return
     if (key.shift && key.name === "tab") return app.toggleMode(1)
     if (key.ctrl && key.name === "g") {
       app.setRightOpen(!app.rightOpen())

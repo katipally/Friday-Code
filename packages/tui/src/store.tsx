@@ -212,6 +212,15 @@ export function createAppStore(engine: Engine) {
   const sessionNeedsInput = (id: string) => !!sessionNeeds()[id]
   const sessionTokenCount = (id: string) => sessionTokens()[id] ?? 0
 
+  // Single source of truth: is ANY blocking overlay / modal / HITL prompt on screen?
+  // Used to blur the composer, gate global keys, and freeze chat scroll so keystrokes never
+  // leak into the prompt while a modal owns the keyboard. Every new overlay must be OR'd in here
+  // (and nowhere else) — that's the whole point of centralizing it.
+  const anyModalOpen = () =>
+    overlayOpen() || modelModalOpen() || onboardingOpen() || effortOpen() || paletteOpen() ||
+    historyOpen() || dirModalOpen() || mcpModalOpen() || checkpointsOpen() || forkOpen() ||
+    !!pending() || !!askPending() || !!planPending()
+
   const titleOf = (id: string) =>
     allSessions().find((s) => s.id === id)?.title ?? sessions().find((s) => s.id === id)?.title ?? "session"
 
@@ -827,6 +836,7 @@ export function createAppStore(engine: Engine) {
     setRightOpen,
     rightWidth,
     setRightWidth,
+    anyModalOpen,
     overlayOpen,
     setOverlayOpen,
     modelModalOpen,

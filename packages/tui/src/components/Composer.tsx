@@ -29,21 +29,9 @@ export function Composer() {
   const dims = useTerminalDimensions()
   const mode = () => getMode(app.mode())
   const accentS = () => shimmerAccent(mode().accent)
-  const focused = () =>
-    app.view() === "shell" &&
-    !app.overlayOpen() &&
-    !app.onboardingOpen() &&
-    !app.modelModalOpen() &&
-    !app.effortOpen() &&
-    !app.paletteOpen() &&
-    !app.historyOpen() &&
-    !app.dirModalOpen() &&
-    !app.mcpModalOpen() &&
-    !app.checkpointsOpen() &&
-    !app.forkOpen() &&
-    !app.pending() &&
-    !app.askPending() &&
-    !app.planPending()
+  // Blur whenever ANY modal/overlay/HITL prompt owns the keyboard — single source of truth in
+  // the store, so a new overlay can never leak keystrokes into the composer by being forgotten here.
+  const focused = () => app.view() === "shell" && !app.anyModalOpen()
   const maxHeight = () => Math.max(4, Math.floor(dims().height / 3))
 
   let ta: any

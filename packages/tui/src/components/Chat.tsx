@@ -167,21 +167,8 @@ function ErrorBubble(props: { item: Extract<ViewItem, { kind: "error" }> }) {
 export function Chat() {
   const app = useApp()
   let sb: any
-  const canScroll = () =>
-    app.view() === "shell" &&
-    !app.overlayOpen() &&
-    !app.modelModalOpen() &&
-    !app.effortOpen() &&
-    !app.paletteOpen() &&
-    !app.historyOpen() &&
-    !app.dirModalOpen() &&
-    !app.mcpModalOpen() &&
-    !app.checkpointsOpen() &&
-    !app.forkOpen() &&
-    !app.onboardingOpen() &&
-    !app.askPending() &&
-    !app.pending() &&
-    !app.planPending()
+  // Freeze scroll-back keys whenever a modal owns the keyboard (single source of truth in store).
+  const canScroll = () => app.view() === "shell" && !app.anyModalOpen()
 
   // Keyboard scroll-back through history (keys that don't collide with composer typing).
   useKeyboard((key) => {
