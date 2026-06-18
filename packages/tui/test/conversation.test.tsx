@@ -18,17 +18,19 @@ function scripted(turns: ProviderEvent[][]): StreamFn {
   }
 }
 
-// Poll the rendered frame until `needle` appears (or we time out). Fixed sleeps are flaky on
-// slower CI runners — especially when waiting on multiple model turns — so we re-flush and re-check
-// instead of guessing a single duration.
+// Poll the rendered frame until every `needle` appears (or we time out). Fixed sleeps are flaky on
+// slower CI runners — especially when waiting on multiple model turns or async tree-sitter
+// highlighting — so we re-flush and re-check instead of guessing a single duration. Requiring ALL
+// needles avoids capturing a half-rendered frame where one element has landed but another hasn't.
 async function waitForFrame(
   t: { flush: () => Promise<void>; captureCharFrame: () => string },
-  needle: string,
-  timeoutMs = 3000,
+  needles: string | string[],
+  timeoutMs = 5000,
 ): Promise<string> {
+  const wanted = Array.isArray(needles) ? needles : [needles]
   const start = Bun.nanoseconds()
   let frame = t.captureCharFrame()
-  while (!frame.includes(needle) && (Bun.nanoseconds() - start) / 1e6 < timeoutMs) {
+  while (!wanted.every((n) => frame.includes(n)) && (Bun.nanoseconds() - start) / 1e6 < timeoutMs) {
     await Bun.sleep(20)
     await t.flush()
     frame = t.captureCharFrame()
@@ -65,7 +67,7 @@ test("full render path: prompt -> tool card + diff -> assistant text", async () 
   t.mockInput.pressEnter() // submit
   // Two model turns run here (tool_use -> auto-continue -> assistant text); wait for the final
   // assistant text rather than a fixed sleep, which under-waits on slower CI runners.
-  const frame = await waitForFrame(t, "Created foo.txt")
+  const frame = await waitForFrame(t, ["create foo.txt", "write foo.txt", "Created foo.txt"])
   expect(frame).toContain("create foo.txt") // user bubble
   expect(frame).toContain("write foo.txt") // tool card title
   // Tool output/diff auto-collapses once the tool finishes (click the title to expand), so the diff
@@ -137,9 +139,9 @@ test("native markdown renders headings + fenced code blocks", async () => {
   await t.mockInput.typeText("show me code")
   await t.flush()
   t.mockInput.pressEnter()
-  // Native markdown highlights code via async tree-sitter; poll until it lands instead of a fixed
-  // sleep, which is flaky under full-suite load on CI.
-  const frame = await waitForFrame(t, "const answer = 42")
+  // Native markdown highlights code via async tree-sitter; poll until every asserted element has
+  // landed instead of a fixed sleep, which is flaky under full-suite load on CI.
+  const frame = await waitForFrame(t, ["Overview", "const answer = 42", "first"])
   expect(frame).toContain("Overview") // heading text
   expect(frame).toContain("const answer = 42") // fenced code content
   expect(frame).toContain("first") // list item

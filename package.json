@@ -23,7 +23,7 @@
     "friday": "bun run packages/cli/src/index.tsx",
     "dev": "bun --watch run packages/cli/src/index.tsx",
     "test": "bun test",
-    "typecheck": "for p in shared providers tools mcp lsp core tui cli; do tsc --noEmit -p packages/$p/tsconfig.json || exit 1; done",
+    "typecheck": "tsc --noEmit -p packages/shared/tsconfig.json && tsc --noEmit -p packages/providers/tsconfig.json && tsc --noEmit -p packages/tools/tsconfig.json && tsc --noEmit -p packages/mcp/tsconfig.json && tsc --noEmit -p packages/lsp/tsconfig.json && tsc --noEmit -p packages/core/tsconfig.json && tsc --noEmit -p packages/tui/tsconfig.json && tsc --noEmit -p packages/cli/tsconfig.json",
     "lint": "biome lint packages",
     "format": "biome format --write packages",
     "check": "biome check packages",
