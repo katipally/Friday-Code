@@ -28,13 +28,55 @@ const ENTRY = path.join(ROOT, "packages/cli/src/index.tsx")
 const DIST = path.join(ROOT, "dist")
 const SHIM_SRC = path.join(ROOT, "packaging/friday-code")
 
-type Target = { name: string; bun: string; os: string; cpu: string; win: boolean }
+type Target = {
+  name: string
+  bun: string
+  os: string
+  cpu: string
+  win: boolean
+  npmPackageName: string
+}
 const TARGETS: Target[] = [
-  { name: "darwin-arm64", bun: "bun-darwin-arm64", os: "darwin", cpu: "arm64", win: false },
-  { name: "darwin-x64", bun: "bun-darwin-x64", os: "darwin", cpu: "x64", win: false },
-  { name: "linux-x64", bun: "bun-linux-x64", os: "linux", cpu: "x64", win: false },
-  { name: "linux-arm64", bun: "bun-linux-arm64", os: "linux", cpu: "arm64", win: false },
-  { name: "win32-x64", bun: "bun-windows-x64", os: "win32", cpu: "x64", win: true },
+  {
+    name: "darwin-arm64",
+    bun: "bun-darwin-arm64",
+    os: "darwin",
+    cpu: "arm64",
+    win: false,
+    npmPackageName: "friday-code-darwin-arm64",
+  },
+  {
+    name: "darwin-x64",
+    bun: "bun-darwin-x64",
+    os: "darwin",
+    cpu: "x64",
+    win: false,
+    npmPackageName: "friday-code-darwin-x64",
+  },
+  {
+    name: "linux-x64",
+    bun: "bun-linux-x64",
+    os: "linux",
+    cpu: "x64",
+    win: false,
+    npmPackageName: "friday-code-linux-x64",
+  },
+  {
+    name: "linux-arm64",
+    bun: "bun-linux-arm64",
+    os: "linux",
+    cpu: "arm64",
+    win: false,
+    npmPackageName: "friday-code-linux-arm64",
+  },
+  {
+    name: "win32-x64",
+    bun: "bun-windows-x64",
+    os: "win32",
+    cpu: "x64",
+    win: true,
+    npmPackageName: "friday-code-windows-x64",
+  },
 ]
 
 const args = process.argv.slice(2)
@@ -112,7 +154,7 @@ for (const t of targets) {
     path.join(pkgDir, "package.json"),
     `${JSON.stringify(
       {
-        name: `friday-code-${t.name}`,
+        name: t.npmPackageName,
         version: VERSION,
         description: `Prebuilt Friday binary for ${t.name}.`,
         license: "MIT",
