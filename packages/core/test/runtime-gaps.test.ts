@@ -181,3 +181,40 @@ test("issue 4: auto-compaction triggers off the real input-token count", async (
   expect(events.some((e) => e.type === "notice")).toBe(false) // nothing left to undo
   fs.rmSync(dir, { recursive: true, force: true })
 })
+
+test("reactive compaction: an overflow error triggers a compaction + retry, not a hard failure", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-test-"))
+  let overflowed = false
+  // Normal turns return "ok" (no usage → no proactive compaction). Once enough history exists, the
+  // next request throws a 413-style overflow exactly once; the runner should compact and retry.
+  const streamFn: StreamFn = async function* (_p, _k, req) {
+    const isSummary = req.messages.some((m) => m.role === "system" && (m.text ?? "").includes("compress coding-session transcripts"))
+    if (isSummary) {
+      yield { type: "text", delta: "SUMMARY of earlier turns." }
+      yield { type: "done", stopReason: "stop" }
+      return
+    }
+    if (!overflowed && req.messages.length > 10) {
+      overflowed = true
+      throw new Error("HTTP 413: request_too_large — prompt is too long")
+    }
+    yield { type: "text", delta: "ok" }
+    yield { type: "done", stopReason: "stop" }
+  }
+  const engine = new Engine({ cwd: dir, streamFn })
+  engine.send({ type: "set-mode", mode: "yolo" })
+  engine.selectModel("mock", "mock-model", false, 200_000)
+  const events = collect(engine)
+
+  for (let i = 0; i < 7; i++) {
+    engine.send({ type: "prompt", text: `turn ${i}` })
+    await Bun.sleep(40)
+  }
+
+  expect(overflowed).toBe(true) // the overflow path was exercised
+  expect(events.some((e) => e.type === "compaction")).toBe(true) // it compacted reactively
+  // No surfaced error from the overflow, and the retried turn produced output.
+  expect(events.some((e) => e.type === "error" && /413|too long/i.test((e as any).message))).toBe(false)
+  expect(events.some((e) => e.type === "text" && (e as any).delta === "ok")).toBe(true)
+  fs.rmSync(dir, { recursive: true, force: true })
+})

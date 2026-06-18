@@ -41,12 +41,28 @@ import { loadCommands, type CustomCommand } from "./commands.ts"
 import { loadSkills, type Skill } from "./skills.ts"
 import { loadAgents, type AgentDef } from "./agents.ts"
 import { applyFiles, readOrNull, snapshotFile, type Checkpoint } from "./checkpoints.ts"
-import { COMPACTION, estimateTokens, renderTranscript, safeCutIndex } from "./compaction.ts"
+import { COMPACTION, collapseToolOutputs, estimateTokens, renderTranscript, safeCutIndex } from "./compaction.ts"
 import type { StreamFn } from "./stream.ts"
 import path from "node:path"
 
 const now = () => Date.now()
 const MAX_STEPS = 50
+
+/** Heuristic: did a provider error come from the request exceeding the context window? These are not
+ * retryable as-is (retrying the same request won't help) — but compacting first and retrying can. */
+function isOverflowError(e: unknown): boolean {
+  const m = (e instanceof Error ? e.message : String(e)).toLowerCase()
+  return (
+    m.includes("413") ||
+    m.includes("request_too_large") ||
+    m.includes("prompt_too_long") ||
+    m.includes("too many tokens") ||
+    m.includes("maximum context") ||
+    m.includes("context length") ||
+    (m.includes("too long") && m.includes("prompt")) ||
+    (m.includes("token") && m.includes("exceed"))
+  )
+}
 
 type Pending = { resolve: (d: "allow" | "deny") => void; category: PermissionCategory }
 
@@ -590,12 +606,19 @@ export class SessionRunner {
 
   // ---- compaction ----
   private sendMessages(): Message[] {
-    if (!this.compaction) return this.messages
-    const summaryMsg: Message = {
-      role: "user",
-      text: `<conversation_summary>\nEarlier conversation, condensed for context:\n${this.compaction.summary}\n</conversation_summary>`,
-    }
-    return [summaryMsg, ...this.messages.slice(this.compaction.throughIndex)]
+    const base = this.compaction
+      ? [
+          {
+            role: "user",
+            text: `<conversation_summary>\nEarlier conversation, condensed for context:\n${this.compaction.summary}\n</conversation_summary>`,
+          } as Message,
+          ...this.messages.slice(this.compaction.throughIndex),
+        ]
+      : this.messages
+    // Microcompaction: shrink stale, large tool dumps before sending (recoverable — originals stay in
+    // this.messages). Note: project memory (FRIDAY.md/AGENTS.md) lives in the system prompt, which is
+    // rebuilt every turn, so it always survives compaction — no separate re-injection needed.
+    return collapseToolOutputs(base)
   }
 
   private async maybeCompact(provider: ProviderInfo, apiKey: string | undefined, signal: AbortSignal, force: boolean): Promise<void> {
@@ -754,8 +777,8 @@ export class SessionRunner {
 
       let streamedText = false
       let streamedReasoning = false
-      const { text, reasoning, reasoningSignature, toolCalls } = await this.collectTurn(this.host.streamFn(provider, apiKey, req, signal), signal, {
-        text: (d) => {
+      const handlers = {
+        text: (d: string) => {
           if (!streamedText) {
             streamedText = true
             this.emit({ type: "mascot", state: "streaming" })
@@ -763,14 +786,14 @@ export class SessionRunner {
           }
           this.emit({ type: "text", id, delta: d })
         },
-        reasoning: (d) => {
+        reasoning: (d: string) => {
           if (!streamedReasoning) {
             streamedReasoning = true
             this.emit({ type: "status", text: "Thinking…", elapsedMs: now() - start })
           }
           this.emit({ type: "reasoning", id, delta: d })
         },
-        usage: (i, o) => {
+        usage: (i: number, o: number) => {
           inTok += i
           outTok += o
           this.totalTokens += i + o
@@ -783,7 +806,21 @@ export class SessionRunner {
               : undefined
           this.emit({ type: "usage", input: inTok, output: outTok, costUsd: cost })
         },
-      })
+      }
+      let turn
+      try {
+        turn = await this.collectTurn(this.host.streamFn(provider, apiKey, req, signal), signal, handlers)
+      } catch (e) {
+        // Reactive compaction: a proactive trigger can under-estimate (a huge tool result, a bad
+        // estimate) and the request overflows the window. Compact once and retry the same step —
+        // nothing streamed yet on an overflow, so re-running the handlers is safe.
+        if (signal.aborted || !isOverflowError(e) || streamedText || streamedReasoning) throw e
+        this.emit({ type: "status", text: "context overflow — compacting…", elapsedMs: now() - start })
+        await this.maybeCompact(provider, apiKey, signal, true)
+        req.messages = [req.messages[0]!, ...this.sendMessages()]
+        turn = await this.collectTurn(this.host.streamFn(provider, apiKey, req, signal), signal, handlers)
+      }
+      const { text, reasoning, reasoningSignature, toolCalls } = turn
       if (signal.aborted) return
 
       this.addMessage({

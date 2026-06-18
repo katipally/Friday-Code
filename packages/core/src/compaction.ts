@@ -56,6 +56,44 @@ export function renderTranscript(messages: Message[]): string {
   return out.join("\n")
 }
 
+const COLLAPSE_PLACEHOLDER_PREFIX = "[earlier"
+
+/**
+ * Tool-output collapse (microcompaction): replace the content of LARGE, OLD tool results with a short
+ * placeholder so stale `read`/`bash`/`grep` dumps stop eating context — higher-fidelity and cheaper
+ * than summarization, and it runs before the summarizer. Non-destructive: the caller keeps the full
+ * originals (in `this.messages`), so this only shapes what gets SENT and is fully recoverable (the
+ * model can re-read). Tool_use/tool_result pairing is preserved (only the text shrinks).
+ *
+ * Conservative on purpose — only outputs both older than the recent window AND large enough to matter
+ * are collapsed, so the agent keeps a generous hot tail and the cached prefix barely churns.
+ */
+export function collapseToolOutputs(messages: Message[], keepRecent = COLLAPSE.keepRecent, minChars = COLLAPSE.minChars): Message[] {
+  if (messages.length <= keepRecent) return messages
+  const cutoff = messages.length - keepRecent
+  let changed = false
+  const out = messages.map((m, i) => {
+    if (
+      i < cutoff &&
+      m.role === "tool" &&
+      m.result.length > minChars &&
+      !m.result.startsWith(COLLAPSE_PLACEHOLDER_PREFIX)
+    ) {
+      changed = true
+      return { ...m, result: `${COLLAPSE_PLACEHOLDER_PREFIX} ${m.name ?? "tool"} output omitted to save context — ask to re-run if you need it]` }
+    }
+    return m
+  })
+  return changed ? out : messages
+}
+
+export const COLLAPSE = {
+  /** Keep tool outputs verbatim for at least this many of the most recent messages (the hot tail). */
+  keepRecent: 16,
+  /** Only collapse tool outputs at least this large — small results aren't worth churning the cache. */
+  minChars: 4000,
+}
+
 export const COMPACTION = {
   /** Compact when the request would exceed this fraction of the model window. */
   threshold: 0.8,

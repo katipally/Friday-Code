@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test"
 import type { Message } from "@friday/shared"
-import { estimateTokens, safeCutIndex, renderTranscript } from "../src/compaction.ts"
+import { estimateTokens, safeCutIndex, renderTranscript, collapseToolOutputs } from "../src/compaction.ts"
 
 const convo: Message[] = [
   { role: "user", text: "first request" },
@@ -39,4 +39,23 @@ test("renderTranscript captures roles, tool calls, and results", () => {
   expect(t).toContain("USER: first request")
   expect(t).toContain("called read")
   expect(t).toContain("TOOL read → file contents here")
+})
+
+test("collapseToolOutputs shrinks old large tool results but keeps the recent hot tail", () => {
+  const big = "x".repeat(5000)
+  const small = "y".repeat(100)
+  const msgs: Message[] = [
+    { role: "user", text: "start" },
+    { role: "tool", callId: "c1", name: "read", result: big }, // old + large → collapsed
+    { role: "tool", callId: "c2", name: "read", result: small }, // old + small → kept
+    ...Array.from({ length: 16 }, (_, i) => ({ role: "user", text: `m${i}` }) as Message),
+    { role: "tool", callId: "c3", name: "read", result: big }, // recent → kept verbatim
+  ]
+  const out = collapseToolOutputs(msgs)
+  expect((out[1] as any).result).toContain("omitted")
+  expect((out[2] as any).result).toBe(small) // small ones aren't worth collapsing
+  expect((out[out.length - 1] as any).result).toBe(big) // hot tail preserved
+  // Non-destructive + idempotent: input untouched; re-running changes nothing further.
+  expect((msgs[1] as any).result).toBe(big)
+  expect(collapseToolOutputs(out)).toBe(out)
 })
