@@ -36,6 +36,17 @@ function toAnthropic(messages: Message[]): { system?: string; messages: unknown[
       })
     }
   }
+  // Rolling conversation-cache breakpoint: mark the last content block of the most recent message so
+  // the whole message prefix is cached and re-read at ~10% price on the next turn (Anthropic caches
+  // the longest matching prefix). Without this, the growing `messages` array is re-billed at full
+  // input price every turn — the single biggest cost/latency lever in a long agentic loop. The
+  // system block + last tool def carry their own breakpoints, so this is the 3rd of Anthropic's 4.
+  const last = out[out.length - 1]
+  const content = last?.content
+  if (Array.isArray(content) && content.length) {
+    const block = content[content.length - 1] as Record<string, unknown>
+    block.cache_control = { type: "ephemeral" }
+  }
   return { system, messages: out }
 }
 
