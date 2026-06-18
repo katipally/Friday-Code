@@ -14,7 +14,7 @@ const PKGS = {
   "darwin-x64": "friday-code-darwin-x64",
   "linux-x64": "friday-code-linux-x64",
   "linux-arm64": "friday-code-linux-arm64",
-  "win32-x64": "friday-code-win32-x64",
+  "win32-x64": "friday-code-windows-x64",
 }
 
 const key = `${platform}-${arch}`
