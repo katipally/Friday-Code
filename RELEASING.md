@@ -26,13 +26,13 @@ distributed via npm, Homebrew, Scoop, a curl script, and GitHub Releases.
   `2.0.0`.
 - Update `CHANGELOG.md`.
 
-## Cut a release (automated path — recommended)
+## Cut a release (recommended path)
 
 ```bash
 # from a clean main with everything committed
 git tag v2.0.0
 git push origin main
-git push origin v2.0.0          # triggers .github/workflows/release.yml
+git push origin v2.0.0          # builds binaries and updates the GitHub Release
 ```
 
 The release workflow then:
@@ -40,8 +40,16 @@ The release workflow then:
 1. Builds each target on a native runner (`darwin-arm64`, `darwin-x64`, `linux-x64`,
    `linux-arm64`, `win32-x64`) and smoke-tests `--version`.
 2. Creates a **GitHub Release** with all binaries + `SHASUMS256.txt`.
-3. Waits for you to **approve the `release` environment**, then publishes the platform packages
-   and the `friday-code` launcher to npm with provenance.
+3. Stops before npm.
+
+To publish to npm, manually run the **Release** workflow from GitHub Actions with:
+
+- `tag`: `v2.0.0`
+- `publish_npm`: `true`
+
+That rebuilds the same tag, updates the GitHub Release assets, then publishes the platform packages
+and the `friday-code` launcher to npm with provenance. If the `release` environment has required
+reviewers configured, GitHub will pause for approval before the npm job starts.
 
 After it finishes, update the Homebrew formula and Scoop manifest hashes (from `SHASUMS256.txt`)
 in their repos — or automate that as a follow-up step.

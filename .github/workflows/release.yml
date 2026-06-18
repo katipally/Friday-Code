@@ -1,13 +1,25 @@
 name: Release
 
-# Tag a release to trigger:  git tag v2.0.0 && git push origin v2.0.0
-# Builds each platform binary on a native runner, publishes a GitHub Release with the
-# binaries + checksums, then (after manual approval of the `release` environment)
-# publishes the npm packages with provenance.
+# Tag a release to trigger binary builds and GitHub Release assets:
+#   git tag v2.0.0 && git push origin v2.0.0
+#
+# npm publishing is intentionally manual: run this workflow from GitHub Actions with
+# tag=v2.0.0 and publish_npm=true. The `release` environment can add an extra reviewer gate.
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to build/publish, e.g. v2.0.0"
+        required: true
+        type: string
+      publish_npm:
+        description: "Publish npm packages after building release artifacts"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -37,6 +49,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
           persist-credentials: false
 
       - uses: oven-sh/setup-bun@v2
@@ -50,12 +63,13 @@ jobs:
         shell: bash
         run: bun run scripts/build.ts --target=${{ matrix.target }}
         env:
-          FRIDAY_VERSION: ${{ github.ref_name }}
+          FRIDAY_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
       - name: Smoke test the binary
         shell: bash
         run: |
-          EXPECTED="${GITHUB_REF_NAME#v}"
+          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          EXPECTED="${TAG#v}"
           BIN=$(ls dist/bin/friday-${{ matrix.target }}*)
           OUT=$("$BIN" --version)
           echo "version: $OUT"
@@ -103,6 +117,7 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
           files: bins/*
           generate_release_notes: true
           fail_on_unmatched_files: true
@@ -110,8 +125,9 @@ jobs:
   npm-publish:
     name: npm publish
     needs: github-release
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_npm
     runs-on: ubuntu-latest
-    environment: release # requires manual approval before it runs
+    environment: release # optional extra reviewer gate in repo settings
     permissions:
       contents: read
       id-token: write # npm provenance
