@@ -2,6 +2,8 @@ import { createContext, createMemo, createSignal, useContext, type JSX } from "s
 import { createStore, produce } from "solid-js/store"
 import {
   DEFAULT_MODE,
+  applyTheme,
+  themeNames,
   cycleMode,
   getMode,
   type AskQuestion,
@@ -17,7 +19,9 @@ import type { Engine, SessionStats } from "@friday/core"
 export type ToolStatus = "running" | "done" | "error"
 
 export type ViewItem =
-  | { kind: "user"; id: string; text: string; mode?: ModeId }
+  /** `text` is what's sent to the model (paste tokens expanded); `display`, when set, is the compact
+   * buffer the user actually saw (with inline paste tokens) and is what the bubble renders. */
+  | { kind: "user"; id: string; text: string; display?: string; mode?: ModeId }
   | {
       kind: "assistant"
       id: string
@@ -49,14 +53,16 @@ export type ViewItem =
     }
   | { kind: "error"; id: string; text: string }
   | { kind: "notice"; id: string; text: string; summary?: string }
-  /** a flow divider shown when a plan is accepted: "running · <mode>" tinted by the chosen mode. */
-  | { kind: "breaker"; id: string; mode: ModeId; label: string }
+  /** a flow divider shown when a plan is accepted ("running · <mode>") or refined ("refining plan");
+   * tinted by the relevant mode. `note` is an optional quoted subtitle (e.g. the refinement text). */
+  | { kind: "breaker"; id: string; mode: ModeId; label: string; note?: string }
 
 export type PendingPermission = { requestId: string; tool: string; summary: string; detail?: string; risk?: string }
 export type PendingAsk = { requestId: string; questions: AskQuestion[] }
 export type PlanEntry = { id: string; title: string; text: string }
 export type SessionItem = { id: string; title: string; cwd: string; roots: string[] }
-export type ChangedFile = { path: string; status: string; added: number; removed: number }
+export type ChangedFile = { path: string; status: string; added: number; removed: number; kind?: "file" | "dir" }
+export type TaskRow = { id: string; title: string; description: string; status: "running" | "done"; summary?: string }
 
 /** Prefix of the synthetic prompt sent when a plan is accepted — recognized so history replay renders
  * it as a flow breaker instead of a user bubble (keeps plan execution looking continuous). */
@@ -162,6 +168,10 @@ export function createAppStore(engine: Engine) {
   const [sessionQueue, setSessionQueue] = createSignal<Record<string, string[]>>({})
   // The read-only "compaction summary" viewer (a string when open, null when closed) — global modal.
   const [compactionView, setCompactionView] = createSignal<string | null>(null)
+  // Background tasks (agent-spawned async sessions) — global, not per focused session.
+  const [tasks, setTasks] = createSignal<TaskRow[]>([])
+  // Optional usage budget (tokens/$) — drives a warning in the context panel when exceeded.
+  const [budget, setBudget] = createSignal<{ tokens?: number; usd?: number } | null>(engine.userConfig().budget ?? null)
   // Per-session unread marker: the item count last seen while focused on a session.
   const [sessionSeenLen, setSessionSeenLen] = createSignal<Record<string, number>>({})
   const [contextWindow, setContextWindow] = createSignal(0)
@@ -513,6 +523,10 @@ export function createAppStore(engine: Engine) {
       case "notice":
         appendItem(sid, { kind: "notice", id: nextLocalId(), text: e.text })
         break
+      case "tasks":
+        // Global (not per-session): the agent-spawned background tasks panel.
+        setTasks(e.items)
+        break
       case "compaction-start":
         setKey(setSessionCompacting, sid, true)
         setKey(setSessionCompactPct, sid, { before: e.pctBefore, after: e.pctBefore })
@@ -581,6 +595,9 @@ export function createAppStore(engine: Engine) {
     { name: "dir", description: "change or add a working directory" },
     { name: "mcp", description: "view / add / remove MCP servers" },
     { name: "compact", description: "summarize old context to free space" },
+    { name: "permissions", description: "view / clear remembered approvals" },
+    { name: "theme", description: "switch UI theme" },
+    { name: "budget", description: "set a token/$ usage budget" },
     { name: "commit", description: "stage all & commit (drafts message)" },
     { name: "undo", description: "rewind files + chat to a checkpoint" },
     { name: "help", description: "show the keymap" },
@@ -630,6 +647,60 @@ export function createAppStore(engine: Engine) {
       case "compact":
         sendEngineCommand("compact")
         return true
+      case "theme": {
+        const name = args.trim()
+        if (!name || !themeNames().includes(name)) {
+          appendItem(activeSession(), {
+            kind: "notice",
+            id: nextLocalId(),
+            text: `themes: ${themeNames().join(", ")} · /theme <name> (applies on next launch)`,
+          })
+          return true
+        }
+        engine.setUserConfig({ theme: name })
+        applyTheme(name)
+        pushToast(`theme “${name}” saved — restart to apply fully`, "done")
+        return true
+      }
+      case "budget": {
+        const a = args.trim().toLowerCase()
+        if (a === "off" || a === "clear") {
+          engine.setUserConfig({ budget: undefined })
+          setBudget(null)
+          pushToast("budget cleared", "done")
+          return true
+        }
+        const usd = a.startsWith("$") ? Number(a.slice(1)) : undefined
+        const tokens = !a.startsWith("$") ? Number(a.replace(/[_,k]/gi, (m) => (m.toLowerCase() === "k" ? "000" : ""))) : undefined
+        if ((usd == null || !isFinite(usd)) && (tokens == null || !isFinite(tokens) || !tokens)) {
+          appendItem(activeSession(), { kind: "notice", id: nextLocalId(), text: "usage: /budget 100000 · /budget $5 · /budget off" })
+          return true
+        }
+        const next = usd != null ? { usd } : { tokens }
+        engine.setUserConfig({ budget: next })
+        setBudget(next)
+        pushToast(`budget set: ${usd != null ? `$${usd}` : `${tokens} tokens`}`, "done")
+        return true
+      }
+      case "permissions": {
+        if (args.trim() === "clear") {
+          engine.clearProjectPermissions()
+          pushToast("cleared remembered approvals for this project", "done")
+          return true
+        }
+        const p = engine.projectPermissions()
+        const parts: string[] = []
+        if (p.bash?.length) parts.push(`bash: ${p.bash.join(", ")}`)
+        if (p.categories?.length) parts.push(`always: ${p.categories.join(", ")}`)
+        appendItem(activeSession(), {
+          kind: "notice",
+          id: nextLocalId(),
+          text: parts.length
+            ? `remembered approvals — ${parts.join(" · ")} · /permissions clear to reset`
+            : "no remembered approvals for this project",
+        })
+        return true
+      }
       case "commit":
         sendEngineCommand("commit")
         return true
@@ -652,7 +723,7 @@ export function createAppStore(engine: Engine) {
     return false
   }
 
-  function submitRaw(text: string) {
+  function submitRaw(text: string, display?: string) {
     const sid = activeSession()
     // If a turn is already running, queue the prompt instead of racing the engine — it drains at the
     // next turn boundary (see drainQueue). Lets the user stage follow-ups / course-correct mid-run.
@@ -660,7 +731,7 @@ export function createAppStore(engine: Engine) {
       setSessionQueue((m) => ({ ...m, [sid]: [...(m[sid] ?? []), text] }))
       return
     }
-    appendItem(sid, { kind: "user", id: nextLocalId(), text, mode: mode() })
+    appendItem(sid, { kind: "user", id: nextLocalId(), text, display, mode: mode() })
     // Optimistically flip to busy so the status strip + timer appear the instant Enter is pressed,
     // before the engine's first message-start arrives (closes the perceived "nothing happening" gap).
     setKey(setSessionBusy, sid, true)
@@ -683,14 +754,14 @@ export function createAppStore(engine: Engine) {
     setSessionQueue((m) => ({ ...m, [sid]: (m[sid] ?? []).filter((_, k) => k !== i) }))
   }
 
-  function submit(text: string) {
+  function submit(text: string, display?: string) {
     const t = text.trim()
     if (!t) return
     if (t.startsWith("/")) {
       const [name, ...rest] = t.slice(1).split(/\s+/)
       if (runCommand(name!, rest.join(" "))) return
     }
-    submitRaw(t)
+    submitRaw(t, display)
   }
 
   function openPath(p: string) {
@@ -711,6 +782,7 @@ export function createAppStore(engine: Engine) {
     const p = pending()
     if (!p) return
     engine.send({ type: "permission-reply", requestId: p.requestId, decision })
+    if (decision === "allow-always") pushToast("✓ remembered for this project (/permissions to manage)", "done")
     delKey(setSessionPending, activeSession())
     delKey(setSessionNeeds, activeSession())
     // The modal owned focus while open; hand it back so the composer is typeable immediately.
@@ -757,12 +829,25 @@ export function createAppStore(engine: Engine) {
     })
   }
   /** "custom input…" on the plan gate: close the gate but STAY in plan mode and send the typed text
-   * as a refinement. The agent revises the plan and calls exit_plan again, which re-opens the gate
-   * with the updated plan. (Distinct from "keep planning", which closes with no message.) */
+   * as a refinement. Instead of a plain user bubble, we drop an inline "refining plan" breaker (with
+   * the typed text as a quoted note) — matching how plan-execution / compaction render as flow
+   * markers rather than prompts — then send the text to the engine. The agent revises the plan and
+   * calls exit_plan again, which re-opens the gate. (Distinct from "keep planning", which closes with
+   * no message.) */
   function refinePlan(text: string) {
     const t = text.trim()
     dismissPlan()
-    if (t) submitRaw(t)
+    if (!t) return
+    const sid = activeSession()
+    // If a turn is somehow still running, fall back to the normal queue path (drains at the boundary).
+    if (sessionBusy()[sid]) {
+      setSessionQueue((m) => ({ ...m, [sid]: [...(m[sid] ?? []), t] }))
+      return
+    }
+    appendItem(sid, { kind: "breaker", id: nextLocalId(), mode: "plan", label: "refining plan", note: t })
+    setKey(setSessionBusy, sid, true)
+    setKey(setSessionStatus, sid, "sent…")
+    engine.send({ type: "prompt", text: t })
   }
   /** Re-open a previously proposed plan in the plan card as a READ-ONLY viewer (no execute options). */
   function viewPlan(entry: PlanEntry) {
@@ -1030,6 +1115,8 @@ export function createAppStore(engine: Engine) {
     runningTools,
     todos,
     changedFiles,
+    tasks,
+    budget,
     diagnostics,
     cost,
     contextWindow,

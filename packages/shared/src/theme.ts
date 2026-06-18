@@ -62,6 +62,65 @@ export const theme = {
   diffAddedBg: "#16241a",
   diffRemovedBg: "#2a1620",
   diffContextBg: "#000000",
-} as const
+}
 
 export type Theme = typeof theme
+
+/** The default palette, captured so applyTheme() can reset before layering a preset. */
+const BASE: Theme = { ...theme }
+
+/**
+ * Named theme presets — partial overrides of the default. Applied at startup (the UI reads `theme`
+ * directly, so a preset must be in place before first render; switching mid-session takes effect on
+ * the next launch). Keep overrides to the high-impact surface/text/role tokens.
+ */
+export const THEMES: Record<string, Partial<Theme>> = {
+  dark: {}, // the default
+  light: {
+    bg: "#ffffff",
+    bgComposer: "#f3f4f6",
+    bgPanel: "#f3f4f6",
+    bgElevated: "#e9ebef",
+    bgHover: "#dfe2e8",
+    text: "#1b1f24",
+    textMuted: "#4b525c",
+    textFaint: "#6b7280",
+    border: "#d0d4da",
+    borderMuted: "#e2e5ea",
+    borderActive: "#b3b9c2",
+    frame: "#d0d4da",
+    success: "#2f8f3e",
+    warning: "#b3791a",
+    error: "#c0384b",
+    info: "#1f6feb",
+  },
+  nord: {
+    bg: "#2e3440",
+    bgComposer: "#323846",
+    bgPanel: "#323846",
+    bgElevated: "#3b4252",
+    bgHover: "#434c5e",
+    text: "#eceff4",
+    textMuted: "#d8dee9",
+    textFaint: "#9aa3b2",
+    border: "#434c5e",
+    borderMuted: "#3b4252",
+    borderActive: "#5e81ac",
+    frame: "#434c5e",
+    success: "#a3be8c",
+    warning: "#ebcb8b",
+    error: "#bf616a",
+    info: "#88c0d0",
+  },
+}
+
+export function themeNames(): string[] {
+  return Object.keys(THEMES)
+}
+
+/** Reset to the default palette, then layer the named preset's overrides onto the live `theme`. */
+export function applyTheme(name?: string): void {
+  Object.assign(theme, BASE)
+  const preset = name ? THEMES[name] : undefined
+  if (preset) Object.assign(theme, preset)
+}

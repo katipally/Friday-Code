@@ -67,6 +67,17 @@ function Shell() {
   const NARROW = 70
   const narrow = createMemo(() => dims().width < NARROW)
 
+  // Responsive conversation gutters: full-width (just the 1-col buffer) on small terminals, then a
+  // growing inset so the conversation column caps near TARGET cols and stays centered on wide ones —
+  // otherwise the right-aligned user bubble and left-aligned reply drift far apart. Chat + composer
+  // + status share this inset so the whole column lines up.
+  const TARGET = 100
+  const contentPad = createMemo(() => {
+    const sidebar = !narrow() && app.rightOpen() ? app.rightWidth() + 1 : 0
+    const mainW = dims().width - 2 /* frame */ - sidebar
+    return 1 + Math.max(0, Math.floor((mainW - TARGET) / 2))
+  })
+
   let wasNarrow = false
   let savedRight = true
   createEffect(() => {
@@ -101,11 +112,15 @@ function Shell() {
               chat area, which narrows as the sidebar opens, keeping the UI balanced. */}
           <box flexGrow={1} minHeight={0} flexDirection="column">
             <TopBar />
-            <box flexGrow={1} minHeight={0} flexDirection="column" paddingLeft={1} paddingRight={1}>
+            <box flexGrow={1} minHeight={0} flexDirection="column" paddingLeft={contentPad()} paddingRight={contentPad()}>
               <Chat />
             </box>
-            <StatusStrip />
-            <Composer />
+            {/* Status + composer share the chat's inset so the input box stays aligned with the
+                conversation column as it centers on wide terminals. */}
+            <box flexShrink={0} flexDirection="column" paddingLeft={contentPad()} paddingRight={contentPad()}>
+              <StatusStrip />
+              <Composer />
+            </box>
             <FooterHints />
           </box>
         </box>

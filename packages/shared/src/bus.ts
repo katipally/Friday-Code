@@ -35,7 +35,7 @@ export type EngineEventBody =
   | { type: "todos"; items: TodoItem[] }
   | { type: "diagnostics"; items: { path: string; errors: number; warnings: number }[] }
   | { type: "changed-files"; items: { path: string; status: string; added: number; removed: number }[]; branch?: string }
-  | { type: "session-files"; items: { path: string; status: string; added: number; removed: number }[] }
+  | { type: "session-files"; items: { path: string; status: string; added: number; removed: number; kind?: "file" | "dir" }[] }
   /** Compaction is starting — drives the progress modal (sonar pulse + real before-% bar). */
   | { type: "compaction-start"; tokensBefore: number; pctBefore: number; window: number }
   /** Compaction finished. `summary` is the generated summary text (for the read-only viewer);
@@ -44,6 +44,8 @@ export type EngineEventBody =
   /** Compaction was stopped (user) or could not proceed — clears the progress modal. */
   | { type: "compaction-aborted" }
   | { type: "notice"; text: string }
+  /** Background tasks (agent-spawned async sessions + due cron runs) — drives the sidebar Tasks panel. */
+  | { type: "tasks"; items: { id: string; title: string; description: string; status: "running" | "done"; summary?: string }[] }
   | { type: "error"; message: string }
 
 /**

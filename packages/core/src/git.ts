@@ -1,4 +1,5 @@
-/** Lightweight, local-only git helpers (status, diff, commit). No network. */
+/** Lightweight, local-only git helpers (status, diff, commit, worktrees). No network. */
+import path from "node:path"
 
 export interface GitFile {
   path: string
@@ -79,4 +80,49 @@ export async function gitCommitAll(cwd: string, message: string): Promise<{ ok: 
   } catch (e: any) {
     return { ok: false, info: e?.message ?? "git commit failed" }
   }
+}
+
+/** Where a named worktree lives: a sibling dir `<parent>/.<repo>-worktrees/<name>` (keeps the main repo clean). */
+async function worktreePath(cwd: string, name: string): Promise<string | null> {
+  const top = await run(cwd, ["rev-parse", "--show-toplevel"])
+  if (!top.ok) return null
+  const root = top.out.trim()
+  return path.join(path.dirname(root), `.${path.basename(root)}-worktrees`, name)
+}
+
+/** Create (or reuse) a git worktree on branch `name`. Returns its absolute path. */
+export async function gitWorktreeAdd(cwd: string, name: string): Promise<{ ok: boolean; path?: string; info: string }> {
+  const wt = await worktreePath(cwd, name)
+  if (!wt) return { ok: false, info: "not a git repository" }
+  // Try a fresh branch first; fall back to checking out an existing branch into the new worktree.
+  let res = await run(cwd, ["worktree", "add", wt, "-b", name])
+  if (!res.ok) res = await run(cwd, ["worktree", "add", wt, name])
+  if (!res.ok) return { ok: false, info: res.out.trim() || "git worktree add failed" }
+  return { ok: true, path: wt, info: `worktree on branch ${name}` }
+}
+
+/** Remove the worktree for `name` (force, to drop uncommitted changes). */
+export async function gitWorktreeRemove(cwd: string, name: string): Promise<{ ok: boolean; info: string }> {
+  const wt = await worktreePath(cwd, name)
+  if (!wt) return { ok: false, info: "not a git repository" }
+  const res = await run(cwd, ["worktree", "remove", wt, "--force"])
+  return { ok: res.ok, info: res.ok ? `removed worktree ${name}` : res.out.trim() || "git worktree remove failed" }
+}
+
+/** List worktrees as { path, branch }. */
+export async function gitWorktreeList(cwd: string): Promise<{ path: string; branch: string }[]> {
+  const res = await run(cwd, ["worktree", "list", "--porcelain"])
+  if (!res.ok) return []
+  const out: { path: string; branch: string }[] = []
+  let cur: { path: string; branch: string } | null = null
+  for (const line of res.out.split("\n")) {
+    if (line.startsWith("worktree ")) {
+      if (cur) out.push(cur)
+      cur = { path: line.slice(9).trim(), branch: "" }
+    } else if (line.startsWith("branch ") && cur) {
+      cur.branch = line.slice(7).trim().replace(/^refs\/heads\//, "")
+    }
+  }
+  if (cur) out.push(cur)
+  return out
 }

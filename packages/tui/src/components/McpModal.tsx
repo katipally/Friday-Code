@@ -17,6 +17,7 @@ export function McpModal() {
   const [error, setError] = createSignal("")
   let nameInput: any
   let valueInput: any
+  let tokenInput: any
 
   const config = () => app.mcpConfig()
   const connected = () => new Set(app.mcpServers())
@@ -33,8 +34,11 @@ export function McpModal() {
       setError("name and command/url are required")
       return
     }
+    const token = (tokenInput?.value ?? "").trim()
     const server: McpServerConfig =
-      kind() === "stdio" ? { type: "stdio", command: value.split(/\s+/) } : { type: "http", url: value }
+      kind() === "stdio"
+        ? { type: "stdio", command: value.split(/\s+/) }
+        : { type: "http", url: value, ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}) }
     setError("connecting…")
     const ok = await app.addMcpServer(name, server)
     if (ok) {
@@ -135,6 +139,15 @@ export function McpModal() {
                 />
               </box>
             </box>
+            {/* Remote servers often need a bearer token / API key — sent as an Authorization header. */}
+            <Show when={kind() === "http"}>
+              <box flexDirection="column">
+                <text fg={theme.textFaint}>auth token (optional)</text>
+                <box border borderStyle="rounded" borderColor={theme.border} paddingLeft={1} paddingRight={1}>
+                  <input ref={(r: any) => (tokenInput = r)} onSubmit={add} placeholder="bearer token / api key" placeholderColor={theme.textFaint} />
+                </box>
+              </box>
+            </Show>
             <Show when={error()}>
               <text fg={error() === "connecting…" ? theme.textMuted : theme.error}>{error()}</text>
             </Show>

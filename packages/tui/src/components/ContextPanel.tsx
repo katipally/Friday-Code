@@ -62,6 +62,9 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
   const [filesNew, setFilesNew] = createSignal(false)
   const [plansOpen, setPlansOpen] = createSignal(false)
   const [plansNew, setPlansNew] = createSignal(false)
+  const [tasksOpen, setTasksOpen] = createSignal(false)
+  const [tasksNew, setTasksNew] = createSignal(false)
+  const [taskHov, setTaskHov] = createSignal(-1)
 
   // Auto-reveal Todos/Files when their backing data changes (signature compare).
   const todoSig = () => app.todos().map((t) => `${t.status}:${t.text}`).join("|")
@@ -97,6 +100,17 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
     }
     prevPlan = n
   })
+  // Reveal Tasks when the set of background tasks (or their statuses) changes.
+  const taskSig = () => app.tasks().map((t) => `${t.id}:${t.status}`).join("|")
+  let prevTask = taskSig()
+  createEffect(() => {
+    const sig = taskSig()
+    if (sig !== prevTask && sig) {
+      setTasksOpen(true)
+      setTasksNew(true)
+    }
+    prevTask = sig
+  })
 
   const toggleTodos = () => {
     setTodosOpen(!todosOpen())
@@ -109,6 +123,10 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
   const togglePlans = () => {
     setPlansOpen(!plansOpen())
     setPlansNew(false)
+  }
+  const toggleTasks = () => {
+    setTasksOpen(!tasksOpen())
+    setTasksNew(false)
   }
 
   const mcpHover = useHover({ base: theme.bgPanel, hover: theme.bgHover })
@@ -126,6 +144,15 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
   // Usable text width inside the panel (width minus borders/padding) — drives truncation so long
   // model ids and file paths never wrap and deform the layout at the minimum width.
   const innerW = () => Math.max(8, (props.fullscreen ? 60 : (props.widthOverride ?? app.rightWidth())) - 4)
+  const budgetOver = () => {
+    const b = app.budget()
+    if (!b) return false
+    return (b.tokens != null && app.tokens() > b.tokens) || (b.usd != null && app.cost() > b.usd)
+  }
+  const budgetLabel = () => {
+    const b = app.budget()
+    return b ? (b.usd != null ? `$${b.usd}` : `${fmtTokens(b.tokens ?? 0)} tok`) : ""
+  }
 
   return (
     <Show
@@ -167,6 +194,12 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
                 </text>
                 <text fg={theme.textFaint}>
                   {fmtTokens(app.tokens())}/{fmtTokens(app.contextWindow())} · ${app.cost().toFixed(3)}
+                </text>
+              </Show>
+              {/* Optional usage budget (/budget): warn when tokens or $ exceed it. */}
+              <Show when={app.budget()}>
+                <text fg={budgetOver() ? theme.error : theme.textFaint}>
+                  {budgetOver() ? G.warn + " " : ""}budget {budgetLabel()}{budgetOver() ? " exceeded" : ""}
                 </text>
               </Show>
             </box>
@@ -219,6 +252,33 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
               </Show>
             </Section>
 
+            {/* Background tasks (agent-spawned async sessions) — click to open one's transcript. */}
+            <Show when={app.tasks().length}>
+              <Section label="tasks" count={app.tasks().length} open={tasksOpen()} fresh={tasksNew()} onToggle={toggleTasks}>
+                <For each={app.tasks()}>
+                  {(t, i) => (
+                    <box
+                      flexDirection="row"
+                      gap={1}
+                      backgroundColor={taskHov() === i() ? theme.bgHover : "transparent"}
+                      onMouseOver={() => setTaskHov(i())}
+                      onMouseOut={() => setTaskHov(-1)}
+                      onMouseDown={() => app.switchSession(t.id)}
+                    >
+                      <text fg={t.status === "running" ? accent() : theme.success}>
+                        {t.status === "running" ? G.caret : G.todoDone}
+                      </text>
+                      <text fg={taskHov() === i() ? theme.text : theme.textMuted}>{truncate(t.title, innerW() - 6)}</text>
+                      <box flexGrow={1} />
+                      <Show when={taskHov() === i()}>
+                        <text fg={theme.textFaint}>open</text>
+                      </Show>
+                    </box>
+                  )}
+                </For>
+              </Section>
+            </Show>
+
             {/* Todos — auto-reveals when the agent rewrites the task list. */}
             <Section label="todos" count={app.todos().length} open={todosOpen()} fresh={todosNew()} onToggle={toggleTodos}>
               <Show when={app.todos().length} fallback={<text fg={theme.textFaint}>none yet</text>}>
@@ -235,9 +295,10 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
               </Show>
             </Section>
 
-            {/* Files this session modified — from its own checkpoint snapshots, plus LSP. */}
+            {/* Everything this session changed — added/modified/removed files AND folders, from its
+                own checkpoint snapshots, plus LSP diagnostics. */}
             <Section
-              label="files modified"
+              label="changes"
               count={app.changedFiles().length + app.diagnostics().length}
               open={filesOpen()}
               fresh={filesNew()}
@@ -247,8 +308,11 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
                 <For each={app.changedFiles()}>
                   {(f) => (
                     <box flexDirection="row" gap={1}>
-                      <text fg={theme.warning}>{f.status}</text>
+                      <text fg={f.status === "D" ? theme.error : f.status === "A" ? theme.success : theme.warning}>{f.status}</text>
                       <text fg={theme.textMuted}>{truncate(f.path, innerW() - 6, true)}</text>
+                      <Show when={f.kind === "dir"}>
+                        <text fg={theme.textFaint}>(dir)</text>
+                      </Show>
                       <Show when={f.added || f.removed}>
                         <text fg={theme.success}>+{f.added}</text>
                         <text fg={theme.error}>−{f.removed}</text>

@@ -29,8 +29,10 @@ function UserBubble(props: { item: Extract<ViewItem, { kind: "user" }> }) {
   const app = useApp()
   const renderer = useRenderer()
   const accent = () => shimmerAccent(getMode((props.item.mode as ModeId) ?? app.mode()).accent)
+  // What the user saw (compact, with inline paste tokens) — falls back to the sent text.
+  const shown = () => props.item.display ?? props.item.text
   // File references in the prompt show as click-to-open chips beneath the text.
-  const chips = createMemo(() => parseMentions(props.item.text, app.roots()))
+  const chips = createMemo(() => parseMentions(shown(), app.roots()))
   const copy = () => {
     copyText(props.item.text, renderer)
     app.focusComposer()
@@ -53,7 +55,7 @@ function UserBubble(props: { item: Extract<ViewItem, { kind: "user" }> }) {
           paddingRight={1}
         >
           <text fg={theme.text} selectable>
-            {props.item.text}
+            {shown()}
           </text>
           <Show when={chips().length > 0}>
             <box flexDirection="row" gap={1} flexWrap="wrap">
@@ -154,21 +156,37 @@ function NoticeBubble(props: { item: Extract<ViewItem, { kind: "notice" }> }) {
 }
 
 /**
- * Flow divider shown when a plan is accepted — a rule with "▸ running · <mode>" tinted by the chosen
- * mode's accent. It keeps plan execution reading as a continuation of the same response rather than a
- * fresh user prompt.
+ * Flow divider shown when a plan is accepted ("running · <mode>") or refined ("refining plan") —
+ * a centered mode-tinted pill flanked by rules that flex to fill the column on BOTH sides, so the
+ * pill stays truly centered at any width (the rules grow/shrink, the pill doesn't). An optional
+ * `note` renders as a quoted subtitle below. Keeps plan flow reading as a continuation rather than
+ * a fresh user prompt.
  */
 function BreakerRow(props: { item: Extract<ViewItem, { kind: "breaker" }> }) {
   const tint = () => getMode(props.item.mode).accent
+  // Over-long so the rule always reaches the edge; the side boxes clip the overflow (height 1).
+  const rule = "─".repeat(240)
   return (
-    <box flexDirection="row" justifyContent="center" alignItems="center" gap={1} marginTop={1} marginBottom={1}>
-      <text fg={tint()}>{"─".repeat(8)}</text>
-      <box border borderStyle="rounded" borderColor={tint()} paddingLeft={1} paddingRight={1}>
-        <text fg={tint()}>
-          {modeGlyph(props.item.mode)} {props.item.label}
-        </text>
+    <box flexDirection="column" alignItems="center" marginTop={1} marginBottom={1}>
+      <box flexDirection="row" alignItems="center" gap={1} width="100%">
+        {/* flexBasis 0 + minWidth 0 makes both rules share the leftover width equally → centered pill. */}
+        <box flexGrow={1} flexBasis={0} minWidth={0} height={1} overflow="hidden">
+          <text fg={tint()}>{rule}</text>
+        </box>
+        <box border borderStyle="rounded" borderColor={tint()} paddingLeft={1} paddingRight={1} flexShrink={0}>
+          <text fg={tint()}>
+            {modeGlyph(props.item.mode)} {props.item.label}
+          </text>
+        </box>
+        <box flexGrow={1} flexBasis={0} minWidth={0} height={1} overflow="hidden">
+          <text fg={tint()}>{rule}</text>
+        </box>
       </box>
-      <text fg={tint()}>{"─".repeat(8)}</text>
+      <Show when={props.item.note}>
+        <box maxWidth="80%">
+          <text fg={theme.textMuted}>“{props.item.note}”</text>
+        </box>
+      </Show>
     </box>
   )
 }

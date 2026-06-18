@@ -12,6 +12,8 @@ import { BUILTIN_PROVIDERS, fetchModels, getProviderKey, loadAuth, setProviderKe
 import { BUILTIN_TOOLS, buildRegistry, type Tool } from "@friday/tools"
 import { connectServers, type McpServerConfig } from "@friday/mcp"
 import { loadConfig, saveConfig } from "./config.ts"
+import { projectPermissions, persistPermission, revokeProjectPermissions } from "./permissions.ts"
+import { loadCron, saveCron, parseInterval, type CronJob } from "./cron.ts"
 import { SessionStore } from "./sessions.ts"
 import { loadCommands, type CustomCommand } from "./commands.ts"
 import { SessionRunner, type RunnerHost, type SessionStats } from "./runner.ts"
@@ -60,6 +62,8 @@ export class Engine {
   private modelCost?: { input: number; output: number }
 
   private runners = new Map<string, SessionRunner>()
+  /** sessionIds that are agent-spawned background tasks (vs user sessions), with their description. */
+  private taskMeta = new Map<string, { description: string; createdAt: number }>()
   private focusedId!: string
 
   private host: RunnerHost = {
@@ -80,6 +84,14 @@ export class Engine {
     emit: (sessionId, body) => this.dispatch(sessionId, body),
     hooks: () => loadConfig().hooks,
     bashPolicy: () => loadConfig().bash,
+    projectPermissions: (root) => projectPermissions(root),
+    persistPermission: (root, rule) => persistPermission(root, rule),
+    spawnTask: (prompt, description, worktree) => this.spawnTask(prompt, description, worktree),
+    taskList: () => this.taskList(),
+    stopTask: (id) => this.stopTask(id),
+    cronCreate: (description, prompt, every) => this.cronCreate(description, prompt, every),
+    cronList: () => this.cronList(),
+    cronDelete: (id) => this.cronDelete(id),
   }
 
   constructor(opts: EngineOptions) {
@@ -120,6 +132,84 @@ export class Engine {
       else if (body.type === "permission-request" || body.type === "ask-user") notify("Friday", `“${label}” needs your input`)
     }
     this.emit({ ...body, sessionId } as EngineEvent)
+    // When a background task finishes (or errors), refresh the Tasks panel once `busy` has settled.
+    if (this.taskMeta.has(sessionId) && (body.type === "turn-done" || body.type === "error")) {
+      setTimeout(() => this.emitTasks(), 0)
+    }
+  }
+
+  // ---- background tasks (agent-spawned async sessions) ----
+  /** Spawn a detached background session that runs `prompt` to completion; returns its id. When
+   * `worktree` is set, the task first enters an isolated git worktree of that name (parallel writable
+   * work that won't collide with the main checkout or other tasks). */
+  spawnTask(prompt: string, description: string, worktree?: string): string {
+    const roots = this.focused().currentRoots()
+    const title = (description || "task").slice(0, 60)
+    const runner = this.makeRunner(this.store.create(roots, crypto.randomUUID(), now(), title))
+    this.taskMeta.set(runner.sessionId, { description, createdAt: now() })
+    void (async () => {
+      if (worktree) await runner.enterWorktree(worktree)
+      await runner.runPrompt(prompt)
+    })()
+    this.emitTasks()
+    return runner.sessionId
+  }
+  taskList(): { id: string; title: string; description: string; status: "running" | "done"; summary?: string }[] {
+    return [...this.taskMeta.entries()].map(([id, meta]) => {
+      const r = this.runners.get(id)
+      const msgs = r?.snapshotMessages() ?? []
+      const last = [...msgs].reverse().find((m) => m.role === "assistant" && "text" in m && m.text) as { text?: string } | undefined
+      return {
+        id,
+        title: r?.currentTitle() ?? meta.description,
+        description: meta.description,
+        status: r?.busy ? ("running" as const) : ("done" as const),
+        summary: last?.text?.slice(0, 240),
+      }
+    })
+  }
+  stopTask(id: string): void {
+    this.runners.get(id)?.abortRun()
+    this.emitTasks()
+  }
+  private emitTasks(): void {
+    this.dispatch(this.focusedId, { type: "tasks", items: this.taskList() })
+  }
+
+  // ---- cron (recurring background tasks) ----
+  private cronTimer: ReturnType<typeof setInterval> | null = null
+  cronCreate(description: string, prompt: string, every: string): { ok: boolean; id?: string; error?: string } {
+    const everyMs = parseInterval(every)
+    if (everyMs == null) return { ok: false, error: `unrecognized interval "${every}" (use 30s/5m/2h/1d/hourly/daily)` }
+    const job: CronJob = { id: crypto.randomUUID().slice(0, 8), description, prompt, everyMs, nextRun: now() + everyMs }
+    saveCron([...loadCron(), job])
+    this.startScheduler()
+    return { ok: true, id: job.id }
+  }
+  cronList(): CronJob[] {
+    return loadCron()
+  }
+  cronDelete(id: string): void {
+    saveCron(loadCron().filter((j) => j.id !== id))
+  }
+  /** Start the in-process cron ticker (idempotent, unref'd so it never keeps the process alive). */
+  startScheduler(): void {
+    if (this.cronTimer) return
+    this.cronTimer = setInterval(() => this.cronTick(), 30_000)
+    this.cronTimer.unref?.()
+  }
+  private cronTick(): void {
+    const t = now()
+    const jobs = loadCron()
+    let changed = false
+    for (const job of jobs) {
+      if (job.nextRun <= t) {
+        this.spawnTask(job.prompt, `cron: ${job.description}`)
+        job.nextRun = t + job.everyMs
+        changed = true
+      }
+    }
+    if (changed) saveCron(jobs)
   }
   private makeRunner(row: { id: string; title: string; roots: string[] }): SessionRunner {
     const r = new SessionRunner(this.host, row, this.cwd)
@@ -146,6 +236,7 @@ export class Engine {
   async init(): Promise<void> {
     const cfg = loadConfig()
     for (const [name, server] of Object.entries(cfg.mcp ?? {})) await this.connectMcp(name, server)
+    if (loadCron().length) this.startScheduler() // resume schedules from a prior run
   }
   private async connectMcp(name: string, server: McpServerConfig): Promise<boolean> {
     try {
@@ -165,6 +256,22 @@ export class Engine {
   }
   mcpConfig(): Record<string, McpServerConfig> {
     return loadConfig().mcp ?? {}
+  }
+  /** Read the user config (for the UI: theme, budget, etc.). */
+  userConfig(): import("./config.ts").FridayConfig {
+    return loadConfig()
+  }
+  /** Persist a config patch (theme, budget, …). */
+  setUserConfig(patch: Partial<import("./config.ts").FridayConfig>): void {
+    saveConfig(patch)
+  }
+  /** "Always allow" rules remembered for the focused session's project (for the /permissions view). */
+  projectPermissions(): { bash?: string[]; categories?: string[] } {
+    return projectPermissions(this.currentRoots()[0] ?? this.cwd)
+  }
+  /** Forget all remembered "always allow" rules for the focused session's project. */
+  clearProjectPermissions(): void {
+    revokeProjectPermissions(this.currentRoots()[0] ?? this.cwd)
   }
   async addMcpServer(name: string, server: McpServerConfig): Promise<boolean> {
     saveConfig({ mcp: { ...(loadConfig().mcp ?? {}), [name]: server } })

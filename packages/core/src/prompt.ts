@@ -19,6 +19,12 @@ function agentsSection(agents?: { name: string; description: string }[]): string
   return `\n# Sub-agents\nSpawn a focused read-only sub-agent with task({ agent, prompt }). Besides the built-in "explore", these custom agents are available:\n${lines.join("\n")}`
 }
 
+function deferredToolsSection(deferred?: { name: string; description: string }[]): string {
+  if (!deferred?.length) return ""
+  const lines = deferred.map((d) => `- ${d.name}: ${d.description}`)
+  return `\n# More tools (on demand)\nThese tools exist but aren't loaded by default. Call tool_search({ query }) to load the ones you need before using them:\n${lines.join("\n")}`
+}
+
 /** Assemble the system prompt: identity + environment + behavior + mode posture + project context. */
 export function systemPrompt(opts: {
   cwd: string
@@ -27,6 +33,8 @@ export function systemPrompt(opts: {
   context?: string
   skills?: SkillSummary[]
   agents?: { name: string; description: string }[]
+  deferredTools?: { name: string; description: string }[]
+  memory?: string
 }): string {
   const mode = getMode(opts.mode)
   const extraRoots = (opts.roots ?? []).slice(1)
@@ -51,12 +59,14 @@ export function systemPrompt(opts: {
     "# Tools",
     "- File: read, write, edit, multi_edit, ls, glob, grep.",
     "- Shell: bash (combined stdout+stderr).",
-    "- edit replaces an exact, unique string; use multi_edit for several edits to one file.",
+    "- edit replaces a (near-)exact string; use multi_edit for several edits to one file, or apply_patch to apply a unified diff across files.",
     "- ask_user: pause and ask the user clarifying question(s) with selectable { label, description } options when you need a decision; a free-text answer is always offered too.",
     "- todo_write: for any task with 3+ steps, maintain a live task list. Pass the FULL list each call; keep one item 'active', mark items 'done' as you finish. This keeps the user oriented.",
     "- Language server (when available): lsp_hover / lsp_definition / lsp_symbols give real type info, jump-to-def, and symbol search. After you edit a file, its compiler diagnostics are appended to the tool result automatically — read them and fix real errors before moving on.",
+    opts.memory ? `\n# Memory\nDurable facts you saved previously (use them; update via the memory tool when they change):\n${opts.memory}` : "",
     skillsSection(opts.skills),
     agentsSection(opts.agents),
+    deferredToolsSection(opts.deferredTools),
     modePostureNote(opts.mode),
   ]
     .filter(Boolean)

@@ -20,6 +20,10 @@ export interface FridayConfig {
   hooks?: HooksConfig
   /** bash command allow/deny lists (prefix or `*` glob) */
   bash?: { allow?: string[]; deny?: string[] }
+  /** named UI theme (see @friday/shared THEMES); applied at startup */
+  theme?: string
+  /** optional per-session budget; the context panel warns when usage exceeds it */
+  budget?: { tokens?: number; usd?: number }
 }
 
 export function loadConfig(): FridayConfig {

@@ -1,12 +1,12 @@
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
+import { decodePasteBytes } from "@opentui/core"
 import { theme, getMode } from "@friday/shared"
 import { useApp } from "../store.tsx"
 import { shimmerAccent } from "../motion/index.ts"
 import { listProjectFiles } from "../util/files.ts"
 import { modeGlyph } from "../util/term.ts"
-import { FileChip } from "./FileChip.tsx"
-import { parseMentions } from "../util/mentions.ts"
+import { makePasteToken, isBigPaste, expandTokens } from "../util/attachments.ts"
 
 type Suggestion = { label: string; hint: string; apply: () => void; run?: () => void }
 
@@ -127,9 +127,26 @@ export function Composer() {
     queueMicrotask(() => sgScroll?.scrollChildIntoView?.(`sg-${i}`))
   })
 
-  // File/folder/image references in the prompt, shown as compact chips above the input.
-  // Images become vision input on submit; all chips are click-to-open.
-  const chips = createMemo(() => parseMentions(text(), app.roots()))
+  // Inline paste tokens: a big/multi-line paste collapses to a placeholder at the cursor (kept here,
+  // not in a floating row) and is expanded back to full content on submit. File @mentions stay inline
+  // as `@path` text — that's already where they're typed, so no separate chip row is needed.
+  const pastes = new Map<string, string>()
+  let pasteN = 0
+  const onPaste = (event: any) => {
+    try {
+      const raw = decodePasteBytes(event?.bytes) ?? ""
+      // Strip simple ANSI SGR sequences a terminal may include in the paste.
+      const txt = raw.replace(/\x1b\[[0-9;]*m/g, "")
+      if (!isBigPaste(txt)) return // let small/single-line pastes flow in as normal text
+      event?.preventDefault?.()
+      const token = makePasteToken(++pasteN, txt.length)
+      pastes.set(token, txt)
+      ta?.insertText?.(token)
+      refresh()
+    } catch {
+      /* fall through to default paste */
+    }
+  }
 
   function submit() {
     // If an autocomplete suggestion is highlighted, Enter applies it (completes the /command or
@@ -142,10 +159,13 @@ export function Composer() {
       it?.apply()
       return
     }
-    const value: string = ta?.plainText ?? ""
-    if (value.trim()) app.submit(value)
+    const display: string = ta?.plainText ?? ""
+    const value = expandTokens(display, pastes) // paste tokens → full content for the model
+    if (value.trim()) app.submit(value, display !== value ? display : undefined)
     ta?.clear?.()
     setText("")
+    pastes.clear()
+    pasteN = 0
   }
 
   useKeyboard((key) => {
@@ -205,12 +225,6 @@ export function Composer() {
         </box>
       </Show>
 
-      <Show when={chips().length > 0}>
-        <box flexDirection="row" gap={1} marginBottom={1} flexShrink={0} flexWrap="wrap">
-          <For each={chips()}>{(chip) => <FileChip chip={chip} accent={mode().accent} max={24} onOpen={() => app.openPath(chip.rel)} />}</For>
-        </box>
-      </Show>
-
       <box
         flexDirection="row"
         flexShrink={0}
@@ -228,6 +242,7 @@ export function Composer() {
               ta = r
               app.registerComposer(r)
               r?.on?.("blurred", onBlur)
+              if (r) r.onPaste = onPaste
             }}
             onSubmit={submit}
             keyBindings={[

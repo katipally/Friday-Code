@@ -23,6 +23,19 @@ import {
   LSP_DEFINITION,
   LSP_SYMBOLS,
   LSP_TOOLS,
+  TOOL_SEARCH,
+  searchTools,
+  TASK_CREATE,
+  TASK_LIST,
+  TASK_STATUS,
+  TASK_STOP,
+  CRON_CREATE,
+  CRON_LIST,
+  CRON_DELETE,
+  ENTER_WORKTREE,
+  EXIT_WORKTREE,
+  WORKTREE_LIST,
+  MEMORY_TOOL,
   toToolDef,
   unifiedDiff,
   diffStats,
@@ -31,11 +44,12 @@ import {
 } from "@friday/tools"
 import { LspManager, formatDiagnostics } from "@friday/lsp"
 import { runHooks, type HookEvent, type HookPayload, type HooksConfig } from "./hooks.ts"
-import { gitStatus, gitDiff, gitCommitAll, gitShowHead, gitIsTracked } from "./git.ts"
+import { gitStatus, gitDiff, gitCommitAll, gitShowHead, gitIsTracked, gitWorktreeAdd, gitWorktreeList } from "./git.ts"
 import { bashRisk, matchesList } from "./safety.ts"
 import { subagentPrompt, customAgentPrompt, systemPrompt } from "./prompt.ts"
 import type { SessionStore } from "./sessions.ts"
 import { loadProjectContext, type ProjectContext } from "./context.ts"
+import { saveMemory, deleteMemory, listMemory, memoryDigest } from "./memory.ts"
 import { expandMentions, collectImages } from "./mentions.ts"
 import { loadCommands, type CustomCommand } from "./commands.ts"
 import { loadSkills, type Skill } from "./skills.ts"
@@ -44,6 +58,7 @@ import { applyFiles, readOrNull, snapshotFile, type Checkpoint } from "./checkpo
 import { COMPACTION, collapseToolOutputs, estimateTokens, renderTranscript, safeCutIndex } from "./compaction.ts"
 import type { StreamFn } from "./stream.ts"
 import path from "node:path"
+import fs from "node:fs"
 
 const now = () => Date.now()
 const MAX_STEPS = 50
@@ -64,7 +79,7 @@ function isOverflowError(e: unknown): boolean {
   )
 }
 
-type Pending = { resolve: (d: "allow" | "deny") => void; category: PermissionCategory }
+type Pending = { resolve: (d: "allow" | "deny") => void; category: PermissionCategory; command?: string }
 
 function safeParse(s: string): unknown {
   try {
@@ -228,6 +243,22 @@ export interface RunnerHost {
   hooks: () => HooksConfig | undefined
   /** bash allow/deny lists */
   bashPolicy: () => { allow?: string[]; deny?: string[] } | undefined
+  /** per-project "always allow" rules (bash prefixes + categories) */
+  projectPermissions: (root: string) => { bash?: string[]; categories?: PermissionCategory[] }
+  /** persist an "allow always" decision for a project root */
+  persistPermission: (root: string, rule: { category: PermissionCategory; command?: string }) => void
+  /** spawn a detached background task (agent-driven session); optional isolated worktree; returns its id */
+  spawnTask: (prompt: string, description: string, worktree?: string) => string
+  /** list background tasks with status */
+  taskList: () => { id: string; title: string; description: string; status: "running" | "done"; summary?: string }[]
+  /** stop a running background task */
+  stopTask: (id: string) => void
+  /** schedule a recurring background task */
+  cronCreate: (description: string, prompt: string, every: string) => { ok: boolean; id?: string; error?: string }
+  /** list scheduled recurring tasks */
+  cronList: () => { id: string; description: string; everyMs: number; nextRun: number }[]
+  /** delete a scheduled task */
+  cronDelete: (id: string) => void
 }
 
 /**
@@ -265,6 +296,8 @@ export class SessionRunner {
   private pending = new Map<string, Pending>()
   private pendingAsk = new Map<string, (answers: Record<string, string>) => void>()
   private sessionAllow = new Set<PermissionCategory>()
+  /** Deferred tools the model has activated via tool_search this session (their schemas are then sent). */
+  private activatedTools = new Set<string>()
 
   private checkpoints: Checkpoint[] = []
   private currentCheckpoint?: Checkpoint
@@ -312,16 +345,93 @@ export class SessionRunner {
   private emitSessionFiles(): void {
     const prior = new Map<string, string | null>() // path -> content before this session first touched it
     for (const cp of this.checkpoints) for (const [abs, before] of cp.files) if (!prior.has(abs)) prior.set(abs, before)
-    const items: { path: string; status: string; added: number; removed: number }[] = []
+    const items: { path: string; status: string; added: number; removed: number; kind?: "file" | "dir" }[] = []
+    const addedAbs = new Set<string>()
+    const removedAbs = new Set<string>()
     for (const [abs, before] of prior) {
       const cur = readOrNull(abs)
       if (before === cur) continue // touched but reverted to original — no net change
       const status = before === null ? "A" : cur === null ? "D" : "M"
+      if (status === "A") addedAbs.add(abs)
+      else if (status === "D") removedAbs.add(abs)
       const { added, removed } = diffStats(unifiedDiff(before ?? "", cur ?? ""))
-      items.push({ path: path.relative(this.cwd, abs) || abs, status, added, removed })
+      items.push({ path: path.relative(this.cwd, abs) || abs, status, added, removed, kind: "file" })
     }
+    // Surface folders this session created/removed wholesale (e.g. `A src/utils/`) alongside files.
+    for (const d of this.deriveDirChanges(addedAbs, removedAbs)) items.push(d)
     items.sort((a, b) => a.path.localeCompare(b.path))
     this.emit({ type: "session-files", items })
+  }
+
+  /**
+   * Derive folder add/remove entries from the per-file change sets. A directory is "added" when it
+   * exists and every entry under it (recursively) is a session-created file — i.e. the whole folder
+   * is new (so we never flag a pre-existing dir that merely gained one file). A directory is
+   * "removed" when it no longer exists but is an ancestor of a removed file and its parent still
+   * exists (so we report the top of the deleted subtree once). Both are conservative — disk checks
+   * are wrapped so a transient FS error never breaks the panel.
+   */
+  private deriveDirChanges(
+    addedAbs: Set<string>,
+    removedAbs: Set<string>,
+  ): { path: string; status: string; added: number; removed: number; kind: "dir" }[] {
+    const out: { path: string; status: string; added: number; removed: number; kind: "dir" }[] = []
+    const rel = (d: string) => (path.relative(this.cwd, d) || d) + "/"
+    // Ancestor dirs of `abs`, from its immediate parent up to (but excluding) the session cwd.
+    const ancestors = (abs: string): string[] => {
+      const acc: string[] = []
+      let d = path.dirname(abs)
+      while (true) {
+        const r = path.relative(this.cwd, d)
+        if (!r || r.startsWith("..") || path.isAbsolute(r)) break
+        acc.push(d)
+        const up = path.dirname(d)
+        if (up === d) break
+        d = up
+      }
+      return acc
+    }
+    const isFullyNew = (dir: string): boolean => {
+      try {
+        const entries = fs.readdirSync(dir, { withFileTypes: true })
+        if (entries.length === 0) return false
+        for (const e of entries) {
+          const child = path.join(dir, e.name)
+          if (e.isDirectory()) {
+            if (!isFullyNew(child)) return false
+          } else if (e.isFile()) {
+            if (!addedAbs.has(child)) return false
+          } else return false // symlink / special — be conservative
+        }
+        return true
+      } catch {
+        return false
+      }
+    }
+
+    // Added: shallowest fully-new directories.
+    const newDirs = new Set<string>()
+    for (const f of addedAbs) for (const d of ancestors(f)) if (!newDirs.has(d) && isFullyNew(d)) newDirs.add(d)
+    for (const d of newDirs) {
+      if (newDirs.has(path.dirname(d))) continue // keep only the top-most new dir
+      out.push({ path: rel(d), status: "A", added: 0, removed: 0, kind: "dir" })
+    }
+
+    // Removed: top of each deleted subtree (gone now, but parent still present).
+    const seen = new Set<string>()
+    for (const f of removedAbs)
+      for (const d of ancestors(f)) {
+        if (seen.has(d)) continue
+        seen.add(d)
+        try {
+          if (!fs.existsSync(d) && fs.existsSync(path.dirname(d))) {
+            out.push({ path: rel(d), status: "D", added: 0, removed: 0, kind: "dir" })
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    return out
   }
 
   // ---- public accessors (used by the manager / UI) ----
@@ -388,6 +498,34 @@ export class SessionRunner {
     this.emit({ type: "session-changed", sessionId: this.sessionId, title: this.title, cwd: this.cwd, roots: this.roots })
   }
 
+  /** Working dir + roots saved before entering a worktree, so exit can restore them. */
+  private preWorktree?: { cwd: string; roots: string[] }
+  /** Create/reuse a git worktree and switch this session's cwd into it (tools then resolve there). */
+  async enterWorktree(name: string): Promise<{ ok: boolean; info: string }> {
+    const res = await gitWorktreeAdd(this.cwd, name)
+    if (!res.ok || !res.path) return { ok: false, info: res.info }
+    if (!this.preWorktree) this.preWorktree = { cwd: this.cwd, roots: [...this.roots] }
+    this.cwd = res.path
+    this.roots = [res.path, ...this.roots.filter((r) => r !== res.path)]
+    this.context = loadProjectContext(this.roots)
+    this.skills = loadSkills(this.roots)
+    this.agents = loadAgents(this.roots)
+    this.emit({ type: "session-changed", sessionId: this.sessionId, title: this.title, cwd: this.cwd, roots: this.roots })
+    return { ok: true, info: `entered worktree at ${res.path}` }
+  }
+  /** Switch back to the working dir saved before the last enterWorktree. */
+  exitWorktree(): { ok: boolean; info: string } {
+    if (!this.preWorktree) return { ok: false, info: "not in a worktree" }
+    this.cwd = this.preWorktree.cwd
+    this.roots = this.preWorktree.roots
+    this.preWorktree = undefined
+    this.context = loadProjectContext(this.roots)
+    this.skills = loadSkills(this.roots)
+    this.agents = loadAgents(this.roots)
+    this.emit({ type: "session-changed", sessionId: this.sessionId, title: this.title, cwd: this.cwd, roots: this.roots })
+    return { ok: true, info: `back to ${this.cwd}` }
+  }
+
   // ---- command handling ----
   abortRun(): void {
     this.abort?.abort()
@@ -412,7 +550,11 @@ export class SessionRunner {
     const p = this.pending.get(requestId)
     if (!p) return false
     this.pending.delete(requestId)
-    if (decision === "allow-always") this.sessionAllow.add(p.category)
+    if (decision === "allow-always") {
+      this.sessionAllow.add(p.category)
+      // Remember it for this project so the same action auto-approves in future sessions too.
+      this.host.persistPermission(this.roots[0] ?? this.cwd, { category: p.category, command: p.command })
+    }
     this.needsInput = this.pending.size > 0 || this.pendingAsk.size > 0
     p.resolve(decision === "deny" ? "deny" : "allow")
     return true
@@ -786,6 +928,11 @@ export class SessionRunner {
               context: this.context.content,
               skills: this.skills.map((s) => ({ name: s.name, description: s.description, whenToUse: s.whenToUse })),
               agents: this.agents.map((a) => ({ name: a.name, description: a.description })),
+              // Advertise deferred tools (by name) that aren't yet activated, so the model knows to search.
+              deferredTools: registry.list
+                .filter((t) => t.deferred && !this.activatedTools.has(t.name))
+                .map((t) => ({ name: t.name, description: t.description })),
+              memory: memoryDigest(),
             }),
           } as Message,
           ...this.sendMessages(),
@@ -793,14 +940,14 @@ export class SessionRunner {
         // Plan mode is STRICTLY read-only: only non-mutating tools (read/network/control + exit_plan)
         // are offered, so the agent can investigate and propose but can NEVER edit files or run bash —
         // it physically can't act, it can only plan. Every other mode hides exit_plan so the model can't
-        // "present a plan" mid-execution.
-        tools:
-          sel.mode === "plan"
-            ? registry.defs.filter((d) => {
-                const t = registry.get(d.name)
-                return !t || (t.permission !== "edit" && t.permission !== "bash")
-              })
-            : registry.defs.filter((d) => d.name !== EXIT_PLAN),
+        // "present a plan" mid-execution. Deferred tools are hidden until activated via tool_search.
+        tools: registry.defs
+          .filter((d) => {
+            const t = registry.get(d.name)
+            if (t?.deferred && !this.activatedTools.has(d.name)) return false
+            if (sel.mode === "plan") return !t || (t.permission !== "edit" && t.permission !== "bash")
+            return d.name !== EXIT_PLAN
+          }),
         effort: sel.reasoning ? sel.effort : undefined,
         maxTokens: 8192,
       }
@@ -904,6 +1051,127 @@ export class SessionRunner {
           this.emit({ type: "turn-done", id })
           this.activeAssistantId = undefined
           return
+        }
+
+        if (tc.name === TOOL_SEARCH) {
+          const a = safeParse(tc.arguments) as { query?: string }
+          const pool = this.host
+            .registry()
+            .list.filter((t) => t.deferred)
+            .map((t) => ({ name: t.name, description: t.description }))
+          const hits = searchTools(a.query ?? "", pool)
+          for (const h of hits) this.activatedTools.add(h.name) // available on the next step
+          const output = hits.length
+            ? `Loaded ${hits.length} tool(s) — now callable:\n${hits.map((h) => `- ${h.name}: ${h.description}`).join("\n")}`
+            : "No matching tools found."
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output })
+          this.emit({ type: "tool-result", callId: tc.id, ok: true, output, title: `tool_search: ${a.query ?? ""}` })
+          continue
+        }
+
+        if (tc.name === TASK_CREATE) {
+          const a = safeParse(tc.arguments) as { description?: string; prompt?: string; worktree?: string }
+          const id = this.host.spawnTask(a.prompt ?? "", a.description ?? "task", a.worktree?.trim() || undefined)
+          const where = a.worktree ? ` (isolated in worktree “${a.worktree}”)` : ""
+          const output = `Started background task ${id} — “${clip(a.description ?? "task")}”${where}. Check it with task_status({ id: "${id}" }).`
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output })
+          this.emit({ type: "tool-result", callId: tc.id, ok: true, output, title: `task_create: ${clip(a.description ?? "")}` })
+          continue
+        }
+        if (tc.name === TASK_LIST) {
+          const list = this.host.taskList()
+          const output = list.length
+            ? list.map((t) => `- ${t.id} [${t.status}] ${t.title}`).join("\n")
+            : "No background tasks."
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output })
+          this.emit({ type: "tool-result", callId: tc.id, ok: true, output, title: "task_list" })
+          continue
+        }
+        if (tc.name === TASK_STATUS) {
+          const a = safeParse(tc.arguments) as { id?: string }
+          const t = this.host.taskList().find((x) => x.id === a.id)
+          const output = t
+            ? `${t.id} [${t.status}] ${t.title}\n\n${t.summary ?? "(no output yet)"}`
+            : `No task with id ${a.id}.`
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output, isError: !t })
+          this.emit({ type: "tool-result", callId: tc.id, ok: !!t, output, title: `task_status ${a.id ?? ""}` })
+          continue
+        }
+        if (tc.name === TASK_STOP) {
+          const a = safeParse(tc.arguments) as { id?: string }
+          this.host.stopTask(a.id ?? "")
+          const output = `Stopped task ${a.id}.`
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output })
+          this.emit({ type: "tool-result", callId: tc.id, ok: true, output, title: `task_stop ${a.id ?? ""}` })
+          continue
+        }
+
+        if (tc.name === MEMORY_TOOL) {
+          const a = safeParse(tc.arguments) as { action?: string; name?: string; content?: string }
+          let output: string
+          if (a.action === "save" && a.name) {
+            saveMemory(a.name, a.content ?? "")
+            output = `Remembered “${a.name}”.`
+          } else if (a.action === "delete" && a.name) {
+            output = deleteMemory(a.name) ? `Forgot “${a.name}”.` : `No memory named “${a.name}”.`
+          } else if (a.action === "list") {
+            const facts = listMemory()
+            output = facts.length ? facts.map((f) => `- ${f.name}`).join("\n") : "No memories saved."
+          } else {
+            output = "memory: provide action 'save' (with name+content), 'list', or 'delete' (with name)."
+          }
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output })
+          this.emit({ type: "tool-result", callId: tc.id, ok: true, output, title: `memory ${a.action ?? ""}` })
+          continue
+        }
+
+        if (tc.name === ENTER_WORKTREE) {
+          const a = safeParse(tc.arguments) as { name?: string }
+          const res = await this.enterWorktree((a.name ?? "work").trim())
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: res.info, isError: !res.ok })
+          this.emit({ type: "tool-result", callId: tc.id, ok: res.ok, output: res.info, title: `enter_worktree ${a.name ?? ""}` })
+          if (res.ok) this.emit({ type: "notice", text: `⎇ entered worktree “${a.name}” — edits now run in an isolated checkout` })
+          continue
+        }
+        if (tc.name === EXIT_WORKTREE) {
+          const res = this.exitWorktree()
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: res.info, isError: !res.ok })
+          this.emit({ type: "tool-result", callId: tc.id, ok: res.ok, output: res.info, title: "exit_worktree" })
+          if (res.ok) this.emit({ type: "notice", text: "⎇ left worktree — back on the main working directory" })
+          continue
+        }
+        if (tc.name === WORKTREE_LIST) {
+          const list = await gitWorktreeList(this.cwd)
+          const output = list.length ? list.map((w) => `- ${w.branch || "(detached)"} — ${w.path}`).join("\n") : "No worktrees."
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output })
+          this.emit({ type: "tool-result", callId: tc.id, ok: true, output, title: "worktree_list" })
+          continue
+        }
+
+        if (tc.name === CRON_CREATE) {
+          const a = safeParse(tc.arguments) as { description?: string; prompt?: string; every?: string }
+          const res = this.host.cronCreate(a.description ?? "task", a.prompt ?? "", a.every ?? "")
+          const output = res.ok ? `Scheduled ${res.id} — “${clip(a.description ?? "")}” every ${a.every}.` : `Error: ${res.error}`
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output, isError: !res.ok })
+          this.emit({ type: "tool-result", callId: tc.id, ok: res.ok, output, title: `cron_create: ${clip(a.description ?? "")}` })
+          continue
+        }
+        if (tc.name === CRON_LIST) {
+          const jobs = this.host.cronList()
+          const output = jobs.length
+            ? jobs.map((j) => `- ${j.id} every ${Math.round(j.everyMs / 1000)}s — ${j.description}`).join("\n")
+            : "No scheduled tasks."
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output })
+          this.emit({ type: "tool-result", callId: tc.id, ok: true, output, title: "cron_list" })
+          continue
+        }
+        if (tc.name === CRON_DELETE) {
+          const a = safeParse(tc.arguments) as { id?: string }
+          this.host.cronDelete(a.id ?? "")
+          const output = `Deleted schedule ${a.id}.`
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output })
+          this.emit({ type: "tool-result", callId: tc.id, ok: true, output, title: `cron_delete ${a.id ?? ""}` })
+          continue
         }
 
         if (tc.name === SKILL_TOOL) {
@@ -1175,6 +1443,11 @@ export class SessionRunner {
       if (matchesList(command, policy?.allow)) return "allow"
     }
     if (this.sessionAllow.has(cat)) return "allow"
+    // Per-project rules the user previously chose to "always allow".
+    const proj = this.host.projectPermissions(this.roots[0] ?? this.cwd)
+    if (cat === "bash" && command) {
+      if (matchesList(command, proj.bash)) return "allow"
+    } else if (proj.categories?.includes(cat)) return "allow"
     const verdict = getMode(mode).policy[cat]
     if (verdict === "allow") return "allow"
     if (verdict === "deny") return "deny"
@@ -1187,7 +1460,7 @@ export class SessionRunner {
     this.emit({ type: "status", text: "waiting for you…" })
     this.needsInput = true
     void this.hook("Notification", { message: `${tool.name} needs approval` })
-    return new Promise<"allow" | "deny">((resolve) => this.pending.set(requestId, { resolve, category: cat }))
+    return new Promise<"allow" | "deny">((resolve) => this.pending.set(requestId, { resolve, category: cat, command }))
   }
 
   // ---- /commit ----
