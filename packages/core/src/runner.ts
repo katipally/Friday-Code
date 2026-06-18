@@ -143,6 +143,38 @@ function toAskQuestion(id: string, question: string, explicit: unknown, multi = 
   return { id, question: parsed.question, header: hdr, art: banner, options: parsed.options?.map((label) => ({ label })), multi }
 }
 
+/** Last path segment (filename) of a path-ish string. */
+function baseName(p: string): string {
+  const parts = String(p).split(/[\\/]/).filter(Boolean)
+  return parts[parts.length - 1] || String(p)
+}
+/** Collapse whitespace and clip to `n` chars with an ellipsis — keeps status lines short. */
+function clip(s: string, n = 24): string {
+  const t = String(s).replace(/\s+/g, " ").trim()
+  return t.length > n ? t.slice(0, n - 1) + "…" : t
+}
+/** Turn a tool call into a terse "verb + target" status line ("Reading runner.ts", "Running npm test")
+ * so the rail says what the agent is actually doing rather than a generic "running <tool>". */
+function describeWork(name: string, input: unknown): string {
+  const a = (input && typeof input === "object" ? input : {}) as Record<string, any>
+  switch (name) {
+    case "read": return `Reading ${clip(baseName(a.path ?? ""))}`
+    case "write": return `Writing ${clip(baseName(a.path ?? ""))}`
+    case "edit":
+    case "multi_edit": return `Editing ${clip(baseName(a.path ?? ""))}`
+    case "bash": return `Running ${clip(a.command ?? "")}`
+    case "grep": return `Searching ${clip(a.pattern ?? "")}`
+    case "glob": return `Finding ${clip(a.pattern ?? "")}`
+    case "ls": return `Listing ${clip(baseName(a.path ?? "."))}`
+    case "webfetch": return `Fetching ${clip((a.url ?? "").replace(/^https?:\/\//, ""))}`
+    case "websearch": return `Searching ${clip(a.query ?? "")}`
+    case "skill": return `Skill ${clip(a.name ?? "")}`
+    case "exit_plan": return "Finalizing plan"
+    default:
+      return name.startsWith("lsp_") ? `Analyzing ${clip(baseName(a.path ?? ""))}` : `Running ${name.replace(/_/g, " ")}`
+  }
+}
+
 /** Render ask_user answers back to the model: a single answer verbatim, or labeled Q/A pairs. */
 function formatAskAnswers(questions: AskQuestion[], answers: Record<string, string>): string {
   if (questions.length === 1) return answers[questions[0]!.id] ?? "(no answer)"
@@ -685,7 +717,7 @@ export class SessionRunner {
       this.activeAssistantId = id
       this.emit({ type: "message-start", role: "assistant", id, mode: sel.mode })
       this.emit({ type: "mascot", state: "thinking" })
-      this.emit({ type: "status", text: "connecting…", elapsedMs: now() - start })
+      this.emit({ type: "status", text: "Connecting…", elapsedMs: now() - start })
 
       await this.maybeCompact(provider, apiKey, signal, false)
 
@@ -727,14 +759,14 @@ export class SessionRunner {
           if (!streamedText) {
             streamedText = true
             this.emit({ type: "mascot", state: "streaming" })
-            this.emit({ type: "status", text: "streaming…", elapsedMs: now() - start })
+            this.emit({ type: "status", text: "Responding…", elapsedMs: now() - start })
           }
           this.emit({ type: "text", id, delta: d })
         },
         reasoning: (d) => {
           if (!streamedReasoning) {
             streamedReasoning = true
-            this.emit({ type: "status", text: "thinking…", elapsedMs: now() - start })
+            this.emit({ type: "status", text: "Thinking…", elapsedMs: now() - start })
           }
           this.emit({ type: "reasoning", id, delta: d })
         },
@@ -788,9 +820,10 @@ export class SessionRunner {
           continue
         }
 
-        this.emit({ type: "tool-call", id, callId: tc.id, name: tc.name, input: safeParse(tc.arguments) })
+        const parsedArgs = safeParse(tc.arguments)
+        this.emit({ type: "tool-call", id, callId: tc.id, name: tc.name, input: parsedArgs })
         this.emit({ type: "mascot", state: "working" })
-        this.emit({ type: "status", text: `running ${tc.name}…`, elapsedMs: now() - start })
+        this.emit({ type: "status", text: describeWork(tc.name, parsedArgs), elapsedMs: now() - start })
 
         if (tc.name === EXIT_PLAN) {
           // The model has presented a finished plan. Emit it deterministically and LOCK the turn —
@@ -818,7 +851,7 @@ export class SessionRunner {
         if (tc.name === TASK_TOOL) {
           const a = safeParse(tc.arguments) as { description?: string; prompt?: string; agent?: string }
           this.emit({ type: "mascot", state: "working" })
-          this.emit({ type: "status", text: `subagent: ${a.description ?? "task"}…` })
+          this.emit({ type: "status", text: `Subagent · ${clip(a.description ?? "task")}` })
           const summary = await this.runSubagent(a.prompt ?? "", a.agent)
           void this.hook("SubagentStop", { tool_response: summary })
           this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: summary })
