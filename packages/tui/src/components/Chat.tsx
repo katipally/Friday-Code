@@ -126,12 +126,22 @@ function AssistantMessage(props: { item: Extract<ViewItem, { kind: "assistant" }
   )
 }
 
-/** A dim, centered system notice (e.g. context compaction). */
+/** A dim, centered system notice (e.g. context compaction). When it carries a compaction `summary`
+ * it becomes clickable, opening the read-only summary viewer. */
 function NoticeBubble(props: { item: Extract<ViewItem, { kind: "notice" }> }) {
+  const app = useApp()
+  const clickable = () => !!props.item.summary
   return (
     <box flexDirection="row" justifyContent="center" marginBottom={1}>
-      <box border borderStyle="rounded" borderColor={theme.border} paddingLeft={1} paddingRight={1}>
-        <text fg={theme.textFaint}>{props.item.text}</text>
+      <box
+        border
+        borderStyle="rounded"
+        borderColor={theme.border}
+        paddingLeft={1}
+        paddingRight={1}
+        onMouseDown={() => props.item.summary && app.viewCompaction(props.item.summary)}
+      >
+        <text fg={clickable() ? theme.textMuted : theme.textFaint}>{props.item.text}</text>
       </box>
     </box>
   )
@@ -145,10 +155,14 @@ function NoticeBubble(props: { item: Extract<ViewItem, { kind: "notice" }> }) {
 function BreakerRow(props: { item: Extract<ViewItem, { kind: "breaker" }> }) {
   const tint = () => getMode(props.item.mode).accent
   return (
-    <box flexDirection="row" justifyContent="center" marginTop={1} marginBottom={1}>
-      <text fg={tint()}>
-        {"─".repeat(8)} {modeGlyph(props.item.mode)} {props.item.label} {"─".repeat(8)}
-      </text>
+    <box flexDirection="row" justifyContent="center" alignItems="center" gap={1} marginTop={1} marginBottom={1}>
+      <text fg={tint()}>{"─".repeat(8)}</text>
+      <box border borderStyle="rounded" borderColor={tint()} paddingLeft={1} paddingRight={1}>
+        <text fg={tint()}>
+          {modeGlyph(props.item.mode)} {props.item.label}
+        </text>
+      </box>
+      <text fg={tint()}>{"─".repeat(8)}</text>
     </box>
   )
 }

@@ -224,6 +224,12 @@ export class SessionRunner {
 
   private todos: TodoItem[] = []
   private compaction?: { summary: string; throughIndex: number }
+  /** Abort controller for an in-flight compaction summarize call — lets the user STOP it. */
+  private compactionAbort?: AbortController
+  /** Snapshot of the compaction state from before the last compaction, so it can be UNDONE.
+   * (Compaction never drops messages — it only changes what sendMessages() prepends/slices — so
+   * reverting this field fully restores the pre-compaction context.) */
+  private preCompaction?: { compaction?: { summary: string; throughIndex: number } }
 
   constructor(
     private host: RunnerHost,
@@ -570,19 +576,54 @@ export class SessionRunner {
     const floor = this.compaction?.throughIndex ?? 0
     const cut = safeCutIndex(this.messages, this.messages.length - COMPACTION.keepRecent, floor)
     if (cut <= floor) return
-    const before = estimateTokens(this.messages.slice(0, cut))
+    const pct = (n: number) => Math.min(100, Math.round((n / window) * 100))
     void this.hook("PreCompact")
+
+    // A dedicated controller so the user can STOP this compaction; the enclosing run's signal
+    // (loop abort) also cancels it.
+    this.compactionAbort = new AbortController()
+    if (signal.aborted) return this.compactionAbort.abort()
+    signal.addEventListener("abort", () => this.compactionAbort?.abort(), { once: true })
+
+    this.emit({ type: "compaction-start", tokensBefore: used, pctBefore: pct(used), window })
     this.emit({ type: "status", text: "compacting context…" })
-    const summary = await this.summarize(provider, apiKey, signal, this.messages.slice(0, cut), this.compaction?.summary)
-    if (!summary) return
+    const summary = await this.summarize(provider, apiKey, this.compactionAbort.signal, this.messages.slice(0, cut), this.compaction?.summary)
+    if (this.compactionAbort.signal.aborted || !summary) {
+      this.compactionAbort = undefined
+      this.emit({ type: "compaction-aborted" })
+      return
+    }
+    this.compactionAbort = undefined
+
+    // Snapshot the prior state so this compaction can be undone (history itself is untouched).
+    this.preCompaction = { compaction: this.compaction }
     this.compaction = { summary, throughIndex: cut }
+    const after = estimateTokens(this.sendMessages())
     this.emit({
       type: "compaction",
       turnsCompacted: cut - floor,
       kept: this.messages.length - cut,
-      tokensBefore: before,
-      tokensAfter: estimateTokens(this.sendMessages()),
+      tokensBefore: used,
+      tokensAfter: after,
+      summary,
+      pctAfter: pct(after),
     })
+  }
+
+  /** Stop an in-flight compaction (the summarize call); history is left untouched. */
+  stopCompaction(): void {
+    this.compactionAbort?.abort()
+  }
+
+  /** Undo the most recent compaction: revert to the pre-compaction summary state (full history was
+   * never dropped, so reverting the summary index restores the complete context). */
+  undoCompaction(): void {
+    if (this.busy) return this.emit({ type: "status", text: "can't undo while running" })
+    if (!this.preCompaction) return this.emit({ type: "status", text: "nothing to undo" })
+    this.compaction = this.preCompaction.compaction
+    this.preCompaction = undefined
+    this.emit({ type: "notice", text: "↺ compaction undone — full history restored" })
+    this.emit({ type: "status", text: "ready" })
   }
 
   private async summarize(provider: ProviderInfo, apiKey: string | undefined, signal: AbortSignal, msgs: Message[], prior?: string): Promise<string> {

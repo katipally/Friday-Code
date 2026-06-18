@@ -442,6 +442,12 @@ export class Engine {
       case "run-command":
         this.runEngineCommand(cmd.command)
         break
+      case "stop-compaction":
+        this.focused().stopCompaction()
+        break
+      case "undo-compaction":
+        this.focused().undoCompaction()
+        break
       case "permission-reply":
         for (const r of this.runners.values()) if (r.handlePermissionReply(cmd.requestId, cmd.decision)) break
         break

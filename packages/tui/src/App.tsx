@@ -15,6 +15,7 @@ import { KeymapOverlay } from "./components/KeymapOverlay.tsx"
 import { PermissionCard } from "./components/PermissionCard.tsx"
 import { AskCard } from "./components/AskCard.tsx"
 import { PlanCard } from "./components/PlanCard.tsx"
+import { CompactionCard, CompactionSummary } from "./components/CompactionCard.tsx"
 import { ModelModal } from "./components/ModelModal.tsx"
 import { EffortSlider } from "./components/EffortSlider.tsx"
 import { CommandPalette } from "./components/CommandPalette.tsx"
@@ -151,6 +152,8 @@ function Shell() {
       <PermissionCard />
       <AskCard />
       <PlanCard />
+      <CompactionCard />
+      <CompactionSummary />
       <Toasts />
     </box>
   )

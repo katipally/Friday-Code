@@ -1,7 +1,7 @@
 import { createEffect, createSignal, For, Show, type JSX } from "solid-js"
 import { theme, getMode } from "@friday/shared"
 import { useApp } from "../store.tsx"
-import { Reveal, shimmerAccent, useHover } from "../motion/index.ts"
+import { Reveal, shimmerAccent, useHover, useTween } from "../motion/index.ts"
 import { CloseButton } from "./PanelChrome.tsx"
 import { CollapseTab } from "./Divider.tsx"
 import { Pressable } from "./Pressable.tsx"
@@ -114,6 +114,15 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
   const mcpHover = useHover({ base: theme.bgPanel, hover: theme.bgHover })
   const [planHov, setPlanHov] = createSignal(-1)
   const pct = () => (app.contextWindow() > 0 ? Math.min(100, Math.round((app.tokens() / app.contextWindow()) * 100)) : 0)
+  // The bar tweens toward a target: the live usage normally, the "before" level while compacting,
+  // and the freed "after" level the moment a compaction completes (real token count lags a turn).
+  const targetPct = () => {
+    if (app.compacting()) return app.compactPct().before
+    const after = app.compactPct().after
+    return after > 0 && after < pct() ? after : pct()
+  }
+  const shownPct = useTween(targetPct, { duration: 600 })
+  const barPct = () => Math.round(shownPct())
   // Usable text width inside the panel (width minus borders/padding) — drives truncation so long
   // model ids and file paths never wrap and deform the layout at the minimum width.
   const innerW = () => Math.max(8, (props.fullscreen ? 60 : (props.widthOverride ?? app.rightWidth())) - 4)
@@ -151,13 +160,27 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
                 when={app.contextWindow() > 0}
                 fallback={<text fg={theme.textFaint}>{fmtTokens(app.tokens())} tokens · ${app.cost().toFixed(3)}</text>}
               >
-                <text fg={pct() > 80 ? theme.warning : accent()}>
-                  {"█".repeat(Math.round((pct() / 100) * 12))}
-                  {"░".repeat(12 - Math.round((pct() / 100) * 12))} {pct()}%
+                <text fg={app.compacting() ? accent() : barPct() > 80 ? theme.warning : accent()}>
+                  {"█".repeat(Math.round((barPct() / 100) * 12))}
+                  {"░".repeat(12 - Math.round((barPct() / 100) * 12))} {barPct()}%
+                  {app.compacting() ? " ↻" : ""}
                 </text>
                 <text fg={theme.textFaint}>
                   {fmtTokens(app.tokens())}/{fmtTokens(app.contextWindow())} · ${app.cost().toFixed(3)}
                 </text>
+              </Show>
+            </box>
+
+            {/* Compaction controls: trigger, stop (while running), undo (after a compaction). */}
+            <box flexDirection="row" gap={2}>
+              <Show
+                when={!app.compacting()}
+                fallback={<Pressable label="■ stop" fg={theme.error} onClick={() => app.stopCompact()} />}
+              >
+                <Pressable label="↻ compact chat" onClick={() => app.compactNow()} />
+              </Show>
+              <Show when={app.canUndoCompact() && !app.compacting()}>
+                <Pressable label="↶ undo" onClick={() => app.undoCompact()} />
               </Show>
             </box>
 

@@ -164,5 +164,20 @@ test("issue 4: auto-compaction triggers off the real input-token count", async (
   }
 
   expect(events.some((e) => e.type === "compaction")).toBe(true)
+  // Lifecycle: a start event precedes the done event, and the done event carries the summary text.
+  expect(events.some((e) => e.type === "compaction-start")).toBe(true)
+  const done = events.find((e) => e.type === "compaction") as Extract<EngineEvent, { type: "compaction" }>
+  expect(done.summary).toContain("SUMMARY of earlier turns")
+  expect(done.pctAfter).toBeGreaterThanOrEqual(0)
+
+  // Undo restores full history (emits a notice) and is idempotent afterwards.
+  events.length = 0
+  engine.send({ type: "undo-compaction" })
+  await Bun.sleep(10)
+  expect(events.some((e) => e.type === "notice" && /undone/i.test((e as any).text))).toBe(true)
+  events.length = 0
+  engine.send({ type: "undo-compaction" })
+  await Bun.sleep(10)
+  expect(events.some((e) => e.type === "notice")).toBe(false) // nothing left to undo
   fs.rmSync(dir, { recursive: true, force: true })
 })

@@ -48,7 +48,7 @@ export type ViewItem =
       open: boolean
     }
   | { kind: "error"; id: string; text: string }
-  | { kind: "notice"; id: string; text: string }
+  | { kind: "notice"; id: string; text: string; summary?: string }
   /** a flow divider shown when a plan is accepted: "running · <mode>" tinted by the chosen mode. */
   | { kind: "breaker"; id: string; mode: ModeId; label: string }
 
@@ -153,6 +153,13 @@ export function createAppStore(engine: Engine) {
   const [sessionStatus, setSessionStatus] = createSignal<Record<string, string>>({})
   const [sessionMascot, setSessionMascot] = createSignal<Record<string, MascotState>>({})
   const [sessionChanged, setSessionChanged] = createSignal<Record<string, ChangedFile[]>>({})
+  // Compaction progress + controls, per session.
+  const [sessionCompacting, setSessionCompacting] = createSignal<Record<string, boolean>>({})
+  const [sessionCompactPct, setSessionCompactPct] = createSignal<Record<string, { before: number; after: number }>>({})
+  const [sessionSummary, setSessionSummary] = createSignal<Record<string, string>>({})
+  const [sessionCanUndoCompact, setSessionCanUndoCompact] = createSignal<Record<string, boolean>>({})
+  // The read-only "compaction summary" viewer (a string when open, null when closed) — global modal.
+  const [compactionView, setCompactionView] = createSignal<string | null>(null)
   // Per-session unread marker: the item count last seen while focused on a session.
   const [sessionSeenLen, setSessionSeenLen] = createSignal<Record<string, number>>({})
   const [contextWindow, setContextWindow] = createSignal(0)
@@ -211,6 +218,10 @@ export function createAppStore(engine: Engine) {
   const sessionRunning = (id: string) => !!sessionBusy()[id]
   const sessionNeedsInput = (id: string) => !!sessionNeeds()[id]
   const sessionTokenCount = (id: string) => sessionTokens()[id] ?? 0
+  const compacting = () => !!sessionCompacting()[activeSession()]
+  const compactPct = () => sessionCompactPct()[activeSession()] ?? { before: 0, after: 0 }
+  const lastSummary = () => sessionSummary()[activeSession()] ?? null
+  const canUndoCompact = () => !!sessionCanUndoCompact()[activeSession()]
 
   // Single source of truth: is ANY blocking overlay / modal / HITL prompt on screen?
   // Used to blur the composer, gate global keys, and freeze chat scroll so keystrokes never
@@ -219,6 +230,7 @@ export function createAppStore(engine: Engine) {
   const anyModalOpen = () =>
     overlayOpen() || modelModalOpen() || onboardingOpen() || effortOpen() || paletteOpen() ||
     historyOpen() || dirModalOpen() || mcpModalOpen() || checkpointsOpen() || forkOpen() ||
+    compacting() || !!compactionView() ||
     !!pending() || !!askPending() || !!planPending()
 
   const titleOf = (id: string) =>
@@ -492,15 +504,28 @@ export function createAppStore(engine: Engine) {
       case "notice":
         appendItem(sid, { kind: "notice", id: nextLocalId(), text: e.text })
         break
+      case "compaction-start":
+        setKey(setSessionCompacting, sid, true)
+        setKey(setSessionCompactPct, sid, { before: e.pctBefore, after: e.pctBefore })
+        break
       case "compaction": {
         const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
+        setKey(setSessionCompacting, sid, false)
+        const before = sessionCompactPct()[sid]?.before ?? e.pctAfter
+        setKey(setSessionCompactPct, sid, { before, after: e.pctAfter })
+        setKey(setSessionSummary, sid, e.summary)
+        setKey(setSessionCanUndoCompact, sid, true)
         appendItem(sid, {
           kind: "notice",
           id: nextLocalId(),
-          text: `↻ compacted ${e.turnsCompacted} earlier messages · kept ${e.kept} recent · ~${k(e.tokensBefore)} → ${k(e.tokensAfter)} tokens`,
+          text: `↻ compacted ${e.turnsCompacted} earlier messages · kept ${e.kept} recent · ~${k(e.tokensBefore)} → ${k(e.tokensAfter)} tokens · view summary`,
+          summary: e.summary,
         })
         break
       }
+      case "compaction-aborted":
+        setKey(setSessionCompacting, sid, false)
+        break
       case "error":
         appendItem(sid, { kind: "error", id: nextLocalId(), text: e.message })
         setKey(setSessionBusy, sid, false)
@@ -713,6 +738,25 @@ export function createAppStore(engine: Engine) {
     setKey(setSessionPlanPending, activeSession(), entry)
   }
 
+  // ---- compaction controls ----
+  /** Manually trigger compaction now (sidebar button / /compact). */
+  function compactNow() {
+    sendEngineCommand("compact")
+  }
+  /** Stop an in-flight compaction. */
+  function stopCompact() {
+    engine.send({ type: "stop-compaction" })
+  }
+  /** Undo the last completed compaction (restores full history) — optimistically clears the flag. */
+  function undoCompact() {
+    engine.send({ type: "undo-compaction" })
+    setKey(setSessionCanUndoCompact, activeSession(), false)
+  }
+  /** Open the read-only compaction-summary viewer. */
+  function viewCompaction(text: string) {
+    setCompactionView(text)
+  }
+
   function connectAndSelect(
     providerId: string,
     model: string,
@@ -876,6 +920,16 @@ export function createAppStore(engine: Engine) {
     executePlan,
     refinePlan,
     viewPlan,
+    compacting,
+    compactPct,
+    lastSummary,
+    canUndoCompact,
+    compactionView,
+    setCompactionView,
+    compactNow,
+    stopCompact,
+    undoCompact,
+    viewCompaction,
     items,
     sessions,
     activeSession,
