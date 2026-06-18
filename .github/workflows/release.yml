@@ -116,15 +116,16 @@ jobs:
         with:
           pattern: npm-*
           path: npm
+          merge-multiple: true
 
       - name: Publish platform packages, then the launcher
         run: |
           set -e
-          for dir in npm/npm-darwin-* npm/npm-linux-* npm/npm-win32-*; do
+          for dir in ./npm/friday-code-darwin-* ./npm/friday-code-linux-* ./npm/friday-code-win32-*; do
             echo "publishing $dir"
             npm publish "$dir" --provenance --access public
           done
           echo "publishing launcher"
-          npm publish npm/npm-launcher --provenance --access public
+          npm publish ./npm/friday-code --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
