@@ -1,14 +1,14 @@
 import fs from "node:fs"
 import path from "node:path"
-import { createMemo, createSignal, For, Show } from "solid-js"
+import { getMode, theme } from "@friday/shared"
 import { useKeyboard } from "@opentui/solid"
-import { theme, getMode } from "@friday/shared"
+import { createMemo, createSignal, For, Show } from "solid-js"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
 
 function home(p: string): string {
   const h = process.env.HOME
-  return h && p.startsWith(h) ? "~" + p.slice(h.length) : p
+  return h && p.startsWith(h) ? `~${p.slice(h.length)}` : p
 }
 function expand(v: string): string {
   return v.startsWith("~") ? (process.env.HOME ?? "") + v.slice(1) : v
@@ -27,7 +27,11 @@ export function DirectoryModal() {
     const seen = new Set<string>()
     const out: string[] = []
     for (const s of app.allSessions())
-      for (const r of s.roots.length ? s.roots : [s.cwd]) if (!seen.has(r)) (seen.add(r), out.push(r))
+      for (const r of s.roots.length ? s.roots : [s.cwd])
+        if (!seen.has(r)) {
+          seen.add(r)
+          out.push(r)
+        }
     return out.filter((r) => !app.roots().includes(r)).slice(0, 6)
   })
 
@@ -89,7 +93,7 @@ export function DirectoryModal() {
     if (s.length) {
       if (key.name === "up") return setSel((x) => (x - 1 + s.length) % s.length)
       if (key.name === "down") return setSel((x) => (x + 1) % s.length)
-      if (key.name === "tab" && !key.shift) return setComposer(s[Math.min(sel(), s.length - 1)]! + "/")
+      if (key.name === "tab" && !key.shift) return setComposer(`${s[Math.min(sel(), s.length - 1)]!}/`)
     }
   })
 
@@ -160,7 +164,12 @@ export function DirectoryModal() {
           <box flexDirection="column">
             <For each={suggestions()}>
               {(d, i) => (
-                <box paddingLeft={1} backgroundColor={sel() === i() ? theme.bgHover : "transparent"} onMouseOver={() => setSel(i())} onMouseDown={() => setComposer(d + "/")}>
+                <box
+                  paddingLeft={1}
+                  backgroundColor={sel() === i() ? theme.bgHover : "transparent"}
+                  onMouseOver={() => setSel(i())}
+                  onMouseDown={() => setComposer(`${d}/`)}
+                >
                   <text fg={sel() === i() ? accent() : theme.textMuted}> {home(d)}</text>
                 </box>
               )}
@@ -173,7 +182,14 @@ export function DirectoryModal() {
         </Show>
 
         <box flexDirection="row" gap={2}>
-          <box border borderStyle="rounded" borderColor={theme.success} paddingLeft={1} paddingRight={1} onMouseDown={() => openDir()}>
+          <box
+            border
+            borderStyle="rounded"
+            borderColor={theme.success}
+            paddingLeft={1}
+            paddingRight={1}
+            onMouseDown={() => openDir()}
+          >
             <text fg={theme.success}>open here ⏎</text>
             <text fg={theme.textFaint}> (new session)</text>
           </box>

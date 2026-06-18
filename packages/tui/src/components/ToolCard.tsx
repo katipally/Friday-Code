@@ -1,9 +1,9 @@
+import { GLYPH, getMode, theme } from "@friday/shared"
 import { Show } from "solid-js"
-import { theme, getMode, GLYPH } from "@friday/shared"
 import { useApp, type ViewItem } from "../store.tsx"
+import { G } from "../util/term.ts"
 import { useSpinner } from "../util/useSpinner.ts"
 import { DiffCard } from "./DiffCard.tsx"
-import { G } from "../util/term.ts"
 
 const MAX_OUTPUT_LINES = 12
 
@@ -25,7 +25,7 @@ export function ToolCard(props: { item: Extract<ViewItem, { kind: "tool" }> }) {
   const clippedOutput = () => {
     const lines = outputLines()
     if (!props.item.open && lines.length > MAX_OUTPUT_LINES) {
-      return lines.slice(0, MAX_OUTPUT_LINES).join("\n") + `\n… ${lines.length - MAX_OUTPUT_LINES} more lines`
+      return `${lines.slice(0, MAX_OUTPUT_LINES).join("\n")}\n… ${lines.length - MAX_OUTPUT_LINES} more lines`
     }
     return props.item.output
   }

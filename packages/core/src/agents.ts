@@ -18,12 +18,21 @@ function parse(raw: string, fallbackName: string): Omit<AgentDef, "source"> {
   const m = raw.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/)
   if (!m) return { name: fallbackName, description: "", content: raw.trim() }
   const meta = m[1]!
-  const field = (k: string) => meta.match(new RegExp(`^${k}:\\s*(.+)$`, "m"))?.[1]?.trim().replace(/^["']|["']$/g, "")
+  const field = (k: string) =>
+    meta
+      .match(new RegExp(`^${k}:\\s*(.+)$`, "m"))?.[1]
+      ?.trim()
+      .replace(/^["']|["']$/g, "")
   const toolsRaw = field("tools")
   return {
     name: field("name") || fallbackName,
     description: field("description") || "",
-    tools: toolsRaw ? toolsRaw.split(",").map((t) => t.trim()).filter(Boolean) : undefined,
+    tools: toolsRaw
+      ? toolsRaw
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean)
+      : undefined,
     model: field("model") || undefined,
     content: m[2]!.trim(),
   }

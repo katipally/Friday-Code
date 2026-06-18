@@ -2,12 +2,18 @@ import fs from "node:fs/promises"
 import path from "node:path"
 import { obj, type Tool, type ToolContext, type ToolResult } from "../tool.ts"
 
-type Cell = { cell_type: string; source: string[]; metadata?: Record<string, unknown>; outputs?: unknown[]; execution_count?: number | null }
+type Cell = {
+  cell_type: string
+  source: string[]
+  metadata?: Record<string, unknown>
+  outputs?: unknown[]
+  execution_count?: number | null
+}
 
 function toSource(s: string): string[] {
   // Jupyter stores source as an array of lines, each keeping its trailing newline except the last.
   const lines = s.split("\n")
-  return lines.map((l, i) => (i < lines.length - 1 ? l + "\n" : l))
+  return lines.map((l, i) => (i < lines.length - 1 ? `${l}\n` : l))
 }
 
 export const notebookEditTool: Tool = {
@@ -39,7 +45,8 @@ export const notebookEditTool: Tool = {
     const idx = input.cell ?? 0
 
     if (input.action === "edit") {
-      if (idx < 0 || idx >= cells.length) return { output: `Error: cell ${idx} out of range (0..${cells.length - 1})`, isError: true }
+      if (idx < 0 || idx >= cells.length)
+        return { output: `Error: cell ${idx} out of range (0..${cells.length - 1})`, isError: true }
       cells[idx]!.source = toSource(String(input.source ?? ""))
       if (cells[idx]!.cell_type === "code") cells[idx]!.outputs = []
     } else if (input.action === "insert") {
@@ -58,10 +65,13 @@ export const notebookEditTool: Tool = {
     }
 
     try {
-      await fs.writeFile(full, JSON.stringify(nb, null, 1) + "\n")
+      await fs.writeFile(full, `${JSON.stringify(nb, null, 1)}\n`)
     } catch (e: any) {
       return { output: `Error: cannot write notebook: ${e.message}`, isError: true }
     }
-    return { output: `Notebook ${input.action} on cell ${idx} (${cells.length} cells)`, title: `notebook_edit ${path.basename(full)}` }
+    return {
+      output: `Notebook ${input.action} on cell ${idx} (${cells.length} cells)`,
+      title: `notebook_edit ${path.basename(full)}`,
+    }
   },
 }

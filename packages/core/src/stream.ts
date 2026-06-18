@@ -1,5 +1,5 @@
-import type { ProviderEvent, ProviderInfo } from "@friday/shared"
 import type { streamProvider } from "@friday/providers"
+import type { ProviderEvent, ProviderInfo } from "@friday/shared"
 
 /** The provider streaming function (overridable in tests). */
 export type StreamFn = (

@@ -1,13 +1,17 @@
-import { createSignal, onMount, onCleanup, Show, type JSX } from "solid-js"
+import { createSignal, type JSX, onCleanup, onMount, Show } from "solid-js"
 import { animate } from "./animate.ts"
 import { motion } from "./config.ts"
-import { easeOutQuad, easeOutBack, type Ease } from "./easing.ts"
+import { type Ease, easeOutBack, easeOutQuad } from "./easing.ts"
 
 /** Fade children in on mount (opacity 0→1). Snaps when reduced-motion. */
 export function Fade(props: { children: JSX.Element; duration?: number; delay?: number; ease?: Ease }) {
   const [op, setOp] = createSignal(motion.reduced() ? 1 : 0)
   onMount(() => {
-    const stop = animate(0, 1, setOp, { duration: props.duration ?? 160, delay: props.delay, ease: props.ease ?? easeOutQuad })
+    const stop = animate(0, 1, setOp, {
+      duration: props.duration ?? 160,
+      delay: props.delay,
+      ease: props.ease ?? easeOutQuad,
+    })
     onCleanup(stop)
   })
   return <box style={{ opacity: op() }}>{props.children}</box>
@@ -30,7 +34,11 @@ export function Appear(props: {
   const [op, setOp] = createSignal(motion.reduced() ? 1 : 0)
   onMount(() => {
     const dur = props.duration ?? 200
-    const s1 = animate(dist, 0, (v) => setOff(Math.round(v)), { duration: dur, delay: props.delay, ease: props.ease ?? easeOutBack })
+    const s1 = animate(dist, 0, (v) => setOff(Math.round(v)), {
+      duration: dur,
+      delay: props.delay,
+      ease: props.ease ?? easeOutBack,
+    })
     const s2 = animate(0, 1, setOp, { duration: dur * 0.8, delay: props.delay, ease: easeOutQuad })
     onCleanup(() => {
       s1()

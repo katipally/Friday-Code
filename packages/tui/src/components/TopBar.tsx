@@ -1,12 +1,12 @@
+import { BRAND, getMode, theme } from "@friday/shared"
 import { Show } from "solid-js"
-import { theme, getMode, BRAND } from "@friday/shared"
-import { useApp } from "../store.tsx"
 import { shimmerAccent } from "../motion/index.ts"
+import { useApp } from "../store.tsx"
 
 function home(p: string): string {
   const h = process.env.HOME
-  const s = h && p.startsWith(h) ? "~" + p.slice(h.length) : p
-  return s.length > 40 ? "…" + s.slice(-39) : s
+  const s = h && p.startsWith(h) ? `~${p.slice(h.length)}` : p
+  return s.length > 40 ? `…${s.slice(-39)}` : s
 }
 
 /** Top rail: a single clean row — the `friday code` wordmark + version + working directory. */
@@ -16,7 +16,15 @@ export function TopBar() {
   const extra = () => app.roots().length - 1
 
   return (
-    <box flexDirection="row" height={1} paddingLeft={1} paddingRight={1} alignItems="center" justifyContent="center" gap={1}>
+    <box
+      flexDirection="row"
+      height={1}
+      paddingLeft={1}
+      paddingRight={1}
+      alignItems="center"
+      justifyContent="center"
+      gap={1}
+    >
       <text fg={accent()}>
         <strong>{BRAND.name}</strong>
       </text>

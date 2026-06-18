@@ -1,6 +1,6 @@
-import { test, expect } from "bun:test"
-import os from "node:os"
+import { expect, test } from "bun:test"
 import fs from "node:fs"
+import os from "node:os"
 import path from "node:path"
 import type { EngineEvent, ProviderEvent } from "@friday/shared"
 import { Engine, type StreamFn } from "../src/index.ts"
@@ -21,8 +21,14 @@ async function seededEngine() {
   const engine = new Engine({
     cwd,
     streamFn: scripted([
-      [{ type: "text", delta: "answer one" }, { type: "done", stopReason: "stop" }],
-      [{ type: "text", delta: "answer two" }, { type: "done", stopReason: "stop" }],
+      [
+        { type: "text", delta: "answer one" },
+        { type: "done", stopReason: "stop" },
+      ],
+      [
+        { type: "text", delta: "answer two" },
+        { type: "done", stopReason: "stop" },
+      ],
     ]),
   })
   engine.selectModel("mock", "m")

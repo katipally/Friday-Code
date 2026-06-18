@@ -1,6 +1,6 @@
-import { test, expect, beforeEach } from "bun:test"
-import os from "node:os"
+import { beforeEach, expect, test } from "bun:test"
 import fs from "node:fs"
+import os from "node:os"
 import path from "node:path"
 
 // Isolate ~/.friday for this test before importing the module that reads it.

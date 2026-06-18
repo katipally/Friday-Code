@@ -1,6 +1,6 @@
-import { test, expect } from "bun:test"
-import os from "node:os"
+import { expect, test } from "bun:test"
 import fs from "node:fs"
+import os from "node:os"
 import path from "node:path"
 import type { ChatRequest, EngineEvent, ProviderEvent } from "@friday/shared"
 import { Engine, loadAgents, type StreamFn } from "../src/index.ts"
@@ -36,7 +36,10 @@ function cwdWithAgent(body: string, meta: string): string {
 }
 
 test("loadAgents parses name/description/tools/model from frontmatter", () => {
-  const cwd = cwdWithAgent("You are a code reviewer.", "name: reviewer\ndescription: reviews code\ntools: grep, glob\nmodel: some-model")
+  const cwd = cwdWithAgent(
+    "You are a code reviewer.",
+    "name: reviewer\ndescription: reviews code\ntools: grep, glob\nmodel: some-model",
+  )
   const agents = loadAgents([cwd])
   const a = agents.find((x) => x.name === "reviewer")!
   expect(a.description).toBe("reviews code")
@@ -46,7 +49,10 @@ test("loadAgents parses name/description/tools/model from frontmatter", () => {
 })
 
 test("a custom agent supplies the sub-agent's prompt and narrows its tools", async () => {
-  const cwd = cwdWithAgent("You are a meticulous code reviewer.", "name: reviewer\ndescription: reviews code\ntools: grep")
+  const cwd = cwdWithAgent(
+    "You are a meticulous code reviewer.",
+    "name: reviewer\ndescription: reviews code\ntools: grep",
+  )
   const requests: ChatRequest[] = []
   const engine = new Engine({
     cwd,
@@ -55,13 +61,23 @@ test("a custom agent supplies the sub-agent's prompt and narrows its tools", asy
         // main turn 1: spawn the custom agent
         [
           { type: "tool_start", index: 0, id: "t1", name: "task" },
-          { type: "tool_delta", index: 0, argsDelta: JSON.stringify({ description: "review", prompt: "review the diff", agent: "reviewer" }) },
+          {
+            type: "tool_delta",
+            index: 0,
+            argsDelta: JSON.stringify({ description: "review", prompt: "review the diff", agent: "reviewer" }),
+          },
           { type: "done", stopReason: "tool_use" },
         ],
         // sub-agent turn: returns text, no tools
-        [{ type: "text", delta: "Looks good." }, { type: "done", stopReason: "stop" }],
+        [
+          { type: "text", delta: "Looks good." },
+          { type: "done", stopReason: "stop" },
+        ],
         // main turn 2: final answer
-        [{ type: "text", delta: "Done." }, { type: "done", stopReason: "stop" }],
+        [
+          { type: "text", delta: "Done." },
+          { type: "done", stopReason: "stop" },
+        ],
       ],
       requests,
     ),
@@ -92,7 +108,11 @@ test("sub-agent tool calls fire the PreToolUse hook", async () => {
       // main turn: spawn an explore sub-agent
       [
         { type: "tool_start", index: 0, id: "t1", name: "task" },
-        { type: "tool_delta", index: 0, argsDelta: JSON.stringify({ description: "scan", prompt: "search", agent: "explore" }) },
+        {
+          type: "tool_delta",
+          index: 0,
+          argsDelta: JSON.stringify({ description: "scan", prompt: "search", agent: "explore" }),
+        },
         { type: "done", stopReason: "tool_use" },
       ],
       // sub-agent step 0: call a read tool (grep)
@@ -102,9 +122,15 @@ test("sub-agent tool calls fire the PreToolUse hook", async () => {
         { type: "done", stopReason: "tool_use" },
       ],
       // sub-agent step 1: finish
-      [{ type: "text", delta: "nothing found" }, { type: "done", stopReason: "stop" }],
+      [
+        { type: "text", delta: "nothing found" },
+        { type: "done", stopReason: "stop" },
+      ],
       // main turn 2: final answer
-      [{ type: "text", delta: "done" }, { type: "done", stopReason: "stop" }],
+      [
+        { type: "text", delta: "done" },
+        { type: "done", stopReason: "stop" },
+      ],
     ]),
   })
   engine.selectModel("mock", "m")

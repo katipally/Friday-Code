@@ -44,7 +44,10 @@ export const globTool: Tool = {
       return { output: `Error: ${e.message}`, isError: true }
     }
     results.sort()
-    return { output: results.length ? results.join("\n") : "(no matches)", title: `glob ${input.pattern} (${results.length})` }
+    return {
+      output: results.length ? results.join("\n") : "(no matches)",
+      title: `glob ${input.pattern} (${results.length})`,
+    }
   },
 }
 

@@ -1,10 +1,10 @@
-import { createSignal, For } from "solid-js"
+import { getMode, theme } from "@friday/shared"
 import { useKeyboard } from "@opentui/solid"
-import { theme, getMode } from "@friday/shared"
+import { createSignal, For } from "solid-js"
+import { motion } from "../motion/index.ts"
 import { useApp } from "../store.tsx"
 import { Logo } from "./Logo.tsx"
 import { Scrim } from "./Scrim.tsx"
-import { motion } from "../motion/index.ts"
 
 const TOUR: { keys: string; what: string }[] = [
   { keys: "⇧⭾", what: "cycle mode: plan · default · accept-edit · yolo" },
@@ -48,7 +48,16 @@ export function Onboarding() {
 
   return (
     <Scrim onClose={skip}>
-      <box flexDirection="column" border borderStyle="rounded" borderColor={accent()} backgroundColor={theme.bgElevated} padding={1} gap={1} width={64}>
+      <box
+        flexDirection="column"
+        border
+        borderStyle="rounded"
+        borderColor={accent()}
+        backgroundColor={theme.bgElevated}
+        padding={1}
+        gap={1}
+        width={64}
+      >
         <box alignItems="center">
           <Logo />
         </box>

@@ -1,6 +1,6 @@
-import { test, expect } from "bun:test"
-import os from "node:os"
+import { expect, test } from "bun:test"
 import fs from "node:fs"
+import os from "node:os"
 import path from "node:path"
 import type { EngineEvent, ProviderEvent } from "@friday/shared"
 import { Engine, type StreamFn } from "../src/index.ts"
@@ -21,6 +21,17 @@ function collect(engine: Engine): EngineEvent[] {
   const events: EngineEvent[] = []
   engine.subscribe((e) => events.push(e))
   return events
+}
+
+// Poll a condition instead of sleeping a fixed amount — robust under parallel
+// test load where bash + git snapshot subprocesses can take longer than usual.
+async function waitFor(cond: () => boolean, timeoutMs = 5000, stepMs = 20): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (cond()) return true
+    await Bun.sleep(stepMs)
+  }
+  return cond()
 }
 
 test("issue 1: an intermediate tool-call step emits message-stop, only the final step turn-done", async () => {
@@ -94,7 +105,10 @@ test("gap A: aborting while an ask_user is pending unblocks the turn instead of 
       { type: "tool_stop", index: 0 },
       { type: "done", stopReason: "tool_use" },
     ],
-    [{ type: "text", delta: "ok" }, { type: "done", stopReason: "stop" }],
+    [
+      { type: "text", delta: "ok" },
+      { type: "done", stopReason: "stop" },
+    ],
   ])
   const engine = new Engine({ cwd: dir, streamFn })
   engine.selectModel("mock", "mock-model")
@@ -142,7 +156,9 @@ test("issue 4: auto-compaction triggers off the real input-token count", async (
   // Each normal turn reports a large real input (≈170k); the summarizer call (recognized by its
   // system prompt) returns a short summary so compaction can complete.
   const streamFn: StreamFn = async function* (_p, _k, req) {
-    const isSummary = req.messages.some((m) => m.role === "system" && (m.text ?? "").includes("compress coding-session transcripts"))
+    const isSummary = req.messages.some(
+      (m) => m.role === "system" && (m.text ?? "").includes("compress coding-session transcripts"),
+    )
     if (isSummary) {
       yield { type: "text", delta: "SUMMARY of earlier turns." }
       yield { type: "done", stopReason: "stop" }
@@ -188,7 +204,9 @@ test("reactive compaction: an overflow error triggers a compaction + retry, not 
   // Normal turns return "ok" (no usage → no proactive compaction). Once enough history exists, the
   // next request throws a 413-style overflow exactly once; the runner should compact and retry.
   const streamFn: StreamFn = async function* (_p, _k, req) {
-    const isSummary = req.messages.some((m) => m.role === "system" && (m.text ?? "").includes("compress coding-session transcripts"))
+    const isSummary = req.messages.some(
+      (m) => m.role === "system" && (m.text ?? "").includes("compress coding-session transcripts"),
+    )
     if (isSummary) {
       yield { type: "text", delta: "SUMMARY of earlier turns." }
       yield { type: "done", stopReason: "stop" }
@@ -219,6 +237,8 @@ test("reactive compaction: an overflow error triggers a compaction + retry, not 
   fs.rmSync(dir, { recursive: true, force: true })
 })
 
+// Heavy on real subprocesses (git init/commit + bash + snapshot); give it room
+// beyond the 5s default since the whole suite runs files concurrently.
 test("checkpoint captures bash-created files; rewind both removes them", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-test-"))
   const git = (...a: string[]) => Bun.spawnSync(["git", ...a], { cwd: dir })
@@ -244,22 +264,30 @@ test("checkpoint captures bash-created files; rewind both removes them", async (
   const engine = new Engine({ cwd: dir, streamFn })
   engine.send({ type: "set-mode", mode: "yolo" })
   engine.selectModel("mock", "mock-model")
-  collect(engine)
+  const events = collect(engine)
   engine.send({ type: "prompt", text: "make a file" })
-  await Bun.sleep(600) // bash + several git subprocesses for the snapshot
+  // Wait for the turn to actually finish (turn-done fires after busy clears) —
+  // restoreCheckpoint() no-ops while the runner is busy, so polling only for the
+  // file/checkpoint would race the still-running second turn under load.
+  await waitFor(() => events.some((e) => e.type === "turn-done") && engine.listCheckpoints().length > 0)
 
   expect(fs.existsSync(path.join(dir, "created.txt"))).toBe(true) // bash created it
   const cps = engine.listCheckpoints()
   expect(cps.length).toBeGreaterThan(0)
   engine.restoreCheckpoint(cps[0]!.id, "both")
-  await Bun.sleep(30)
+  await waitFor(() => !fs.existsSync(path.join(dir, "created.txt")))
   expect(fs.existsSync(path.join(dir, "created.txt"))).toBe(false) // rewind removed the bash-created file
   fs.rmSync(dir, { recursive: true, force: true })
-})
+}, 20_000)
 
 test("scoped rewind: code-only keeps the conversation, conversation-only keeps the files", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-test-"))
-  const streamFn = makeStreamFn([[{ type: "text", delta: "ok" }, { type: "done", stopReason: "stop" }]])
+  const streamFn = makeStreamFn([
+    [
+      { type: "text", delta: "ok" },
+      { type: "done", stopReason: "stop" },
+    ],
+  ])
   const engine = new Engine({ cwd: dir, streamFn })
   engine.send({ type: "set-mode", mode: "yolo" })
   engine.selectModel("mock", "mock-model")
@@ -268,8 +296,7 @@ test("scoped rewind: code-only keeps the conversation, conversation-only keeps t
     engine.send({ type: "prompt", text: `turn ${i}` })
     await Bun.sleep(40)
   }
-  const beforeLen = (events.filter((e) => e.type === "session-loaded").pop() as any)?.messages?.length ?? 0
-  const fullLen = engine.listCheckpoints().length > 0 ? 4 : 4 // 2 turns × (user+assistant)
+  const fullLen = 4 // 2 turns × (user + assistant)
 
   // code-only restore re-emits session-loaded with the SAME message count (conversation untouched).
   events.length = 0

@@ -1,10 +1,10 @@
-import { createEffect, createSignal, For, Show } from "solid-js"
+import { type AskOption, getMode, theme } from "@friday/shared"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
-import { theme, getMode, type AskOption } from "@friday/shared"
-import { useApp, type PendingAsk } from "../store.tsx"
-import { Scrim } from "./Scrim.tsx"
-import { useHover, shimmerAccent } from "../motion/index.ts"
+import { createEffect, createSignal, For, Show } from "solid-js"
+import { shimmerAccent, useHover } from "../motion/index.ts"
+import { type PendingAsk, useApp } from "../store.tsx"
 import { G } from "../util/term.ts"
+import { Scrim } from "./Scrim.tsx"
 
 /** A question-tab pill with a smooth hover fade. */
 function Tab(props: { label: string; active: boolean; done: boolean; accent: string; onSelect: () => void }) {
@@ -104,7 +104,7 @@ export function AskCard() {
     const out: Record<string, string> = {}
     for (const qq of questions()) {
       const v = qq.multi ? (multi()[qq.id] ?? []).join(", ") : answers()[qq.id]
-      out[qq.id] = v && v.length ? v : "(no answer)"
+      out[qq.id] = v?.length ? v : "(no answer)"
     }
     app.replyAsk(out)
   }
@@ -279,10 +279,14 @@ export function AskCard() {
                           <box flexDirection="row" gap={1}>
                             <text fg={active() ? accent() : theme.textFaint}>{active() ? G.caret : " "}</text>
                             <Show when={q()?.multi}>
-                              <text fg={checked() ? theme.success : theme.textFaint}>{checked() ? G.todoDone : G.todoOpen}</text>
+                              <text fg={checked() ? theme.success : theme.textFaint}>
+                                {checked() ? G.todoDone : G.todoOpen}
+                              </text>
                             </Show>
                             <text fg={theme.textFaint}>{i() + 1}</text>
-                            <text fg={active() || picked() || checked() ? theme.text : theme.textMuted}>{opt.label}</text>
+                            <text fg={active() || picked() || checked() ? theme.text : theme.textMuted}>
+                              {opt.label}
+                            </text>
                             <Show when={opt.preview}>
                               <text fg={theme.textFaint}>{G.caret}▦</text>
                             </Show>
@@ -319,7 +323,14 @@ export function AskCard() {
 
                 {/* The custom-answer editor — only focused while typing so it never steals option keys. */}
                 <Show when={typing()}>
-                  <box border borderStyle="rounded" borderColor={accent()} paddingLeft={1} paddingRight={1} marginTop={1}>
+                  <box
+                    border
+                    borderStyle="rounded"
+                    borderColor={accent()}
+                    paddingLeft={1}
+                    paddingRight={1}
+                    marginTop={1}
+                  >
                     <textarea
                       ref={(r: any) => (input = r)}
                       onSubmit={submitFree}
@@ -370,7 +381,9 @@ export function AskCard() {
                 onMouseOut={confirmHover.onMouseOut}
                 onMouseDown={confirm}
               >
-                <text fg={allAnswered() ? theme.success : theme.textMuted}>{G.todoDone} confirm{allAnswered() ? " all" : ""}</text>
+                <text fg={allAnswered() ? theme.success : theme.textMuted}>
+                  {G.todoDone} confirm{allAnswered() ? " all" : ""}
+                </text>
               </box>
               <box flexGrow={1} />
               <text fg={theme.textFaint}>

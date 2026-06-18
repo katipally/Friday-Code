@@ -1,8 +1,8 @@
 import fs from "node:fs/promises"
 import path from "node:path"
-import { obj, type Tool, type ToolContext, type ToolResult } from "../tool.ts"
 import { diffStats, unifiedDiff } from "../diff.ts"
-import { replaceInContent, EditError } from "./editStrategies.ts"
+import { obj, type Tool, type ToolContext, type ToolResult } from "../tool.ts"
+import { EditError, replaceInContent } from "./editStrategies.ts"
 
 type Hunk = { before: string; after: string }
 type FilePatch = { oldPath: string; newPath: string; hunks: Hunk[] }
@@ -85,7 +85,10 @@ export const applyPatchTool: Tool = {
   permission: "edit",
   parameters: obj(
     {
-      patch: { type: "string", description: "A unified diff (--- a/file / +++ b/file / @@ hunks). /dev/null marks create or delete." },
+      patch: {
+        type: "string",
+        description: "A unified diff (--- a/file / +++ b/file / @@ hunks). /dev/null marks create or delete.",
+      },
     },
     ["patch"],
   ),

@@ -1,11 +1,11 @@
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
+import { getMode, type ModeId, theme } from "@friday/shared"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
-import { theme, getMode, type ModeId } from "@friday/shared"
-import { useApp } from "../store.tsx"
-import { Scrim } from "./Scrim.tsx"
-import { Markdown } from "./Markdown.tsx"
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 import { shimmerAccent } from "../motion/index.ts"
+import { useApp } from "../store.tsx"
 import { G } from "../util/term.ts"
+import { Markdown } from "./Markdown.tsx"
+import { Scrim } from "./Scrim.tsx"
 
 type Choice =
   | { kind: "mode"; mode: ModeId; label: string; hint: string }
@@ -57,7 +57,12 @@ export function PlanCard() {
   // alone is unreliable when it mounts mid-keypress-dispatch (the selecting Enter), so the textarea
   // would render but never receive input.
   createEffect(() => {
-    if (typing()) queueMicrotask(() => { try { input?.focus?.() } catch {} })
+    if (typing())
+      queueMicrotask(() => {
+        try {
+          input?.focus?.()
+        } catch {}
+      })
   })
 
   function submitRefine() {
@@ -106,8 +111,12 @@ export function PlanCard() {
           gap={1}
         >
           <box flexDirection="row" gap={1} alignItems="center">
-            <text fg={getMode("plan").accent}>{G.modePlan} {readOnly() ? "plan" : "plan ready"}</text>
-            <text fg={theme.textFaint}>· {readOnly() ? "viewing a saved plan" : "review it, then choose how to proceed"}</text>
+            <text fg={getMode("plan").accent}>
+              {G.modePlan} {readOnly() ? "plan" : "plan ready"}
+            </text>
+            <text fg={theme.textFaint}>
+              · {readOnly() ? "viewing a saved plan" : "review it, then choose how to proceed"}
+            </text>
           </box>
 
           {/* full plan detail — taller in the viewer since there are no choices below it */}
@@ -115,10 +124,7 @@ export function PlanCard() {
             <Markdown content={lines()} />
           </scrollbox>
 
-          <Show
-            when={!readOnly()}
-            fallback={<text fg={theme.textFaint}>↑↓ scroll · esc close</text>}
-          >
+          <Show when={!readOnly()} fallback={<text fg={theme.textFaint}>↑↓ scroll · esc close</text>}>
             <text fg={theme.borderMuted}>{"─".repeat(72)}</text>
             <box flexDirection="column">
               <For each={CHOICES}>

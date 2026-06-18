@@ -1,64 +1,64 @@
+import fs from "node:fs"
+import path from "node:path"
+import { formatDiagnostics, LspManager } from "@friday/lsp"
+import { getProviderKey } from "@friday/providers"
 import {
-  getMode,
   type AskOption,
   type AskQuestion,
-  type EngineEventBody,
   type Effort,
+  type EngineEventBody,
+  getMode,
   type Message,
   type ModeId,
   type PermissionCategory,
   type ProviderInfo,
-  type ToolCall,
   type TodoItem,
   type TodoStatus,
+  type ToolCall,
 } from "@friday/shared"
-import { getProviderKey } from "@friday/providers"
 import {
   ASK_USER,
+  CRON_CREATE,
+  CRON_DELETE,
+  CRON_LIST,
+  diffStats,
+  ENTER_WORKTREE,
   EXIT_PLAN,
-  SKILL_TOOL,
-  TASK_TOOL,
-  TODO_WRITE,
-  LSP_HOVER,
+  EXIT_WORKTREE,
   LSP_DEFINITION,
+  LSP_HOVER,
   LSP_SYMBOLS,
   LSP_TOOLS,
-  TOOL_SEARCH,
+  MEMORY_TOOL,
+  SKILL_TOOL,
   searchTools,
   TASK_CREATE,
   TASK_LIST,
   TASK_STATUS,
   TASK_STOP,
-  CRON_CREATE,
-  CRON_LIST,
-  CRON_DELETE,
-  ENTER_WORKTREE,
-  EXIT_WORKTREE,
-  WORKTREE_LIST,
-  MEMORY_TOOL,
-  toToolDef,
-  unifiedDiff,
-  diffStats,
+  TASK_TOOL,
+  TODO_WRITE,
+  TOOL_SEARCH,
   type Tool,
   type ToolResult,
+  toToolDef,
+  unifiedDiff,
+  WORKTREE_LIST,
 } from "@friday/tools"
-import { LspManager, formatDiagnostics } from "@friday/lsp"
-import { runHooks, type HookEvent, type HookPayload, type HooksConfig } from "./hooks.ts"
-import { gitStatus, gitDiff, gitCommitAll, gitShowHead, gitIsTracked, gitWorktreeAdd, gitWorktreeList } from "./git.ts"
-import { bashRisk, matchesList } from "./safety.ts"
-import { subagentPrompt, customAgentPrompt, systemPrompt } from "./prompt.ts"
-import type { SessionStore } from "./sessions.ts"
-import { loadProjectContext, type ProjectContext } from "./context.ts"
-import { saveMemory, deleteMemory, listMemory, memoryDigest } from "./memory.ts"
-import { expandMentions, collectImages } from "./mentions.ts"
-import { loadCommands, type CustomCommand } from "./commands.ts"
-import { loadSkills, type Skill } from "./skills.ts"
-import { loadAgents, type AgentDef } from "./agents.ts"
-import { applyFiles, readOrNull, snapshotFile, type Checkpoint } from "./checkpoints.ts"
+import { type AgentDef, loadAgents } from "./agents.ts"
+import { applyFiles, type Checkpoint, readOrNull, snapshotFile } from "./checkpoints.ts"
+import { type CustomCommand, loadCommands } from "./commands.ts"
 import { COMPACTION, collapseToolOutputs, estimateTokens, renderTranscript, safeCutIndex } from "./compaction.ts"
+import { loadProjectContext, type ProjectContext } from "./context.ts"
+import { gitCommitAll, gitDiff, gitIsTracked, gitShowHead, gitStatus, gitWorktreeAdd, gitWorktreeList } from "./git.ts"
+import { type HookEvent, type HookPayload, type HooksConfig, runHooks } from "./hooks.ts"
+import { deleteMemory, listMemory, memoryDigest, saveMemory } from "./memory.ts"
+import { collectImages, expandMentions } from "./mentions.ts"
+import { customAgentPrompt, subagentPrompt, systemPrompt } from "./prompt.ts"
+import { bashRisk, matchesList } from "./safety.ts"
+import type { SessionStore } from "./sessions.ts"
+import { loadSkills, type Skill } from "./skills.ts"
 import type { StreamFn } from "./stream.ts"
-import path from "node:path"
-import fs from "node:fs"
 
 const now = () => Date.now()
 const MAX_STEPS = 50
@@ -163,7 +163,14 @@ function toAskOption(o: unknown): AskOption | null {
  * Build one AskQuestion, preferring explicit `options[]` (strings or { label, description } objects)
  * but falling back to extracting choices the model wrote inline in the question text.
  */
-function toAskQuestion(id: string, question: string, explicit: unknown, multi = false, header?: string, art?: string): AskQuestion {
+function toAskQuestion(
+  id: string,
+  question: string,
+  explicit: unknown,
+  multi = false,
+  header?: string,
+  art?: string,
+): AskQuestion {
   const hdr = typeof header === "string" && header.trim() ? header.trim() : undefined
   const banner = typeof art === "string" && art.trim() ? art.replace(/\s+$/, "") : undefined
   if (Array.isArray(explicit) && explicit.length) {
@@ -171,7 +178,14 @@ function toAskQuestion(id: string, question: string, explicit: unknown, multi = 
     if (options.length) return { id, question, header: hdr, art: banner, options, multi }
   }
   const parsed = extractInlineOptions(question)
-  return { id, question: parsed.question, header: hdr, art: banner, options: parsed.options?.map((label) => ({ label })), multi }
+  return {
+    id,
+    question: parsed.question,
+    header: hdr,
+    art: banner,
+    options: parsed.options?.map((label) => ({ label })),
+    multi,
+  }
 }
 
 /** Last path segment (filename) of a path-ish string. */
@@ -182,27 +196,40 @@ function baseName(p: string): string {
 /** Collapse whitespace and clip to `n` chars with an ellipsis — keeps status lines short. */
 function clip(s: string, n = 24): string {
   const t = String(s).replace(/\s+/g, " ").trim()
-  return t.length > n ? t.slice(0, n - 1) + "…" : t
+  return t.length > n ? `${t.slice(0, n - 1)}…` : t
 }
 /** Turn a tool call into a terse "verb + target" status line ("Reading runner.ts", "Running npm test")
  * so the rail says what the agent is actually doing rather than a generic "running <tool>". */
 function describeWork(name: string, input: unknown): string {
   const a = (input && typeof input === "object" ? input : {}) as Record<string, any>
   switch (name) {
-    case "read": return `Reading ${clip(baseName(a.path ?? ""))}`
-    case "write": return `Writing ${clip(baseName(a.path ?? ""))}`
+    case "read":
+      return `Reading ${clip(baseName(a.path ?? ""))}`
+    case "write":
+      return `Writing ${clip(baseName(a.path ?? ""))}`
     case "edit":
-    case "multi_edit": return `Editing ${clip(baseName(a.path ?? ""))}`
-    case "bash": return `Running ${clip(a.command ?? "")}`
-    case "grep": return `Searching ${clip(a.pattern ?? "")}`
-    case "glob": return `Finding ${clip(a.pattern ?? "")}`
-    case "ls": return `Listing ${clip(baseName(a.path ?? "."))}`
-    case "webfetch": return `Fetching ${clip((a.url ?? "").replace(/^https?:\/\//, ""))}`
-    case "websearch": return `Searching ${clip(a.query ?? "")}`
-    case "skill": return `Skill ${clip(a.name ?? "")}`
-    case "exit_plan": return "Finalizing plan"
+    case "multi_edit":
+      return `Editing ${clip(baseName(a.path ?? ""))}`
+    case "bash":
+      return `Running ${clip(a.command ?? "")}`
+    case "grep":
+      return `Searching ${clip(a.pattern ?? "")}`
+    case "glob":
+      return `Finding ${clip(a.pattern ?? "")}`
+    case "ls":
+      return `Listing ${clip(baseName(a.path ?? "."))}`
+    case "webfetch":
+      return `Fetching ${clip((a.url ?? "").replace(/^https?:\/\//, ""))}`
+    case "websearch":
+      return `Searching ${clip(a.query ?? "")}`
+    case "skill":
+      return `Skill ${clip(a.name ?? "")}`
+    case "exit_plan":
+      return "Finalizing plan"
     default:
-      return name.startsWith("lsp_") ? `Analyzing ${clip(baseName(a.path ?? ""))}` : `Running ${name.replace(/_/g, " ")}`
+      return name.startsWith("lsp_")
+        ? `Analyzing ${clip(baseName(a.path ?? ""))}`
+        : `Running ${name.replace(/_/g, " ")}`
   }
 }
 
@@ -376,7 +403,7 @@ export class SessionRunner {
     removedAbs: Set<string>,
   ): { path: string; status: string; added: number; removed: number; kind: "dir" }[] {
     const out: { path: string; status: string; added: number; removed: number; kind: "dir" }[] = []
-    const rel = (d: string) => (path.relative(this.cwd, d) || d) + "/"
+    const rel = (d: string) => `${path.relative(this.cwd, d) || d}/`
     // Ancestor dirs of `abs`, from its immediate parent up to (but excluding) the session cwd.
     const ancestors = (abs: string): string[] => {
       const acc: string[] = []
@@ -474,7 +501,9 @@ export class SessionRunner {
     return { messages, tokens: this.totalTokens, durationMs: now() - this.startedAt }
   }
   listCheckpoints(): { id: string; label: string; createdAt: number; files: number }[] {
-    return this.checkpoints.map((c) => ({ id: c.id, label: c.label, createdAt: c.createdAt, files: c.files.size })).reverse()
+    return this.checkpoints
+      .map((c) => ({ id: c.id, label: c.label, createdAt: c.createdAt, files: c.files.size }))
+      .reverse()
   }
   hasRedo(): boolean {
     return !!this.redoState
@@ -482,9 +511,22 @@ export class SessionRunner {
 
   /** Emit this session's full current state (on focus / resume). */
   emitState(includeMessages: boolean): void {
-    this.emit({ type: "session-changed", sessionId: this.sessionId, title: this.title, cwd: this.cwd, roots: this.roots })
+    this.emit({
+      type: "session-changed",
+      sessionId: this.sessionId,
+      title: this.title,
+      cwd: this.cwd,
+      roots: this.roots,
+    })
     if (includeMessages)
-      this.emit({ type: "session-loaded", sessionId: this.sessionId, title: this.title, cwd: this.cwd, roots: this.roots, messages: this.messages })
+      this.emit({
+        type: "session-loaded",
+        sessionId: this.sessionId,
+        title: this.title,
+        cwd: this.cwd,
+        roots: this.roots,
+        messages: this.messages,
+      })
     this.emit({ type: "todos", items: this.todos })
     this.emitSessionFiles()
   }
@@ -495,7 +537,13 @@ export class SessionRunner {
     this.context = loadProjectContext(this.roots)
     this.skills = loadSkills(this.roots)
     this.agents = loadAgents(this.roots)
-    this.emit({ type: "session-changed", sessionId: this.sessionId, title: this.title, cwd: this.cwd, roots: this.roots })
+    this.emit({
+      type: "session-changed",
+      sessionId: this.sessionId,
+      title: this.title,
+      cwd: this.cwd,
+      roots: this.roots,
+    })
   }
 
   /** Working dir + roots saved before entering a worktree, so exit can restore them. */
@@ -510,7 +558,13 @@ export class SessionRunner {
     this.context = loadProjectContext(this.roots)
     this.skills = loadSkills(this.roots)
     this.agents = loadAgents(this.roots)
-    this.emit({ type: "session-changed", sessionId: this.sessionId, title: this.title, cwd: this.cwd, roots: this.roots })
+    this.emit({
+      type: "session-changed",
+      sessionId: this.sessionId,
+      title: this.title,
+      cwd: this.cwd,
+      roots: this.roots,
+    })
     return { ok: true, info: `entered worktree at ${res.path}` }
   }
   /** Switch back to the working dir saved before the last enterWorktree. */
@@ -522,7 +576,13 @@ export class SessionRunner {
     this.context = loadProjectContext(this.roots)
     this.skills = loadSkills(this.roots)
     this.agents = loadAgents(this.roots)
-    this.emit({ type: "session-changed", sessionId: this.sessionId, title: this.title, cwd: this.cwd, roots: this.roots })
+    this.emit({
+      type: "session-changed",
+      sessionId: this.sessionId,
+      title: this.title,
+      cwd: this.cwd,
+      roots: this.roots,
+    })
     return { ok: true, info: `back to ${this.cwd}` }
   }
 
@@ -641,7 +701,14 @@ export class SessionRunner {
 
     const what = scope === "code" ? "files" : scope === "conversation" ? "conversation" : `to “${cp.label}”`
     this.emit({ type: "status", text: `rewound ${what}` })
-    this.emit({ type: "session-loaded", sessionId: this.sessionId, title: this.title, cwd: this.cwd, roots: this.roots, messages: this.messages })
+    this.emit({
+      type: "session-loaded",
+      sessionId: this.sessionId,
+      title: this.title,
+      cwd: this.cwd,
+      roots: this.roots,
+      messages: this.messages,
+    })
   }
 
   redoLast(): void {
@@ -651,10 +718,19 @@ export class SessionRunner {
     this.seq = this.messages.length
     this.compaction = undefined // rebuilt history — a stale summary index would corrupt context
     this.host.store.truncateMessages(this.sessionId, 0)
-    this.messages.forEach((m, i) => this.host.store.appendMessage(this.sessionId, i, m))
+    this.messages.forEach((m, i) => {
+      this.host.store.appendMessage(this.sessionId, i, m)
+    })
     this.redoState = undefined
     this.emit({ type: "status", text: "redone" })
-    this.emit({ type: "session-loaded", sessionId: this.sessionId, title: this.title, cwd: this.cwd, roots: this.roots, messages: this.messages })
+    this.emit({
+      type: "session-loaded",
+      sessionId: this.sessionId,
+      title: this.title,
+      cwd: this.cwd,
+      roots: this.roots,
+      messages: this.messages,
+    })
   }
 
   // ---- the agentic loop ----
@@ -731,7 +807,11 @@ export class SessionRunner {
   private async collectTurn(
     gen: AsyncGenerator<import("@friday/shared").ProviderEvent>,
     signal: AbortSignal,
-    on: { text?: (d: string) => void; reasoning?: (d: string) => void; usage?: (input: number, output: number) => void },
+    on: {
+      text?: (d: string) => void
+      reasoning?: (d: string) => void
+      usage?: (input: number, output: number) => void
+    },
   ): Promise<{ text: string; reasoning: string; reasoningSignature: string; toolCalls: ToolCall[] }> {
     let text = ""
     let reasoning = ""
@@ -760,7 +840,8 @@ export class SessionRunner {
         }
         case "tool_delta": {
           const c = calls.get(ev.index) ?? { id: "", name: "", args: "" }
-          if (c.args.length + ev.argsDelta.length > MAX_TOOL_ARGS) throw new Error("tool arguments exceeded the size limit")
+          if (c.args.length + ev.argsDelta.length > MAX_TOOL_ARGS)
+            throw new Error("tool arguments exceeded the size limit")
           c.args += ev.argsDelta
           calls.set(ev.index, c)
           break
@@ -793,7 +874,12 @@ export class SessionRunner {
     return collapseToolOutputs(base)
   }
 
-  private async maybeCompact(provider: ProviderInfo, apiKey: string | undefined, signal: AbortSignal, force: boolean): Promise<void> {
+  private async maybeCompact(
+    provider: ProviderInfo,
+    apiKey: string | undefined,
+    signal: AbortSignal,
+    force: boolean,
+  ): Promise<void> {
     const window = this.host.selection().contextWindow || COMPACTION.defaultWindow
     // Trigger off the real input-token count of the last request (most accurate proxy for the
     // current context size); fall back to the char estimate before the first usage arrives.
@@ -814,7 +900,13 @@ export class SessionRunner {
 
     this.emit({ type: "compaction-start", tokensBefore: used, pctBefore: pct(used), window })
     this.emit({ type: "status", text: "compacting context…" })
-    const summary = await this.summarize(provider, apiKey, this.compactionAbort.signal, this.messages.slice(0, cut), this.compaction?.summary)
+    const summary = await this.summarize(
+      provider,
+      apiKey,
+      this.compactionAbort.signal,
+      this.messages.slice(0, cut),
+      this.compaction?.summary,
+    )
     if (this.compactionAbort.signal.aborted || !summary) {
       this.compactionAbort = undefined
       this.emit({ type: "compaction-aborted" })
@@ -845,15 +937,27 @@ export class SessionRunner {
   /** Undo the most recent compaction: revert to the pre-compaction summary state (full history was
    * never dropped, so reverting the summary index restores the complete context). */
   undoCompaction(): void {
-    if (this.busy) return this.emit({ type: "status", text: "can't undo while running" })
-    if (!this.preCompaction) return this.emit({ type: "status", text: "nothing to undo" })
+    if (this.busy) {
+      this.emit({ type: "status", text: "can't undo while running" })
+      return
+    }
+    if (!this.preCompaction) {
+      this.emit({ type: "status", text: "nothing to undo" })
+      return
+    }
     this.compaction = this.preCompaction.compaction
     this.preCompaction = undefined
     this.emit({ type: "notice", text: "↺ compaction undone — full history restored" })
     this.emit({ type: "status", text: "ready" })
   }
 
-  private async summarize(provider: ProviderInfo, apiKey: string | undefined, signal: AbortSignal, msgs: Message[], prior?: string): Promise<string> {
+  private async summarize(
+    provider: ProviderInfo,
+    apiKey: string | undefined,
+    signal: AbortSignal,
+    msgs: Message[],
+    prior?: string,
+  ): Promise<string> {
     const instruction = [
       prior ? `An earlier summary exists; extend it without repeating:\n${prior}\n` : "",
       "Summarize the conversation below for continuity. Preserve the user's goals, key decisions, file paths created or edited, important findings, and any unfinished tasks. Use terse bullet points. Output only the summary.",
@@ -866,7 +970,10 @@ export class SessionRunner {
     const req = {
       model: this.host.selection().model!,
       messages: [
-        { role: "system", text: "You compress coding-session transcripts into concise, faithful summaries." } as Message,
+        {
+          role: "system",
+          text: "You compress coding-session transcripts into concise, faithful summaries.",
+        } as Message,
         { role: "user", text: instruction } as Message,
       ],
       tools: [],
@@ -888,7 +995,8 @@ export class SessionRunner {
     const sel = this.host.selection()
     if (!sel.model || !sel.providerId) return this.emit({ type: "error", message: "Select a model first (/model)." })
     if (this.busy) return this.emit({ type: "status", text: "busy — compaction runs automatically" })
-    if (this.messages.length <= COMPACTION.keepRecent) return this.emit({ type: "status", text: "nothing to compact yet" })
+    if (this.messages.length <= COMPACTION.keepRecent)
+      return this.emit({ type: "status", text: "nothing to compact yet" })
     const provider = this.host.resolveProvider()
     const apiKey = getProviderKey(provider.id)
     this.emit({ type: "mascot", state: "working" })
@@ -941,13 +1049,12 @@ export class SessionRunner {
         // are offered, so the agent can investigate and propose but can NEVER edit files or run bash —
         // it physically can't act, it can only plan. Every other mode hides exit_plan so the model can't
         // "present a plan" mid-execution. Deferred tools are hidden until activated via tool_search.
-        tools: registry.defs
-          .filter((d) => {
-            const t = registry.get(d.name)
-            if (t?.deferred && !this.activatedTools.has(d.name)) return false
-            if (sel.mode === "plan") return !t || (t.permission !== "edit" && t.permission !== "bash")
-            return d.name !== EXIT_PLAN
-          }),
+        tools: registry.defs.filter((d) => {
+          const t = registry.get(d.name)
+          if (t?.deferred && !this.activatedTools.has(d.name)) return false
+          if (sel.mode === "plan") return !t || (t.permission !== "edit" && t.permission !== "bash")
+          return d.name !== EXIT_PLAN
+        }),
         effort: sel.reasoning ? sel.effort : undefined,
         maxTokens: 8192,
       }
@@ -984,7 +1091,7 @@ export class SessionRunner {
           this.emit({ type: "usage", input: inTok, output: outTok, costUsd: cost })
         },
       }
-      let turn
+      let turn: { text: string; reasoning: string; reasoningSignature: string; toolCalls: ToolCall[] }
       try {
         turn = await this.collectTurn(this.host.streamFn(provider, apiKey, req, signal), signal, handlers)
       } catch (e) {
@@ -1028,7 +1135,9 @@ export class SessionRunner {
             .map((t, i) => ({ id: `t${i}`, text: t.text!, status: normTodoStatus(t.status) }))
           this.emit({ type: "todos", items: this.todos })
           const rendered = this.todos.length
-            ? this.todos.map((t) => `${t.status === "done" ? "[x]" : t.status === "active" ? "[~]" : "[ ]"} ${t.text}`).join("\n")
+            ? this.todos
+                .map((t) => `${t.status === "done" ? "[x]" : t.status === "active" ? "[~]" : "[ ]"} ${t.text}`)
+                .join("\n")
             : "(list cleared)"
           this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: `Todos updated:\n${rendered}` })
           continue
@@ -1045,7 +1154,12 @@ export class SessionRunner {
           const a = safeParse(tc.arguments) as { plan?: string }
           const plan = (a.plan ?? "").trim()
           this.planEmitted = true
-          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: "Plan presented to the user for approval." })
+          this.addMessage({
+            role: "tool",
+            callId: tc.id,
+            name: tc.name,
+            result: "Plan presented to the user for approval.",
+          })
           this.emit({ type: "tool-result", callId: tc.id, ok: true, output: plan, title: "plan ready" })
           this.emit({ type: "plan-ready", plan })
           this.emit({ type: "turn-done", id })
@@ -1075,7 +1189,13 @@ export class SessionRunner {
           const where = a.worktree ? ` (isolated in worktree “${a.worktree}”)` : ""
           const output = `Started background task ${id} — “${clip(a.description ?? "task")}”${where}. Check it with task_status({ id: "${id}" }).`
           this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output })
-          this.emit({ type: "tool-result", callId: tc.id, ok: true, output, title: `task_create: ${clip(a.description ?? "")}` })
+          this.emit({
+            type: "tool-result",
+            callId: tc.id,
+            ok: true,
+            output,
+            title: `task_create: ${clip(a.description ?? "")}`,
+          })
           continue
         }
         if (tc.name === TASK_LIST) {
@@ -1129,8 +1249,18 @@ export class SessionRunner {
           const a = safeParse(tc.arguments) as { name?: string }
           const res = await this.enterWorktree((a.name ?? "work").trim())
           this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: res.info, isError: !res.ok })
-          this.emit({ type: "tool-result", callId: tc.id, ok: res.ok, output: res.info, title: `enter_worktree ${a.name ?? ""}` })
-          if (res.ok) this.emit({ type: "notice", text: `⎇ entered worktree “${a.name}” — edits now run in an isolated checkout` })
+          this.emit({
+            type: "tool-result",
+            callId: tc.id,
+            ok: res.ok,
+            output: res.info,
+            title: `enter_worktree ${a.name ?? ""}`,
+          })
+          if (res.ok)
+            this.emit({
+              type: "notice",
+              text: `⎇ entered worktree “${a.name}” — edits now run in an isolated checkout`,
+            })
           continue
         }
         if (tc.name === EXIT_WORKTREE) {
@@ -1142,7 +1272,9 @@ export class SessionRunner {
         }
         if (tc.name === WORKTREE_LIST) {
           const list = await gitWorktreeList(this.cwd)
-          const output = list.length ? list.map((w) => `- ${w.branch || "(detached)"} — ${w.path}`).join("\n") : "No worktrees."
+          const output = list.length
+            ? list.map((w) => `- ${w.branch || "(detached)"} — ${w.path}`).join("\n")
+            : "No worktrees."
           this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output })
           this.emit({ type: "tool-result", callId: tc.id, ok: true, output, title: "worktree_list" })
           continue
@@ -1151,9 +1283,17 @@ export class SessionRunner {
         if (tc.name === CRON_CREATE) {
           const a = safeParse(tc.arguments) as { description?: string; prompt?: string; every?: string }
           const res = this.host.cronCreate(a.description ?? "task", a.prompt ?? "", a.every ?? "")
-          const output = res.ok ? `Scheduled ${res.id} — “${clip(a.description ?? "")}” every ${a.every}.` : `Error: ${res.error}`
+          const output = res.ok
+            ? `Scheduled ${res.id} — “${clip(a.description ?? "")}” every ${a.every}.`
+            : `Error: ${res.error}`
           this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output, isError: !res.ok })
-          this.emit({ type: "tool-result", callId: tc.id, ok: res.ok, output, title: `cron_create: ${clip(a.description ?? "")}` })
+          this.emit({
+            type: "tool-result",
+            callId: tc.id,
+            ok: res.ok,
+            output,
+            title: `cron_create: ${clip(a.description ?? "")}`,
+          })
           continue
         }
         if (tc.name === CRON_LIST) {
@@ -1177,7 +1317,9 @@ export class SessionRunner {
         if (tc.name === SKILL_TOOL) {
           const a = safeParse(tc.arguments) as { name?: string }
           const skill = this.skills.find((s) => s.name === a.name)
-          const output = skill ? skill.content : `Unknown skill: ${a.name}. Available: ${this.skills.map((s) => s.name).join(", ") || "(none)"}`
+          const output = skill
+            ? skill.content
+            : `Unknown skill: ${a.name}. Available: ${this.skills.map((s) => s.name).join(", ") || "(none)"}`
           this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output, isError: !skill })
           this.emit({ type: "tool-result", callId: tc.id, ok: !!skill, output, title: `skill ${a.name ?? ""}` })
           continue
@@ -1190,7 +1332,13 @@ export class SessionRunner {
           const summary = await this.runSubagent(a.prompt ?? "", a.agent)
           void this.hook("SubagentStop", { tool_response: summary })
           this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: summary })
-          this.emit({ type: "tool-result", callId: tc.id, ok: true, output: summary, title: `task: ${a.description ?? "subagent"}` })
+          this.emit({
+            type: "tool-result",
+            callId: tc.id,
+            ok: true,
+            output: summary,
+            title: `task: ${a.description ?? "subagent"}`,
+          })
           continue
         }
 
@@ -1202,15 +1350,20 @@ export class SessionRunner {
             options?: unknown
             questions?: { question?: string; header?: string; art?: string; options?: unknown; multi?: boolean }[]
           }
-          const questions: AskQuestion[] = Array.isArray(a.questions) && a.questions.length
-            ? a.questions.map((q, i) => toAskQuestion(`q${i}`, q.question ?? "", q.options, q.multi === true, q.header, q.art))
-            : [toAskQuestion("q0", a.question ?? "", a.options, false, a.header, a.art)]
+          const questions: AskQuestion[] =
+            Array.isArray(a.questions) && a.questions.length
+              ? a.questions.map((q, i) =>
+                  toAskQuestion(`q${i}`, q.question ?? "", q.options, q.multi === true, q.header, q.art),
+                )
+              : [toAskQuestion("q0", a.question ?? "", a.options, false, a.header, a.art)]
           const requestId = this.host.nextId()
           this.emit({ type: "ask-user", requestId, questions })
           this.emit({ type: "mascot", state: "idle" })
           this.emit({ type: "status", text: "waiting for you…" })
           this.needsInput = true
-          const answers = await new Promise<Record<string, string>>((resolve) => this.pendingAsk.set(requestId, resolve))
+          const answers = await new Promise<Record<string, string>>((resolve) =>
+            this.pendingAsk.set(requestId, resolve),
+          )
           const result = formatAskAnswers(questions, answers)
           this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result })
           this.emit({ type: "tool-result", callId: tc.id, ok: true, output: result })
@@ -1288,13 +1441,23 @@ export class SessionRunner {
 
         void this.hook("PostToolUse", { tool_name: tc.name, tool_input: args, tool_response: result.output }, tc.name)
         this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: result.output, isError: result.isError })
-        this.emit({ type: "tool-result", callId: tc.id, ok: !result.isError, output: result.output, title: result.title, diff: result.diff })
+        this.emit({
+          type: "tool-result",
+          callId: tc.id,
+          ok: !result.isError,
+          output: result.output,
+          title: result.title,
+          diff: result.diff,
+        })
       }
     }
     // Fell out of the loop without finishing → the step budget ran out mid-task. Tell the user so
     // it doesn't look like work silently stopped; the `finally` in runPrompt finalizes the bubble.
     if (!this.abort?.signal.aborted) {
-      this.emit({ type: "notice", text: `Reached the ${MAX_STEPS}-step limit — stopping. Ask me to continue if needed.` })
+      this.emit({
+        type: "notice",
+        text: `Reached the ${MAX_STEPS}-step limit — stopping. Ask me to continue if needed.`,
+      })
     }
   }
 
@@ -1310,7 +1473,13 @@ export class SessionRunner {
     let tools = this.host
       .registry()
       .list.filter(
-        (t) => t.permission === "read" && t.name !== SKILL_TOOL && t.name !== TASK_TOOL && t.name !== ASK_USER && t.name !== TODO_WRITE && !LSP_TOOLS.has(t.name),
+        (t) =>
+          t.permission === "read" &&
+          t.name !== SKILL_TOOL &&
+          t.name !== TASK_TOOL &&
+          t.name !== ASK_USER &&
+          t.name !== TODO_WRITE &&
+          !LSP_TOOLS.has(t.name),
       )
     if (def?.tools?.length) tools = tools.filter((t) => def.tools!.includes(t.name))
     const defs = tools.map(toToolDef)
@@ -1325,7 +1494,12 @@ export class SessionRunner {
     for (let step = 0; step < 15; step++) {
       if (signal.aborted) break
       const { text, reasoning, reasoningSignature, toolCalls } = await this.collectTurn(
-        this.host.streamFn(provider, apiKey, { model, messages, tools: defs, effort: sel.reasoning ? sel.effort : undefined, maxTokens: 4096 }, signal),
+        this.host.streamFn(
+          provider,
+          apiKey,
+          { model, messages, tools: defs, effort: sel.reasoning ? sel.effort : undefined, maxTokens: 4096 },
+          signal,
+        ),
         signal,
         { usage: (i, o) => (this.totalTokens += i + o) },
       )
@@ -1358,7 +1532,11 @@ export class SessionRunner {
             } catch (e: any) {
               result = { output: `Error: ${e?.message ?? e}`, isError: true }
             }
-            void this.hook("PostToolUse", { tool_name: tc.name, tool_input: args, tool_response: result.output }, tc.name)
+            void this.hook(
+              "PostToolUse",
+              { tool_name: tc.name, tool_input: args, tool_response: result.output },
+              tc.name,
+            )
           }
         }
         messages.push({ role: "tool", callId: tc.id, name: tc.name, result: result.output, isError: result.isError })
@@ -1383,7 +1561,10 @@ export class SessionRunner {
     const blocks: string[] = []
     for (const t of uniq) {
       const hits = await this.lsp.workspaceSymbols(t).catch(() => [])
-      if (hits.length) blocks.push(`<symbol name="${t}">\n${hits.map((h) => `${h.name} — ${this.rel(h.path)}:${h.line}`).join("\n")}\n</symbol>`)
+      if (hits.length)
+        blocks.push(
+          `<symbol name="${t}">\n${hits.map((h) => `${h.name} — ${this.rel(h.path)}:${h.line}`).join("\n")}\n</symbol>`,
+        )
     }
     return blocks.length ? `${expanded}\n\n${blocks.join("\n\n")}` : expanded
   }
@@ -1397,7 +1578,11 @@ export class SessionRunner {
       else this.diag.delete(file)
       this.emit({
         type: "diagnostics",
-        items: [...this.diag.entries()].map(([p, v]) => ({ path: this.rel(p), errors: v.errors, warnings: v.warnings })),
+        items: [...this.diag.entries()].map(([p, v]) => ({
+          path: this.rel(p),
+          errors: v.errors,
+          warnings: v.warnings,
+        })),
       })
       return formatDiagnostics(file, diags)
     } catch {
@@ -1410,7 +1595,10 @@ export class SessionRunner {
     const file = a.path ? path.resolve(this.cwd, a.path) : undefined
     if (name === LSP_HOVER) {
       if (!file) return "lsp_hover needs a path."
-      return (await this.lsp.hover(file, (a.line ?? 1) - 1, (a.character ?? 1) - 1)) ?? "No hover info (no language server, or nothing there)."
+      return (
+        (await this.lsp.hover(file, (a.line ?? 1) - 1, (a.character ?? 1) - 1)) ??
+        "No hover info (no language server, or nothing there)."
+      )
     }
     if (name === LSP_DEFINITION) {
       if (!file) return "lsp_definition needs a path."
@@ -1420,7 +1608,9 @@ export class SessionRunner {
     if (name === LSP_SYMBOLS) {
       if (a.query) {
         const syms = await this.lsp.workspaceSymbols(a.query, file ?? "x.ts")
-        return syms.length ? syms.map((s) => `${s.name} — ${this.rel(s.path)}:${s.line}`).join("\n") : "No matching symbols (or no language server)."
+        return syms.length
+          ? syms.map((s) => `${s.name} — ${this.rel(s.path)}:${s.line}`).join("\n")
+          : "No matching symbols (or no language server)."
       }
       if (file) {
         const syms = await this.lsp.documentSymbols(file)
@@ -1453,7 +1643,9 @@ export class SessionRunner {
     if (verdict === "deny") return "deny"
 
     const requestId = this.host.nextId()
-    const detail = command ?? (typeof (args as any)?.path === "string" ? String((args as any).path) : JSON.stringify(args).slice(0, 120))
+    const detail =
+      command ??
+      (typeof (args as any)?.path === "string" ? String((args as any).path) : JSON.stringify(args).slice(0, 120))
     const risk = command ? bashRisk(command) : undefined
     this.emit({ type: "permission-request", requestId, tool: tool.name, summary: `Allow ${tool.name}?`, detail, risk })
     this.emit({ type: "mascot", state: "idle" })
@@ -1515,7 +1707,8 @@ export class SessionRunner {
     }
     let text = ""
     try {
-      for await (const ev of this.host.streamFn(provider, apiKey, req, new AbortController().signal)) if (ev.type === "text") text += ev.delta
+      for await (const ev of this.host.streamFn(provider, apiKey, req, new AbortController().signal))
+        if (ev.type === "text") text += ev.delta
     } catch {
       return "Update files"
     }

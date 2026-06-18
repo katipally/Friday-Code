@@ -1,5 +1,5 @@
-import { Show } from "solid-js"
 import { theme } from "@friday/shared"
+import { Show } from "solid-js"
 import { useApp, type ViewItem } from "../store.tsx"
 import { mutedSyntaxStyle } from "../util/syntax.ts"
 
@@ -7,8 +7,7 @@ import { mutedSyntaxStyle } from "../util/syntax.ts"
 export function ThinkingCard(props: { item: Extract<ViewItem, { kind: "assistant" }> }) {
   const app = useApp()
   const secs = () => (props.item.durationMs ? Math.max(1, Math.round(props.item.durationMs / 1000)) : null)
-  const label = () =>
-    !props.item.done ? "thinking…" : secs() ? `thought for ${secs()}s` : "thought"
+  const label = () => (!props.item.done ? "thinking…" : secs() ? `thought for ${secs()}s` : "thought")
 
   return (
     <Show when={props.item.reasoning.length > 0}>

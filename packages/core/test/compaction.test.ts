@@ -1,6 +1,6 @@
-import { test, expect } from "bun:test"
+import { expect, test } from "bun:test"
 import type { Message } from "@friday/shared"
-import { estimateTokens, safeCutIndex, renderTranscript, collapseToolOutputs } from "../src/compaction.ts"
+import { collapseToolOutputs, estimateTokens, renderTranscript, safeCutIndex } from "../src/compaction.ts"
 
 const convo: Message[] = [
   { role: "user", text: "first request" },
@@ -23,7 +23,8 @@ test("safeCutIndex returns a safe boundary that never splits a tool pair", () =>
   // by a tool result) — here index 1, which keeps the assistant tool_use + its tool_result together.
   const cut = safeCutIndex(convo, 3)
   expect(convo[cut]?.role).not.toBe("tool") // never start the kept slice on an orphan tool_result
-  const safe = cut === 0 || convo[cut]?.role === "user" || (convo[cut]?.role === "assistant" && convo[cut - 1]?.role !== "tool")
+  const safe =
+    cut === 0 || convo[cut]?.role === "user" || (convo[cut]?.role === "assistant" && convo[cut - 1]?.role !== "tool")
   expect(safe).toBe(true)
   // A user boundary is always preferred when one is in range: target at the later user turn → 4.
   expect(safeCutIndex(convo, 5)).toBe(4)

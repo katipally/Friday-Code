@@ -8,7 +8,11 @@
     "friday": "bun run packages/cli/src/index.tsx",
     "dev": "bun --watch run packages/cli/src/index.tsx",
     "test": "bun test",
-    "typecheck": "for p in shared providers tools mcp lsp core tui cli; do tsc --noEmit -p packages/$p/tsconfig.json || exit 1; done"
+    "typecheck": "for p in shared providers tools mcp lsp core tui cli; do tsc --noEmit -p packages/$p/tsconfig.json || exit 1; done",
+    "lint": "biome lint packages",
+    "format": "biome format --write packages",
+    "check": "biome check packages",
+    "ci": "biome ci packages && bun run typecheck && bun test"
   },
   "dependencies": {
     "@opentui/core": "0.4.1",
@@ -16,6 +20,7 @@
     "solid-js": "1.9.13"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.0",
     "@types/bun": "latest",
     "typescript": "latest"
   }

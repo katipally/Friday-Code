@@ -1,7 +1,7 @@
 import type { ChatRequest, Message, ProviderEvent, ToolDef } from "@friday/shared"
-import { safeJsonParse, sseLines } from "./sse.ts"
 import { thinkingBudget } from "./effort.ts"
 import { fetchWithRetry } from "./retry.ts"
+import { safeJsonParse, sseLines } from "./sse.ts"
 
 function toAnthropic(messages: Message[]): { system?: string; messages: unknown[] } {
   let system: string | undefined
@@ -137,7 +137,8 @@ export async function* streamAnthropic(opts: {
         if (d?.type === "text_delta") yield { type: "text", delta: d.text }
         else if (d?.type === "thinking_delta") yield { type: "reasoning", delta: d.thinking }
         else if (d?.type === "signature_delta") yield { type: "reasoning_signature", signature: d.signature }
-        else if (d?.type === "input_json_delta") yield { type: "tool_delta", index: json.index, argsDelta: d.partial_json }
+        else if (d?.type === "input_json_delta")
+          yield { type: "tool_delta", index: json.index, argsDelta: d.partial_json }
         break
       }
       case "content_block_stop":

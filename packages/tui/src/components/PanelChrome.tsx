@@ -1,5 +1,5 @@
-import { Show } from "solid-js"
 import { theme } from "@friday/shared"
+import { Show } from "solid-js"
 import { useHover } from "../motion/index.ts"
 
 /**

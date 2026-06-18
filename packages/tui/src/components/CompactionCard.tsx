@@ -1,11 +1,11 @@
-import { Show } from "solid-js"
+import { getMode, theme } from "@friday/shared"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
-import { theme, getMode } from "@friday/shared"
+import { Show } from "solid-js"
+import { shimmerAccent, useBreathe } from "../motion/index.ts"
 import { useApp } from "../store.tsx"
-import { Scrim } from "./Scrim.tsx"
 import { Markdown } from "./Markdown.tsx"
 import { Pressable } from "./Pressable.tsx"
-import { useBreathe, shimmerAccent } from "../motion/index.ts"
+import { Scrim } from "./Scrim.tsx"
 
 /** A 12-cell block bar for a 0–100 percentage. */
 function bar(pct: number, width = 12): string {

@@ -1,6 +1,6 @@
 import { RGBA } from "@opentui/core"
-import { createSignal, onMount, onCleanup, type JSX } from "solid-js"
-import { Appear, animate, motion, easeOutQuad } from "../motion/index.ts"
+import { createSignal, type JSX, onCleanup, onMount } from "solid-js"
+import { Appear, animate, easeOutQuad, motion } from "../motion/index.ts"
 
 // A dim, semi-transparent backdrop so the shell stays visible behind overlays.
 const SCRIM = RGBA.fromValues(0.02, 0.02, 0.03, 0.55)

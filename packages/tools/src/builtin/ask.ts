@@ -28,10 +28,21 @@ export const askUserTool: Tool = {
   permission: "read",
   parameters: obj(
     {
-      question: { type: "string", description: "the question to ask (for a single question) — just the question, no inline choices" },
-      header: { type: "string", description: "a very short label for the question, e.g. \"Auth method\" (≤30 chars)" },
-      art: { type: "string", description: "(optional) a compact multi-line ASCII diagram for the whole question, shown above the question text. ≤ 60 chars wide, a few lines. Add it whenever a picture clarifies the question." },
-      options: { type: "array", items: optionSchema, description: "the choices, as { label, description } objects — put choices HERE, not in the question text" },
+      question: {
+        type: "string",
+        description: "the question to ask (for a single question) — just the question, no inline choices",
+      },
+      header: { type: "string", description: 'a very short label for the question, e.g. "Auth method" (≤30 chars)' },
+      art: {
+        type: "string",
+        description:
+          "(optional) a compact multi-line ASCII diagram for the whole question, shown above the question text. ≤ 60 chars wide, a few lines. Add it whenever a picture clarifies the question.",
+      },
+      options: {
+        type: "array",
+        items: optionSchema,
+        description: "the choices, as { label, description } objects — put choices HERE, not in the question text",
+      },
       multi: { type: "boolean", description: "(optional) allow selecting multiple options for the single question" },
       questions: {
         type: "array",
@@ -40,8 +51,15 @@ export const askUserTool: Tool = {
           {
             question: { type: "string", description: "the question text — just the question, no inline choices" },
             header: { type: "string", description: "a very short label for this question (≤30 chars)" },
-            art: { type: "string", description: "(optional) a compact multi-line ASCII diagram for this question (≤ 60 chars wide)" },
-            options: { type: "array", items: optionSchema, description: "the choices, as { label, description } objects" },
+            art: {
+              type: "string",
+              description: "(optional) a compact multi-line ASCII diagram for this question (≤ 60 chars wide)",
+            },
+            options: {
+              type: "array",
+              items: optionSchema,
+              description: "the choices, as { label, description } objects",
+            },
             multi: { type: "boolean", description: "(optional) allow selecting multiple options" },
           },
           ["question"],

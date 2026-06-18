@@ -1,5 +1,5 @@
-import { createEffect, createSignal, onCleanup, type Accessor } from "solid-js"
 import { MASCOT, type MascotState } from "@friday/shared"
+import { type Accessor, createEffect, createSignal, onCleanup } from "solid-js"
 
 /** Returns an accessor to the current mascot frame string, animated for the given state. */
 export function useMascotFrame(state: Accessor<MascotState>): Accessor<string> {

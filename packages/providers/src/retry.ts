@@ -28,7 +28,12 @@ function sleepAbortable(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
-export async function fetchWithRetry(url: string, init: RequestInit, signal: AbortSignal, opts: RetryOpts = {}): Promise<Response> {
+export async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  signal: AbortSignal,
+  opts: RetryOpts = {},
+): Promise<Response> {
   const retries = opts.retries ?? 3 // up to 4 attempts total
   const baseMs = opts.baseMs ?? 500
   const maxMs = opts.maxMs ?? 8000

@@ -8,7 +8,10 @@ export function searchTools(
   pool: { name: string; description: string }[],
   max = 8,
 ): { name: string; description: string }[] {
-  const terms = query.toLowerCase().split(/[^a-z0-9_]+/).filter(Boolean)
+  const terms = query
+    .toLowerCase()
+    .split(/[^a-z0-9_]+/)
+    .filter(Boolean)
   if (!terms.length) return pool.slice(0, max)
   const scored = pool.map((t) => {
     const name = t.name.toLowerCase()
@@ -38,7 +41,12 @@ export const toolSearchTool: Tool = {
   description:
     "Search for additional tools by capability when the loaded set doesn't cover what you need (e.g. background tasks, scheduling, git worktrees, notebooks, memory). Returns matching tools and makes them available to call.",
   permission: "read",
-  parameters: obj({ query: { type: "string", description: "what you want to do, e.g. 'run a background task' or 'edit a notebook'" } }, ["query"]),
+  parameters: obj(
+    {
+      query: { type: "string", description: "what you want to do, e.g. 'run a background task' or 'edit a notebook'" },
+    },
+    ["query"],
+  ),
   async execute() {
     // Intercepted by the runner (needs session-level activation state); this body is a safe fallback.
     return { output: "tool_search is handled by the agent runtime." }

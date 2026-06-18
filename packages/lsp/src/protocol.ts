@@ -30,7 +30,10 @@ export class LspConnection {
   private diagWaiters = new Map<string, Array<(d: Diagnostic[]) => void>>()
   private alive = false
 
-  constructor(private command: string[], private cwd: string) {}
+  constructor(
+    private command: string[],
+    private cwd: string,
+  ) {}
 
   async start(): Promise<void> {
     const [cmd, ...args] = this.command
@@ -137,7 +140,11 @@ export class LspConnection {
       this.diagWaiters.set(uri, arr)
       setTimeout(() => {
         const list = this.diagWaiters.get(uri)
-        if (list) this.diagWaiters.set(uri, list.filter((w) => w !== done))
+        if (list)
+          this.diagWaiters.set(
+            uri,
+            list.filter((w) => w !== done),
+          )
         resolve(this.diagnostics.get(uri) ?? [])
       }, timeoutMs)
     })

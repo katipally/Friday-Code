@@ -1,7 +1,7 @@
-import { test, expect } from "bun:test"
+import { expect, test } from "bun:test"
 import { animate } from "../src/motion/animate.ts"
 import { motion } from "../src/motion/config.ts"
-import { linear, easeOutQuad, easeOutCubic, easeOutBack, easeOutElastic } from "../src/motion/easing.ts"
+import { easeOutBack, easeOutCubic, easeOutElastic, easeOutQuad, linear } from "../src/motion/easing.ts"
 
 test("easing curves anchor at 0 and 1", () => {
   for (const ease of [linear, easeOutQuad, easeOutCubic, easeOutBack, easeOutElastic]) {

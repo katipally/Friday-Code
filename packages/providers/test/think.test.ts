@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test"
+import { expect, test } from "bun:test"
 import { createThinkSplitter } from "../src/think.ts"
 
 /** Feed chunks through a splitter and concatenate all reasoning/text it produces. */

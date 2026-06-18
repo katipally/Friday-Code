@@ -61,5 +61,11 @@ export const G = {
 
 /** Map a mode id to its capability-safe glyph. */
 export function modeGlyph(id: "plan" | "default" | "accept-edit" | "yolo"): string {
-  return id === "plan" ? G.modePlan : id === "default" ? G.modeDefault : id === "accept-edit" ? G.modeAcceptEdit : G.modeYolo
+  return id === "plan"
+    ? G.modePlan
+    : id === "default"
+      ? G.modeDefault
+      : id === "accept-edit"
+        ? G.modeAcceptEdit
+        : G.modeYolo
 }

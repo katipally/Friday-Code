@@ -1,20 +1,20 @@
-import { createContext, createMemo, createSignal, useContext, type JSX } from "solid-js"
-import { createStore, produce } from "solid-js/store"
+import type { Engine, SessionStats } from "@friday/core"
 import {
-  DEFAULT_MODE,
-  applyTheme,
-  themeNames,
-  cycleMode,
-  getMode,
   type AskQuestion,
-  type EngineEvent,
+  applyTheme,
+  cycleMode,
+  DEFAULT_MODE,
   type Effort,
+  type EngineEvent,
+  getMode,
   type MascotState,
   type Message,
   type ModeId,
   type TodoItem,
+  themeNames,
 } from "@friday/shared"
-import type { Engine, SessionStats } from "@friday/core"
+import { createContext, createMemo, createSignal, type JSX, useContext } from "solid-js"
+import { createStore, produce } from "solid-js/store"
 
 export type ToolStatus = "running" | "done" | "error"
 
@@ -75,7 +75,8 @@ function messagesToItems(messages: Message[]): ViewItem[] {
   for (const m of messages) {
     if (m.role === "user") {
       // A plan-execution carry-out replays as a breaker, matching how it rendered live.
-      if (m.text.startsWith(CARRY_OUT_PREFIX)) out.push({ kind: "breaker", id: `h${n++}`, mode: DEFAULT_MODE, label: "ran plan" })
+      if (m.text.startsWith(CARRY_OUT_PREFIX))
+        out.push({ kind: "breaker", id: `h${n++}`, mode: DEFAULT_MODE, label: "ran plan" })
       else out.push({ kind: "user", id: `h${n++}`, text: m.text })
     } else if (m.role === "assistant") {
       if (m.text || m.reasoning)
@@ -152,7 +153,9 @@ export function createAppStore(engine: Engine) {
   const [sessionPlanPending, setSessionPlanPending] = createSignal<Record<string, PlanEntry | null>>({})
   // True while the plan card is a READ-ONLY viewer (re-opened from the sidebar) vs the execute gate.
   const [planReadOnly, setPlanReadOnly] = createSignal(false)
-  const [sessionDiag, setSessionDiag] = createSignal<Record<string, { path: string; errors: number; warnings: number }[]>>({})
+  const [sessionDiag, setSessionDiag] = createSignal<
+    Record<string, { path: string; errors: number; warnings: number }[]>
+  >({})
   const [sessionCost, setSessionCost] = createSignal<Record<string, number>>({})
   // Status / mascot / git are per-session too, so switching shows the focused
   // session's real state instead of a stale global "thinking…".
@@ -201,11 +204,10 @@ export function createAppStore(engine: Engine) {
   const [sessions, setSessions] = createSignal<SessionItem[]>(engine.listSessions())
   const [allSessions, setAllSessions] = createSignal(engine.listAllSessions())
   const changedFiles = createMemo(() => sessionChanged()[activeSession()] ?? EMPTY)
-  // "activeSessions" kept for session-switch indexing (live runners ordered focused-first).
-  const activeSessions = () =>
-    [...sessions()].sort((a, b) => (a.id === activeSession() ? -1 : b.id === activeSession() ? 1 : 0))
   const runningTools = createMemo(() =>
-    items().filter((i) => i.kind === "tool" && i.status === "running").map((i) => (i as any).title ?? (i as any).name),
+    items()
+      .filter((i) => i.kind === "tool" && i.status === "running")
+      .map((i) => (i as any).title ?? (i as any).name),
   )
   const [currentCwd, setCurrentCwd] = createSignal(engine.currentCwd())
   const [roots, setRoots] = createSignal<string[]>(engine.currentRoots())
@@ -241,10 +243,21 @@ export function createAppStore(engine: Engine) {
   // leak into the prompt while a modal owns the keyboard. Every new overlay must be OR'd in here
   // (and nowhere else) — that's the whole point of centralizing it.
   const anyModalOpen = () =>
-    overlayOpen() || modelModalOpen() || onboardingOpen() || effortOpen() || paletteOpen() ||
-    historyOpen() || dirModalOpen() || mcpModalOpen() || checkpointsOpen() || forkOpen() ||
-    compacting() || !!compactionView() ||
-    !!pending() || !!askPending() || !!planPending()
+    overlayOpen() ||
+    modelModalOpen() ||
+    onboardingOpen() ||
+    effortOpen() ||
+    paletteOpen() ||
+    historyOpen() ||
+    dirModalOpen() ||
+    mcpModalOpen() ||
+    checkpointsOpen() ||
+    forkOpen() ||
+    compacting() ||
+    !!compactionView() ||
+    !!pending() ||
+    !!askPending() ||
+    !!planPending()
 
   const titleOf = (id: string) =>
     allSessions().find((s) => s.id === id)?.title ?? sessions().find((s) => s.id === id)?.title ?? "session"
@@ -419,7 +432,15 @@ export function createAppStore(engine: Engine) {
         bufferDelta(sid, e.id, "reasoning", e.delta)
         break
       case "tool-call":
-        appendItem(sid, { kind: "tool", id: e.callId, name: e.name, input: e.input, status: "running", output: "", open: false })
+        appendItem(sid, {
+          kind: "tool",
+          id: e.callId,
+          name: e.name,
+          input: e.input,
+          status: "running",
+          output: "",
+          open: false,
+        })
         break
       case "tool-result":
         patchItemIn(sid, e.callId, (it) => {
@@ -432,7 +453,13 @@ export function createAppStore(engine: Engine) {
         })
         break
       case "permission-request":
-        setKey(setSessionPending, sid, { requestId: e.requestId, tool: e.tool, summary: e.summary, detail: e.detail, risk: e.risk })
+        setKey(setSessionPending, sid, {
+          requestId: e.requestId,
+          tool: e.tool,
+          summary: e.summary,
+          detail: e.detail,
+          risk: e.risk,
+        })
         setKey(setSessionNeeds, sid, true)
         if (focused) setPermSel(0)
         else pushToast(`⚠ ${titleOf(sid)} needs input`, "input")
@@ -671,9 +698,15 @@ export function createAppStore(engine: Engine) {
           return true
         }
         const usd = a.startsWith("$") ? Number(a.slice(1)) : undefined
-        const tokens = !a.startsWith("$") ? Number(a.replace(/[_,k]/gi, (m) => (m.toLowerCase() === "k" ? "000" : ""))) : undefined
-        if ((usd == null || !isFinite(usd)) && (tokens == null || !isFinite(tokens) || !tokens)) {
-          appendItem(activeSession(), { kind: "notice", id: nextLocalId(), text: "usage: /budget 100000 · /budget $5 · /budget off" })
+        const tokens = !a.startsWith("$")
+          ? Number(a.replace(/[_,k]/gi, (m) => (m.toLowerCase() === "k" ? "000" : "")))
+          : undefined
+        if ((usd == null || !Number.isFinite(usd)) && (tokens == null || !Number.isFinite(tokens) || !tokens)) {
+          appendItem(activeSession(), {
+            kind: "notice",
+            id: nextLocalId(),
+            text: "usage: /budget 100000 · /budget $5 · /budget off",
+          })
           return true
         }
         const next = usd != null ? { usd } : { tokens }
@@ -743,7 +776,7 @@ export function createAppStore(engine: Engine) {
   function drainQueue(sid: string) {
     if (sessionBusy()[sid]) return
     const q = sessionQueue()[sid]
-    if (!q || !q.length) return
+    if (!q?.length) return
     const [next, ...rest] = q
     setSessionQueue((m) => ({ ...m, [sid]: rest }))
     if (sid === activeSession()) submitRaw(next!)
@@ -820,7 +853,12 @@ export function createAppStore(engine: Engine) {
       engine.send({ type: "set-mode", mode: targetMode })
     }
     const sid = activeSession()
-    appendItem(sid, { kind: "breaker", id: nextLocalId(), mode: targetMode, label: `running · ${getMode(targetMode).label}` })
+    appendItem(sid, {
+      kind: "breaker",
+      id: nextLocalId(),
+      mode: targetMode,
+      label: `running · ${getMode(targetMode).label}`,
+    })
     setKey(setSessionBusy, sid, true)
     setKey(setSessionStatus, sid, "sent…")
     engine.send({
@@ -970,7 +1008,11 @@ export function createAppStore(engine: Engine) {
     const norm = text.replace(/\s+/g, " ").trim().slice(0, 80)
     const points = engine.forkPoints()
     let k = -1
-    for (let i = points.length - 1; i >= 0; i--) if (points[i]!.text === norm) { k = i; break }
+    for (let i = points.length - 1; i >= 0; i--)
+      if (points[i]!.text === norm) {
+        k = i
+        break
+      }
     if (k < 0) {
       engine.forkSession() // whole conversation
     } else {

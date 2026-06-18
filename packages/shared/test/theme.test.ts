@@ -1,5 +1,5 @@
-import { test, expect } from "bun:test"
-import { theme, applyTheme, themeNames } from "../src/theme.ts"
+import { expect, test } from "bun:test"
+import { applyTheme, theme, themeNames } from "../src/theme.ts"
 
 test("applyTheme layers a preset and resets back to default", () => {
   const defaultBg = theme.bg

@@ -94,7 +94,8 @@ export async function validateKey(provider: ProviderInfo, apiKey?: string): Prom
     return { ok: true }
   } catch (e: any) {
     const msg = String(e?.message ?? e ?? "connection failed")
-    if (/401|403|unauthor|forbidden|invalid/i.test(msg)) return { ok: false, error: "invalid API key — check it and retry" }
+    if (/401|403|unauthor|forbidden|invalid/i.test(msg))
+      return { ok: false, error: "invalid API key — check it and retry" }
     return { ok: false, error: `couldn't connect (${msg})` }
   }
 }

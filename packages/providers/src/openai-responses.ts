@@ -1,6 +1,6 @@
 import type { ChatRequest, Message, ProviderEvent, ToolDef } from "@friday/shared"
-import { sseLines } from "./sse.ts"
 import { fetchWithRetry } from "./retry.ts"
+import { sseLines } from "./sse.ts"
 
 /** Convert canonical messages to the Responses API: top-level `instructions` + typed `input` items. */
 function toResponsesInput(messages: Message[]): { instructions?: string; input: unknown[] } {
@@ -13,7 +13,8 @@ function toResponsesInput(messages: Message[]): { instructions?: string; input: 
       if (m.images?.length) {
         const content: Record<string, unknown>[] = []
         if (m.text) content.push({ type: "input_text", text: m.text })
-        for (const img of m.images) content.push({ type: "input_image", image_url: `data:${img.mime};base64,${img.data}` })
+        for (const img of m.images)
+          content.push({ type: "input_image", image_url: `data:${img.mime};base64,${img.data}` })
         input.push({ role: "user", content })
       } else input.push({ role: "user", content: m.text })
     } else if (m.role === "assistant") {

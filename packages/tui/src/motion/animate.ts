@@ -1,5 +1,5 @@
-import { easeOutCubic, type Ease } from "./easing.ts"
 import { motion } from "./config.ts"
+import { type Ease, easeOutCubic } from "./easing.ts"
 
 export interface AnimateOpts {
   duration?: number

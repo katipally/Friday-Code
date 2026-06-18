@@ -1,9 +1,9 @@
+import { getMode, MASCOT, type MascotState, theme } from "@friday/shared"
 import { createEffect, createSignal, onCleanup, Show } from "solid-js"
-import { theme, getMode, MASCOT, type MascotState } from "@friday/shared"
-import { useApp } from "../store.tsx"
-import { Pressable } from "./Pressable.tsx"
-import { useMascotFrame } from "../util/useMascot.ts"
 import { useBreathe } from "../motion/index.ts"
+import { useApp } from "../store.tsx"
+import { useMascotFrame } from "../util/useMascot.ts"
+import { Pressable } from "./Pressable.tsx"
 
 /**
  * Strip directly above the composer: the animated mascot + live status on the left, an elapsed
@@ -50,13 +50,22 @@ export function StatusStrip() {
     const iv = setInterval(() => setTick((t) => t + 1), 250)
     onCleanup(() => clearInterval(iv))
   })
-  const elapsedS = () => (app.busy() ? (tick(), (Date.now() - startedAt) / 1000) : 0)
+  const elapsedS = () => {
+    if (!app.busy()) return 0
+    tick() // subscribe to the ticker so elapsed time re-computes each interval
+    return (Date.now() - startedAt) / 1000
+  }
   const stopped = () => !app.busy() && app.status() === "stopped" && frozen() != null
 
   return (
     <box flexDirection="row" height={1} paddingLeft={1} paddingRight={1} gap={1} alignItems="center">
       <text fg={glow()}>{frame()}</text>
-      <Show when={stopped()} fallback={<text fg={app.busy() ? theme.text : theme.textMuted}>{app.busy() ? app.status() : mascotLine()}</text>}>
+      <Show
+        when={stopped()}
+        fallback={
+          <text fg={app.busy() ? theme.text : theme.textMuted}>{app.busy() ? app.status() : mascotLine()}</text>
+        }
+      >
         <text fg={theme.textFaint}>stopped</text>
       </Show>
       {/* elapsed — plain text (no emoji glyph, which renders double-width and overlaps the digits). */}

@@ -1,4 +1,4 @@
-import { test, expect, afterEach } from "bun:test"
+import { afterEach, expect, test } from "bun:test"
 import { fetchWithRetry } from "../src/retry.ts"
 
 const realFetch = globalThis.fetch

@@ -1,10 +1,10 @@
-import { test, expect } from "bun:test"
-import os from "node:os"
+import { expect, test } from "bun:test"
 import fs from "node:fs"
+import os from "node:os"
 import path from "node:path"
-import { testRender } from "@opentui/solid"
 import { Engine, type StreamFn } from "@friday/core"
 import type { ProviderEvent } from "@friday/shared"
+import { testRender } from "@opentui/solid"
 import { App } from "../src/App.tsx"
 
 process.env.FRIDAY_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "friday-home-"))
@@ -65,7 +65,12 @@ test("/fork opens the fork picker listing the conversation's user turns", async 
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "friday-cwd-"))
   const engine = new Engine({
     cwd,
-    streamFn: scripted([[{ type: "text", delta: "ok" }, { type: "done", stopReason: "stop" }]]),
+    streamFn: scripted([
+      [
+        { type: "text", delta: "ok" },
+        { type: "done", stopReason: "stop" },
+      ],
+    ]),
   })
   engine.send({ type: "set-mode", mode: "yolo" })
   engine.selectModel("anthropic", "mock-model")

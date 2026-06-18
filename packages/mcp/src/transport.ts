@@ -75,7 +75,7 @@ export class StdioTransport implements Transport {
   }
 
   private write(obj: unknown): void {
-    const data = JSON.stringify(obj) + "\n"
+    const data = `${JSON.stringify(obj)}\n`
     const stdin = this.proc?.stdin as { write?: (s: string) => void } | undefined
     stdin?.write?.(data)
   }

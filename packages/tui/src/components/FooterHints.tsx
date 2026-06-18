@@ -1,5 +1,5 @@
-import { For } from "solid-js"
 import { theme } from "@friday/shared"
+import { For } from "solid-js"
 import { useApp } from "../store.tsx"
 
 const HINTS: { keys: string; label: string }[] = [

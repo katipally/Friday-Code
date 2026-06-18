@@ -1,12 +1,12 @@
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
-import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
+import { getMode, theme } from "@friday/shared"
 import { decodePasteBytes } from "@opentui/core"
-import { theme, getMode } from "@friday/shared"
-import { useApp } from "../store.tsx"
+import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 import { shimmerAccent } from "../motion/index.ts"
+import { useApp } from "../store.tsx"
+import { expandTokens, isBigPaste, makePasteToken } from "../util/attachments.ts"
 import { listProjectFiles } from "../util/files.ts"
 import { modeGlyph } from "../util/term.ts"
-import { makePasteToken, isBigPaste, expandTokens } from "../util/attachments.ts"
 
 type Suggestion = { label: string; hint: string; apply: () => void; run?: () => void }
 
@@ -16,7 +16,7 @@ const MAX_SUGGESTIONS = 50
 const VISIBLE_SUGGESTIONS = 8
 
 function truncate(s: string, n: number): string {
-  return s.length > n ? s.slice(0, n - 1) + "…" : s
+  return s.length > n ? `${s.slice(0, n - 1)}…` : s
 }
 
 /**
@@ -50,21 +50,32 @@ export function Composer() {
     const f = focused()
     // BLUR immediately when a modal opens — it must win the same tick so keys can't reach the composer.
     if (!f) {
-      try { ta?.blur?.() } catch {}
+      try {
+        ta?.blur?.()
+      } catch {}
       return
     }
     // FOCUS only on the next microtask, never synchronously. A modal is usually dismissed by a
     // keypress (e.g. `a` to allow, ⏎ to confirm); refocusing the composer synchronously inside that
     // same dispatch makes the dismiss key leak into the composer. Deferring lets the key finish first,
     // and the microtask still lands before the user's next keystroke.
-    queueMicrotask(() => { try { if (focused()) ta?.focus?.() } catch {} })
+    queueMicrotask(() => {
+      try {
+        if (focused()) ta?.focus?.()
+      } catch {}
+    })
   })
 
   // OpenTUI's autoFocus blurs the textarea when another focusable element (the chat scrollbox,
   // a list, …) is clicked. While we're still in the editable state, grab focus straight back so
   // the user can keep typing without having to click into the composer again.
   const onBlur = () => {
-    if (focused()) queueMicrotask(() => { try { ta?.focus?.() } catch {} })
+    if (focused())
+      queueMicrotask(() => {
+        try {
+          ta?.focus?.()
+        } catch {}
+      })
   }
 
   function refresh() {
@@ -109,7 +120,7 @@ export function Composer() {
       return files()
         .filter((f) => f.toLowerCase().includes(token))
         .slice(0, MAX_SUGGESTIONS)
-        .map((f) => ({ label: truncate(f, 40), hint: "file", apply: () => setComposer(t.slice(0, start) + f + " ") }))
+        .map((f) => ({ label: truncate(f, 40), hint: "file", apply: () => setComposer(`${t.slice(0, start) + f} `) }))
     }
     return []
   })
@@ -196,7 +207,12 @@ export function Composer() {
           <scrollbox ref={(r: any) => (sgScroll = r)} maxHeight={VISIBLE_SUGGESTIONS}>
             <For each={suggestions()}>
               {(s, i) => (
-                <box id={`sg-${i()}`} flexDirection="row" gap={1} backgroundColor={sel() === i() ? theme.bgHover : "transparent"}>
+                <box
+                  id={`sg-${i()}`}
+                  flexDirection="row"
+                  gap={1}
+                  backgroundColor={sel() === i() ? theme.bgHover : "transparent"}
+                >
                   <box width={18} flexShrink={0}>
                     <text fg={sel() === i() ? mode().accent : theme.text}>{truncate(s.label, 18)}</text>
                   </box>

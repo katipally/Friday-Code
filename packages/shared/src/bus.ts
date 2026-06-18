@@ -2,8 +2,9 @@
  * The engine <-> UI contract. The headless engine emits `EngineEvent`s; the UI sends `UICommand`s.
  * Fully fleshed out across M1+; declared here so both sides share one source of truth from day one.
  */
-import type { ModeId } from "./modes.ts"
+
 import type { MascotState } from "./mascot.ts"
+import type { ModeId } from "./modes.ts"
 import type { Message, TodoItem } from "./types.ts"
 
 /**
@@ -34,18 +35,36 @@ export type EngineEventBody =
   | { type: "session-loaded"; sessionId: string; title: string; cwd: string; roots: string[]; messages: Message[] }
   | { type: "todos"; items: TodoItem[] }
   | { type: "diagnostics"; items: { path: string; errors: number; warnings: number }[] }
-  | { type: "changed-files"; items: { path: string; status: string; added: number; removed: number }[]; branch?: string }
-  | { type: "session-files"; items: { path: string; status: string; added: number; removed: number; kind?: "file" | "dir" }[] }
+  | {
+      type: "changed-files"
+      items: { path: string; status: string; added: number; removed: number }[]
+      branch?: string
+    }
+  | {
+      type: "session-files"
+      items: { path: string; status: string; added: number; removed: number; kind?: "file" | "dir" }[]
+    }
   /** Compaction is starting — drives the progress modal (sonar pulse + real before-% bar). */
   | { type: "compaction-start"; tokensBefore: number; pctBefore: number; window: number }
   /** Compaction finished. `summary` is the generated summary text (for the read-only viewer);
    * pctAfter is the real context-usage % after the cut. */
-  | { type: "compaction"; turnsCompacted: number; kept: number; tokensBefore: number; tokensAfter: number; summary: string; pctAfter: number }
+  | {
+      type: "compaction"
+      turnsCompacted: number
+      kept: number
+      tokensBefore: number
+      tokensAfter: number
+      summary: string
+      pctAfter: number
+    }
   /** Compaction was stopped (user) or could not proceed — clears the progress modal. */
   | { type: "compaction-aborted" }
   | { type: "notice"; text: string }
   /** Background tasks (agent-spawned async sessions + due cron runs) — drives the sidebar Tasks panel. */
-  | { type: "tasks"; items: { id: string; title: string; description: string; status: "running" | "done"; summary?: string }[] }
+  | {
+      type: "tasks"
+      items: { id: string; title: string; description: string; status: "running" | "done"; summary?: string }[]
+    }
   | { type: "error"; message: string }
 
 /**

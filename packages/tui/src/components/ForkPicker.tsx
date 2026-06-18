@@ -1,6 +1,6 @@
-import { createMemo, createSignal, For, Show } from "solid-js"
+import { getMode, theme } from "@friday/shared"
 import { useKeyboard } from "@opentui/solid"
-import { theme, getMode } from "@friday/shared"
+import { createMemo, createSignal, For, Show } from "solid-js"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
 

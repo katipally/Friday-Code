@@ -1,32 +1,32 @@
-import { createEffect, createMemo, createSignal, Match, onMount, Show, Switch, untrack } from "solid-js"
-import { useKeyboard, useRenderer, useSelectionHandler, useTerminalDimensions } from "@opentui/solid"
-import { theme } from "@friday/shared"
 import type { Engine } from "@friday/core"
-import { AppProvider, createAppStore, useApp } from "./store.tsx"
-import { Splash } from "./components/Splash.tsx"
-import { TopBar } from "./components/TopBar.tsx"
-import { ContextPanel } from "./components/ContextPanel.tsx"
-import { CollapseTab, GripDivider } from "./components/Divider.tsx"
-import { Chat } from "./components/Chat.tsx"
-import { StatusStrip } from "./components/StatusStrip.tsx"
-import { Composer } from "./components/Composer.tsx"
-import { FooterHints } from "./components/FooterHints.tsx"
-import { KeymapOverlay } from "./components/KeymapOverlay.tsx"
-import { PermissionCard } from "./components/PermissionCard.tsx"
+import { theme } from "@friday/shared"
+import { useKeyboard, useRenderer, useSelectionHandler, useTerminalDimensions } from "@opentui/solid"
+import { createEffect, createMemo, createSignal, Match, onMount, Show, Switch, untrack } from "solid-js"
 import { AskCard } from "./components/AskCard.tsx"
-import { PlanCard } from "./components/PlanCard.tsx"
-import { CompactionCard, CompactionSummary } from "./components/CompactionCard.tsx"
-import { ModelModal } from "./components/ModelModal.tsx"
-import { EffortSlider } from "./components/EffortSlider.tsx"
-import { CommandPalette } from "./components/CommandPalette.tsx"
-import { SessionHistory } from "./components/SessionHistory.tsx"
-import { DirectoryModal } from "./components/DirectoryModal.tsx"
-import { McpModal } from "./components/McpModal.tsx"
+import { Chat } from "./components/Chat.tsx"
 import { CheckpointHistory } from "./components/CheckpointHistory.tsx"
-import { ForkPicker } from "./components/ForkPicker.tsx"
+import { CommandPalette } from "./components/CommandPalette.tsx"
+import { CompactionCard, CompactionSummary } from "./components/CompactionCard.tsx"
+import { Composer } from "./components/Composer.tsx"
+import { ContextPanel } from "./components/ContextPanel.tsx"
+import { DirectoryModal } from "./components/DirectoryModal.tsx"
+import { CollapseTab, GripDivider } from "./components/Divider.tsx"
+import { EffortSlider } from "./components/EffortSlider.tsx"
 import { ExitScreen } from "./components/ExitScreen.tsx"
+import { FooterHints } from "./components/FooterHints.tsx"
+import { ForkPicker } from "./components/ForkPicker.tsx"
+import { KeymapOverlay } from "./components/KeymapOverlay.tsx"
+import { McpModal } from "./components/McpModal.tsx"
+import { ModelModal } from "./components/ModelModal.tsx"
 import { Onboarding } from "./components/Onboarding.tsx"
+import { PermissionCard } from "./components/PermissionCard.tsx"
+import { PlanCard } from "./components/PlanCard.tsx"
+import { SessionHistory } from "./components/SessionHistory.tsx"
+import { Splash } from "./components/Splash.tsx"
+import { StatusStrip } from "./components/StatusStrip.tsx"
 import { Toasts } from "./components/Toasts.tsx"
+import { TopBar } from "./components/TopBar.tsx"
+import { AppProvider, createAppStore, useApp } from "./store.tsx"
 
 function Shell() {
   const app = useApp()
@@ -96,10 +96,24 @@ function Shell() {
   return (
     <box width="100%" height="100%" backgroundColor={theme.bg}>
       {/* The single outermost frame stays subtle; mode accent lives on badges, focus rings, active divider. */}
-      <box flexGrow={1} flexDirection="column" border borderStyle="rounded" borderColor={theme.frame} backgroundColor={theme.bg}>
+      <box
+        flexGrow={1}
+        flexDirection="column"
+        border
+        borderStyle="rounded"
+        borderColor={theme.frame}
+        backgroundColor={theme.bg}
+      >
         {/* The side panel is a full-height LEFT sidebar that PUSHES the main column (it never hovers).
             Drag is handled at the row so resize keeps tracking once the cursor leaves the grip. */}
-        <box flexDirection="row" flexGrow={1} minHeight={0} onMouseDrag={onDrag} onMouseUp={endDrag} onMouseDragEnd={endDrag}>
+        <box
+          flexDirection="row"
+          flexGrow={1}
+          minHeight={0}
+          onMouseDrag={onDrag}
+          onMouseUp={endDrag}
+          onMouseDragEnd={endDrag}
+        >
           {/* Full-height left sidebar with a draggable grip; a collapse tab shows when closed. */}
           <Show when={!narrow()} fallback={<CollapseTab side="left" onOpen={() => app.setRightOpen(true)} />}>
             <Show when={app.rightOpen()} fallback={<CollapseTab side="left" onOpen={() => app.setRightOpen(true)} />}>
@@ -112,7 +126,13 @@ function Shell() {
               chat area, which narrows as the sidebar opens, keeping the UI balanced. */}
           <box flexGrow={1} minHeight={0} flexDirection="column">
             <TopBar />
-            <box flexGrow={1} minHeight={0} flexDirection="column" paddingLeft={contentPad()} paddingRight={contentPad()}>
+            <box
+              flexGrow={1}
+              minHeight={0}
+              flexDirection="column"
+              paddingLeft={contentPad()}
+              paddingRight={contentPad()}
+            >
               <Chat />
             </box>
             {/* Status + composer share the chat's inset so the input box stays aligned with the
@@ -128,7 +148,13 @@ function Shell() {
 
       {/* Narrow-terminal fullscreen overlay for the right panel. */}
       <Show when={narrow() && app.rightOpen()}>
-        <box position="absolute" top={1} left={1} width={Math.max(0, dims().width - 2)} height={Math.max(0, dims().height - 2)}>
+        <box
+          position="absolute"
+          top={1}
+          left={1}
+          width={Math.max(0, dims().width - 2)}
+          height={Math.max(0, dims().height - 2)}
+        >
           <ContextPanel fullscreen />
         </box>
       </Show>

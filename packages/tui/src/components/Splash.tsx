@@ -1,4 +1,4 @@
-import { theme, getMode, MASCOT } from "@friday/shared"
+import { getMode, MASCOT, theme } from "@friday/shared"
 import { useApp } from "../store.tsx"
 import { Logo } from "./Logo.tsx"
 

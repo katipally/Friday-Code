@@ -12,7 +12,7 @@ function parse(hex: string): [number, number, number] {
 }
 
 function toHex(r: number, g: number, b: number): string {
-  return "#" + [r, g, b].map((c) => clamp255(c).toString(16).padStart(2, "0")).join("")
+  return `#${[r, g, b].map((c) => clamp255(c).toString(16).padStart(2, "0")).join("")}`
 }
 
 /** Mix `hex` toward white by `amt` (0..1). */

@@ -35,7 +35,7 @@ export function safeCutIndex(messages: Message[], target: number, floor = 0): nu
   for (let i = start; i > floor; i--) {
     const m = messages[i]!
     const prev = messages[i - 1]
-    if (m.role === "assistant" && (!prev || prev.role !== "tool")) return i
+    if (m.role === "assistant" && prev?.role !== "tool") return i
   }
   return 0
 }
@@ -68,7 +68,11 @@ const COLLAPSE_PLACEHOLDER_PREFIX = "[earlier"
  * Conservative on purpose — only outputs both older than the recent window AND large enough to matter
  * are collapsed, so the agent keeps a generous hot tail and the cached prefix barely churns.
  */
-export function collapseToolOutputs(messages: Message[], keepRecent = COLLAPSE.keepRecent, minChars = COLLAPSE.minChars): Message[] {
+export function collapseToolOutputs(
+  messages: Message[],
+  keepRecent = COLLAPSE.keepRecent,
+  minChars = COLLAPSE.minChars,
+): Message[] {
   if (messages.length <= keepRecent) return messages
   const cutoff = messages.length - keepRecent
   let changed = false
@@ -80,7 +84,10 @@ export function collapseToolOutputs(messages: Message[], keepRecent = COLLAPSE.k
       !m.result.startsWith(COLLAPSE_PLACEHOLDER_PREFIX)
     ) {
       changed = true
-      return { ...m, result: `${COLLAPSE_PLACEHOLDER_PREFIX} ${m.name ?? "tool"} output omitted to save context — ask to re-run if you need it]` }
+      return {
+        ...m,
+        result: `${COLLAPSE_PLACEHOLDER_PREFIX} ${m.name ?? "tool"} output omitted to save context — ask to re-run if you need it]`,
+      }
     }
     return m
   })

@@ -1,12 +1,12 @@
-import { createMemo, createSignal, For } from "solid-js"
+import { getMode, theme } from "@friday/shared"
 import { useKeyboard } from "@opentui/solid"
-import { theme, getMode } from "@friday/shared"
+import { createMemo, createSignal, For } from "solid-js"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
 
 function home(p: string): string {
   const h = process.env.HOME
-  return h && p.startsWith(h) ? "~" + p.slice(h.length) : p
+  return h && p.startsWith(h) ? `~${p.slice(h.length)}` : p
 }
 
 /** Full session history across all directories, grouped by directory. Resume or delete any. */
@@ -92,7 +92,13 @@ export function SessionHistory() {
               const s = row.session
               const active = () => sel() === row.index
               return (
-                <box flexDirection="row" gap={1} paddingLeft={1} backgroundColor={active() ? theme.bgHover : "transparent"} onMouseOver={() => setSel(row.index)}>
+                <box
+                  flexDirection="row"
+                  gap={1}
+                  paddingLeft={1}
+                  backgroundColor={active() ? theme.bgHover : "transparent"}
+                  onMouseOver={() => setSel(row.index)}
+                >
                   <box flexGrow={1} onMouseDown={() => resume(row.index)}>
                     <text fg={active() ? accent() : theme.text}>
                       {app.activeSession() === s.id ? "● " : "  "}

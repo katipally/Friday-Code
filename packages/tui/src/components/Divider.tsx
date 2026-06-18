@@ -1,7 +1,7 @@
+import { getMode, theme } from "@friday/shared"
 import { createSignal } from "solid-js"
-import { theme, getMode } from "@friday/shared"
-import { useApp } from "../store.tsx"
 import { shimmerAccent, useHover } from "../motion/index.ts"
+import { useApp } from "../store.tsx"
 
 /**
  * A vertical draggable grip bar that sits between the chat and the right panel.

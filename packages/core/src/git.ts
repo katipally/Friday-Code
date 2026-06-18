@@ -73,7 +73,11 @@ export async function gitCommitAll(cwd: string, message: string): Promise<{ ok: 
   if (!add.ok) return { ok: false, info: "git add failed" }
   try {
     const proc = Bun.spawn(["git", "commit", "-m", message], { cwd, stdout: "pipe", stderr: "pipe" })
-    const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited])
+    const [out, err, code] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ])
     if (code !== 0) return { ok: false, info: (err || out).trim() || "git commit failed" }
     const hash = await run(cwd, ["rev-parse", "--short", "HEAD"])
     return { ok: true, info: hash.out.trim() }
@@ -120,7 +124,10 @@ export async function gitWorktreeList(cwd: string): Promise<{ path: string; bran
       if (cur) out.push(cur)
       cur = { path: line.slice(9).trim(), branch: "" }
     } else if (line.startsWith("branch ") && cur) {
-      cur.branch = line.slice(7).trim().replace(/^refs\/heads\//, "")
+      cur.branch = line
+        .slice(7)
+        .trim()
+        .replace(/^refs\/heads\//, "")
     }
   }
   if (cur) out.push(cur)

@@ -1,7 +1,7 @@
 import fs from "node:fs/promises"
 import path from "node:path"
-import { obj, type Tool, type ToolContext, type ToolResult } from "../tool.ts"
 import { diffStats, unifiedDiff } from "../diff.ts"
+import { obj, type Tool, type ToolContext, type ToolResult } from "../tool.ts"
 import { replaceInContent } from "./editStrategies.ts"
 
 function resolve(ctx: ToolContext, p: string): string {
@@ -116,7 +116,11 @@ export const editTool: Tool = {
     await fs.writeFile(full, next, "utf8")
     const diff = unifiedDiff(old, next)
     const { added, removed } = diffStats(diff)
-    return { output: `Edited ${rel(ctx, full)} (+${added} -${removed})`, title: `edit ${rel(ctx, full)} (+${added} -${removed})`, diff }
+    return {
+      output: `Edited ${rel(ctx, full)} (+${added} -${removed})`,
+      title: `edit ${rel(ctx, full)} (+${added} -${removed})`,
+      diff,
+    }
   },
 }
 
@@ -175,7 +179,7 @@ export const lsTool: Tool = {
     } catch (e: any) {
       return { output: `Error: ${e.message}`, isError: true }
     }
-    const dirs = entries.filter((e) => e.isDirectory()).map((e) => e.name + "/")
+    const dirs = entries.filter((e) => e.isDirectory()).map((e) => `${e.name}/`)
     const files = entries.filter((e) => !e.isDirectory()).map((e) => e.name)
     dirs.sort()
     files.sort()

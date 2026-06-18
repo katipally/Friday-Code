@@ -1,10 +1,10 @@
-import { createSignal, Show } from "solid-js"
+import { allowedEfforts, type Effort, getMode, theme } from "@friday/shared"
 import { useKeyboard } from "@opentui/solid"
-import { allowedEfforts, getMode, theme, type Effort } from "@friday/shared"
-import { useApp } from "../store.tsx"
+import { createSignal, Show } from "solid-js"
 import { shimmerAccent } from "../motion/index.ts"
-import { Scrim } from "./Scrim.tsx"
+import { useApp } from "../store.tsx"
 import { narrowGlyphs } from "../util/term.ts"
+import { Scrim } from "./Scrim.tsx"
 
 const BLURB: Record<Effort, string> = {
   low: "quick, minimal thinking",

@@ -1,6 +1,6 @@
-import { test, expect } from "bun:test"
-import os from "node:os"
+import { expect, test } from "bun:test"
 import fs from "node:fs"
+import os from "node:os"
 import path from "node:path"
 import type { EngineEvent, ProviderEvent } from "@friday/shared"
 import { Engine, type StreamFn } from "../src/index.ts"
@@ -18,7 +18,12 @@ function makeStreamFn(scripts: ProviderEvent[][]): StreamFn {
 
 test("spawnTask runs a background session and reports done + summary; emits a tasks event", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-task-"))
-  const streamFn = makeStreamFn([[{ type: "text", delta: "task complete" }, { type: "done", stopReason: "stop" }]])
+  const streamFn = makeStreamFn([
+    [
+      { type: "text", delta: "task complete" },
+      { type: "done", stopReason: "stop" },
+    ],
+  ])
   const engine = new Engine({ cwd: dir, streamFn })
   engine.send({ type: "set-mode", mode: "yolo" })
   engine.selectModel("mock", "mock-model")
@@ -40,7 +45,12 @@ test("spawnTask runs a background session and reports done + summary; emits a ta
 
 test("stopTask aborts a task", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-task-"))
-  const streamFn = makeStreamFn([[{ type: "text", delta: "x" }, { type: "done", stopReason: "stop" }]])
+  const streamFn = makeStreamFn([
+    [
+      { type: "text", delta: "x" },
+      { type: "done", stopReason: "stop" },
+    ],
+  ])
   const engine = new Engine({ cwd: dir, streamFn })
   engine.send({ type: "set-mode", mode: "yolo" })
   engine.selectModel("mock", "mock-model")

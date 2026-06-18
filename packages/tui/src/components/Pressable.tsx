@@ -1,7 +1,7 @@
+import { getMode, theme } from "@friday/shared"
 import { createSignal } from "solid-js"
-import { theme, getMode } from "@friday/shared"
-import { useApp } from "../store.tsx"
 import { useHover } from "../motion/index.ts"
+import { useApp } from "../store.tsx"
 
 /**
  * A small clickable label with clear pointer feedback: it brightens + tints its background on

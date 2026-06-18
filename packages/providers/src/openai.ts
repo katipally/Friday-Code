@@ -1,7 +1,7 @@
 import type { ChatRequest, Message, ProviderEvent, ToolDef } from "@friday/shared"
+import { fetchWithRetry } from "./retry.ts"
 import { sseLines } from "./sse.ts"
 import { createThinkSplitter } from "./think.ts"
-import { fetchWithRetry } from "./retry.ts"
 
 /** Convert canonical messages to OpenAI Chat Completions format. */
 function toMessages(messages: Message[]): unknown[] {
@@ -12,7 +12,8 @@ function toMessages(messages: Message[]): unknown[] {
       if (m.images?.length) {
         const content: Record<string, unknown>[] = []
         if (m.text) content.push({ type: "text", text: m.text })
-        for (const img of m.images) content.push({ type: "image_url", image_url: { url: `data:${img.mime};base64,${img.data}` } })
+        for (const img of m.images)
+          content.push({ type: "image_url", image_url: { url: `data:${img.mime};base64,${img.data}` } })
         out.push({ role: "user", content })
       } else out.push({ role: "user", content: m.text })
     } else if (m.role === "assistant") {

@@ -1,17 +1,17 @@
-import { createMemo, For, Match, Show, Switch } from "solid-js"
+import { getMode, type ModeId, theme } from "@friday/shared"
 import { useKeyboard, useRenderer } from "@opentui/solid"
-import { theme, getMode, type ModeId } from "@friday/shared"
+import { createMemo, For, Match, Show, Switch } from "solid-js"
+import { Appear, shimmerAccent } from "../motion/index.ts"
 import { useApp, type ViewItem } from "../store.tsx"
-import { ThinkingCard } from "./ThinkingCard.tsx"
-import { ToolCard } from "./ToolCard.tsx"
-import { Markdown } from "./Markdown.tsx"
-import { EmptyHome } from "./EmptyHome.tsx"
-import { Pressable } from "./Pressable.tsx"
-import { FileChip } from "./FileChip.tsx"
-import { G, modeGlyph } from "../util/term.ts"
 import { copyText } from "../util/clipboard.ts"
 import { parseMentions } from "../util/mentions.ts"
-import { Appear, shimmerAccent } from "../motion/index.ts"
+import { G, modeGlyph } from "../util/term.ts"
+import { EmptyHome } from "./EmptyHome.tsx"
+import { FileChip } from "./FileChip.tsx"
+import { Markdown } from "./Markdown.tsx"
+import { Pressable } from "./Pressable.tsx"
+import { ThinkingCard } from "./ThinkingCard.tsx"
+import { ToolCard } from "./ToolCard.tsx"
 
 function fmtTok(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
@@ -21,7 +21,9 @@ function fmtElapsed(ms?: number): string {
   const s = ms / 1000
   if (s < 60) return `${s.toFixed(1)}s`
   const m = Math.floor(s / 60)
-  return `${m}m${Math.round(s % 60).toString().padStart(2, "0")}s`
+  return `${m}m${Math.round(s % 60)
+    .toString()
+    .padStart(2, "0")}s`
 }
 
 /** User prompt: a right-aligned rounded bubble whose border is colored by the mode it was sent in. */
@@ -59,7 +61,9 @@ function UserBubble(props: { item: Extract<ViewItem, { kind: "user" }> }) {
           </text>
           <Show when={chips().length > 0}>
             <box flexDirection="row" gap={1} flexWrap="wrap">
-              <For each={chips()}>{(chip) => <FileChip chip={chip} accent={accent()} onOpen={() => app.openPath(chip.rel)} />}</For>
+              <For each={chips()}>
+                {(chip) => <FileChip chip={chip} accent={accent()} onOpen={() => app.openPath(chip.rel)} />}
+              </For>
             </box>
           </Show>
         </box>
@@ -95,7 +99,10 @@ function AssistantMessage(props: { item: Extract<ViewItem, { kind: "assistant" }
   }
   const meta = () => {
     const it = props.item
-    const tok = it.inputTokens != null || it.outputTokens != null ? `↑${fmtTok(it.inputTokens ?? 0)} ↓${fmtTok(it.outputTokens ?? 0)}` : ""
+    const tok =
+      it.inputTokens != null || it.outputTokens != null
+        ? `↑${fmtTok(it.inputTokens ?? 0)} ↓${fmtTok(it.outputTokens ?? 0)}`
+        : ""
     const t = fmtElapsed(it.durationMs)
     return [tok, t].filter(Boolean).join(" · ")
   }
@@ -220,12 +227,17 @@ export function Chat() {
   })
 
   return (
-    <Show
-      when={app.items().length > 0}
-      fallback={<EmptyHome />}
-    >
+    <Show when={app.items().length > 0} fallback={<EmptyHome />}>
       {/* paddingRight leaves a buffer so the scrollbar never overlaps the message text. */}
-      <scrollbox ref={(r: any) => (sb = r)} flexGrow={1} minHeight={0} stickyScroll stickyStart="bottom" paddingTop={1} paddingRight={1}>
+      <scrollbox
+        ref={(r: any) => (sb = r)}
+        flexGrow={1}
+        minHeight={0}
+        stickyScroll
+        stickyStart="bottom"
+        paddingTop={1}
+        paddingRight={1}
+      >
         <For each={app.items()}>
           {(item) => (
             <Appear distance={1} duration={170}>

@@ -1,5 +1,5 @@
-import { test, expect } from "bun:test"
-import { replaceInContent, EditError } from "../src/builtin/editStrategies.ts"
+import { expect, test } from "bun:test"
+import { EditError, replaceInContent } from "../src/builtin/editStrategies.ts"
 
 test("exact match replaces uniquely", () => {
   expect(replaceInContent("a\nfoo\nb", "foo", "bar", false)).toBe("a\nbar\nb")

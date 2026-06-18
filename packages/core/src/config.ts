@@ -1,6 +1,6 @@
 import fs from "node:fs"
-import { configPath, fridayDir } from "@friday/providers"
 import type { McpServerConfig } from "@friday/mcp"
+import { configPath, fridayDir } from "@friday/providers"
 import type { Effort, ModeId } from "@friday/shared"
 import type { HooksConfig } from "./hooks.ts"
 

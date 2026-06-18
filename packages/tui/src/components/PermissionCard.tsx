@@ -1,10 +1,10 @@
-import { For, Show } from "solid-js"
-import { useKeyboard } from "@opentui/solid"
 import { theme } from "@friday/shared"
-import { useApp, type PendingPermission } from "../store.tsx"
-import { Scrim } from "./Scrim.tsx"
+import { useKeyboard } from "@opentui/solid"
+import { For, Show } from "solid-js"
 import { shimmerAccent } from "../motion/index.ts"
+import { type PendingPermission, useApp } from "../store.tsx"
 import { G } from "../util/term.ts"
+import { Scrim } from "./Scrim.tsx"
 
 const DECISIONS = ["allow-once", "allow-always", "deny"] as const
 
@@ -85,7 +85,9 @@ export function PermissionCard() {
             </Show>
 
             <Show when={p().risk}>
-              <text fg={theme.error}>{G.warn} risky — {p().risk}</text>
+              <text fg={theme.error}>
+                {G.warn} risky — {p().risk}
+              </text>
             </Show>
 
             {/* Inline button row — selected pill is filled; the hotkey letter is shown on each. */}

@@ -1,4 +1,4 @@
-import { test, expect, afterEach } from "bun:test"
+import { afterEach, expect, test } from "bun:test"
 import type { ChatRequest } from "@friday/shared"
 import { streamAnthropic } from "../src/anthropic.ts"
 
@@ -14,7 +14,9 @@ function sseBody(): Response {
 }
 
 async function drain(gen: AsyncGenerator<unknown>) {
-  for await (const _ of gen) { /* consume */ }
+  for await (const _ of gen) {
+    /* consume */
+  }
 }
 
 test("places a rolling cache breakpoint on the last message block (plus system + last tool)", async () => {

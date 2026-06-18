@@ -29,7 +29,7 @@ export const webfetchTool: Tool = {
   ),
   async execute(input, ctx): Promise<ToolResult> {
     let url: string = input.url
-    if (!/^https?:\/\//.test(url)) url = "https://" + url
+    if (!/^https?:\/\//.test(url)) url = `https://${url}`
     try {
       const res = await fetch(url, {
         signal: AbortSignal.any([ctx.signal, AbortSignal.timeout(15_000)]),
@@ -39,7 +39,7 @@ export const webfetchTool: Tool = {
       const ct = res.headers.get("content-type") ?? ""
       const raw = await res.text()
       const text = ct.includes("html") ? htmlToText(raw) : raw
-      const clipped = text.length > 20_000 ? text.slice(0, 20_000) + "\n… (truncated)" : text
+      const clipped = text.length > 20_000 ? `${text.slice(0, 20_000)}\n… (truncated)` : text
       return { output: clipped, title: `webfetch ${url}` }
     } catch (e: any) {
       return { output: `Error fetching ${url}: ${e.message}`, isError: true, title: `webfetch ${url}` }
@@ -64,7 +64,7 @@ export const websearchTool: Tool = {
       const re = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g
       let m: RegExpExecArray | null
       while ((m = re.exec(html)) && results.length < 10) {
-        const href = decodeURIComponent((m[1]!.match(/uddg=([^&]+)/)?.[1] ?? m[1]!))
+        const href = decodeURIComponent(m[1]!.match(/uddg=([^&]+)/)?.[1] ?? m[1]!)
         const title = htmlToText(m[2]!)
         results.push(`${title}\n  ${href}`)
       }

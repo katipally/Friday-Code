@@ -1,10 +1,18 @@
 import fs from "node:fs"
 import path from "node:path"
-import { LspConnection, type Diagnostic } from "./protocol.ts"
+import { type Diagnostic, LspConnection } from "./protocol.ts"
 import { languageForFile, resolveServer } from "./servers.ts"
 
 export function pathToUri(p: string): string {
-  return "file://" + path.resolve(p).split(path.sep).map(encodeURIComponent).join("/").replace(/^([A-Za-z]:)/, "/$1")
+  return (
+    "file://" +
+    path
+      .resolve(p)
+      .split(path.sep)
+      .map(encodeURIComponent)
+      .join("/")
+      .replace(/^([A-Za-z]:)/, "/$1")
+  )
 }
 export function uriToPath(uri: string): string {
   return decodeURIComponent(uri.replace(/^file:\/\//, ""))
@@ -30,7 +38,11 @@ export class LspManager {
     if (!language || this.failed.has(language)) return undefined
     const key = `${this.root}::${language}`
     const existing = this.clients.get(key)
-    if (existing) return existing.isAlive ? existing : (this.clients.delete(key), undefined)
+    if (existing) {
+      if (existing.isAlive) return existing
+      this.clients.delete(key)
+      return undefined
+    }
 
     const server = resolveServer(language)
     if (!server) {
@@ -106,7 +118,9 @@ export class LspManager {
     const conn = await this.clientFor(file)
     if (!conn) return undefined
     await this.ensureOpen(conn, file)
-    const res = await conn.request("textDocument/hover", { textDocument: { uri: pathToUri(file) }, position: { line, character } }).catch(() => undefined)
+    const res = await conn
+      .request("textDocument/hover", { textDocument: { uri: pathToUri(file) }, position: { line, character } })
+      .catch(() => undefined)
     const c = res?.contents
     if (!c) return undefined
     if (typeof c === "string") return c
@@ -133,7 +147,9 @@ export class LspManager {
     const conn = await this.clientFor(file)
     if (!conn) return []
     await this.ensureOpen(conn, file)
-    const res = await conn.request("textDocument/documentSymbol", { textDocument: { uri: pathToUri(file) } }).catch(() => [])
+    const res = await conn
+      .request("textDocument/documentSymbol", { textDocument: { uri: pathToUri(file) } })
+      .catch(() => [])
     const flat: string[] = []
     const walk = (items: any[]) => {
       for (const s of items ?? []) {
@@ -165,7 +181,35 @@ export class LspManager {
 }
 
 function symbolKind(k: number): string {
-  const kinds = ["", "file", "module", "namespace", "package", "class", "method", "property", "field", "constructor", "enum", "interface", "function", "variable", "constant", "string", "number", "boolean", "array", "object", "key", "null", "enum-member", "struct", "event", "operator", "type-param"]
+  const kinds = [
+    "",
+    "file",
+    "module",
+    "namespace",
+    "package",
+    "class",
+    "method",
+    "property",
+    "field",
+    "constructor",
+    "enum",
+    "interface",
+    "function",
+    "variable",
+    "constant",
+    "string",
+    "number",
+    "boolean",
+    "array",
+    "object",
+    "key",
+    "null",
+    "enum-member",
+    "struct",
+    "event",
+    "operator",
+    "type-param",
+  ]
   return kinds[k] ?? "symbol"
 }
 
@@ -175,7 +219,10 @@ export function formatDiagnostics(file: string, diags: Diagnostic[]): string {
   const sev = (s?: number) => (s === 1 ? "error" : s === 2 ? "warning" : s === 3 ? "info" : "hint")
   const lines = diags
     .slice(0, 20)
-    .map((d) => `  ${sev(d.severity)} [${d.range.start.line + 1}:${d.range.start.character + 1}] ${d.message.split("\n")[0]}`)
+    .map(
+      (d) =>
+        `  ${sev(d.severity)} [${d.range.start.line + 1}:${d.range.start.character + 1}] ${d.message.split("\n")[0]}`,
+    )
   const errs = diags.filter((d) => d.severity === 1).length
   const warns = diags.filter((d) => d.severity === 2).length
   return `\nLSP diagnostics for ${path.basename(file)} (${errs} error${errs === 1 ? "" : "s"}, ${warns} warning${warns === 1 ? "" : "s"}):\n${lines.join("\n")}`

@@ -1,6 +1,6 @@
-import { render } from "@opentui/solid"
-import { applyTheme } from "@friday/shared"
 import type { Engine } from "@friday/core"
+import { applyTheme } from "@friday/shared"
+import { render } from "@opentui/solid"
 import { App } from "./App.tsx"
 
 /** Boot the Friday Code TUI (full-screen, mouse on) against an engine. */

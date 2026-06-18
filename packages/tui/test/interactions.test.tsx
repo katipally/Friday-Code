@@ -1,10 +1,10 @@
-import { test, expect } from "bun:test"
-import os from "node:os"
+import { expect, test } from "bun:test"
 import fs from "node:fs"
+import os from "node:os"
 import path from "node:path"
-import { testRender } from "@opentui/solid"
 import { Engine, type StreamFn } from "@friday/core"
 import type { ProviderEvent } from "@friday/shared"
+import { testRender } from "@opentui/solid"
 import { App } from "../src/App.tsx"
 
 process.env.FRIDAY_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "friday-home-"))
@@ -172,7 +172,10 @@ test("ask_user modal: renders an option's ASCII preview in a side panel", async 
         { type: "tool_stop", index: 0 },
         { type: "done", stopReason: "tool_use" },
       ],
-      [{ type: "text", delta: "ok" }, { type: "done", stopReason: "stop" }],
+      [
+        { type: "text", delta: "ok" },
+        { type: "done", stopReason: "stop" },
+      ],
     ]),
   })
   e.selectModel("anthropic", "claude")
@@ -226,7 +229,10 @@ test("permission hotkey is not leaked into the composer", async () => {
         { type: "tool_stop", index: 0 },
         { type: "done", stopReason: "tool_use" },
       ],
-      [{ type: "text", delta: "done" }, { type: "done", stopReason: "stop" }],
+      [
+        { type: "text", delta: "done" },
+        { type: "done", stopReason: "stop" },
+      ],
     ]),
   })
   e.selectModel("anthropic", "claude")
@@ -259,7 +265,10 @@ test("plan custom input lets you type directly in the modal", async () => {
         { type: "tool_stop", index: 0 },
         { type: "done", stopReason: "tool_use" },
       ],
-      [{ type: "text", delta: "ok" }, { type: "done", stopReason: "stop" }],
+      [
+        { type: "text", delta: "ok" },
+        { type: "done", stopReason: "stop" },
+      ],
     ]),
   })
   e.selectModel("anthropic", "claude")

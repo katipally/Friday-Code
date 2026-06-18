@@ -1,5 +1,5 @@
+import { getMode, MODES, theme } from "@friday/shared"
 import { For } from "solid-js"
-import { theme, getMode, MODES } from "@friday/shared"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
 

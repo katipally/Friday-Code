@@ -65,12 +65,22 @@ function matches(spec: HookSpec, key?: string): boolean {
 }
 
 /** Run all hooks registered for `event` (filtered by `matchKey`) and aggregate their outcome. */
-export async function runHooks(event: HookEvent, hooks: HooksConfig | undefined, payload: HookPayload, matchKey?: string): Promise<HookOutcome> {
+export async function runHooks(
+  event: HookEvent,
+  hooks: HooksConfig | undefined,
+  payload: HookPayload,
+  matchKey?: string,
+): Promise<HookOutcome> {
   const specs = (hooks?.[event] ?? []).filter((h) => matches(h, matchKey))
   const out: HookOutcome = { block: false, context: "" }
   for (const spec of specs) {
     try {
-      const proc = Bun.spawn(["sh", "-c", spec.command], { cwd: payload.cwd, stdin: "pipe", stdout: "pipe", stderr: "pipe" })
+      const proc = Bun.spawn(["sh", "-c", spec.command], {
+        cwd: payload.cwd,
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+      })
       proc.stdin.write(JSON.stringify(payload))
       proc.stdin.end()
       // Bound the hook so a hung command can't freeze the turn. On timeout, kill and skip it

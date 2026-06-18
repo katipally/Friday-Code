@@ -1,9 +1,9 @@
-import { createEffect, createMemo, createResource, createSignal, For, Match, Show, Switch } from "solid-js"
+import { allowedEfforts, getMode, type ProviderInfo, theme } from "@friday/shared"
 import { useKeyboard } from "@opentui/solid"
-import { allowedEfforts, theme, getMode, type ProviderInfo } from "@friday/shared"
+import { createEffect, createMemo, createResource, createSignal, For, Match, Show, Switch } from "solid-js"
 import { useApp } from "../store.tsx"
-import { Scrim } from "./Scrim.tsx"
 import { EffortGauge } from "./EffortSlider.tsx"
+import { Scrim } from "./Scrim.tsx"
 
 type Step = "provider" | "key" | "model" | "effort"
 
@@ -17,7 +17,14 @@ function fmtCost(c?: { input: number; output: number }): string {
   return `$${r(c.input)}/${r(c.output)}`
 }
 
-function Row(props: { active: boolean; accent: string; onClick: () => void; onHover?: () => void; children: any; id?: string }) {
+function Row(props: {
+  active: boolean
+  accent: string
+  onClick: () => void
+  onHover?: () => void
+  children: any
+  id?: string
+}) {
   return (
     <box
       id={props.id}
@@ -69,7 +76,9 @@ export function ModelModal() {
   const modelList = createMemo(() => models() ?? [])
   const filtered = createMemo(() => {
     const q = query().toLowerCase()
-    return q ? modelList().filter((m) => m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q)) : modelList()
+    return q
+      ? modelList().filter((m) => m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q))
+      : modelList()
   })
 
   // reset + scroll the highlighted model into view
@@ -198,7 +207,12 @@ export function ModelModal() {
             <box flexDirection="column">
               <For each={providers}>
                 {(p, i) => (
-                  <Row active={pIndex() === i()} accent={accent()} onHover={() => setPIndex(i())} onClick={() => chooseProvider(p)}>
+                  <Row
+                    active={pIndex() === i()}
+                    accent={accent()}
+                    onHover={() => setPIndex(i())}
+                    onClick={() => chooseProvider(p)}
+                  >
                     <box width={26}>
                       <text fg={pIndex() === i() ? theme.text : theme.textMuted}>{p.name}</text>
                     </box>
@@ -216,24 +230,43 @@ export function ModelModal() {
             <box flexDirection="column" gap={1}>
               <text fg={theme.text}>Connect {provider()?.name}</text>
               <Show when={hasExistingKey()}>
-                <text fg={theme.success}>● a key is already present ({existingKeySource()}) — leave blank to reuse it</text>
+                <text fg={theme.success}>
+                  ● a key is already present ({existingKeySource()}) — leave blank to reuse it
+                </text>
               </Show>
               <box flexDirection="column" onMouseDown={() => setKeyField("key")}>
                 <text fg={theme.textFaint}>API key</text>
-                <box border borderStyle="rounded" borderColor={keyField() === "key" ? accent() : theme.border} paddingLeft={1} paddingRight={1}>
+                <box
+                  border
+                  borderStyle="rounded"
+                  borderColor={keyField() === "key" ? accent() : theme.border}
+                  paddingLeft={1}
+                  paddingRight={1}
+                >
                   <input
                     value={apiKey()}
-                    onInput={(v: string) => { setApiKey(v); setKeyError("") }}
+                    onInput={(v: string) => {
+                      setApiKey(v)
+                      setKeyError("")
+                    }}
                     onSubmit={confirmKey}
                     focused={keyField() === "key"}
-                    placeholder={hasExistingKey() ? "enter to reuse current key, or paste a new one…" : "paste your API key…"}
+                    placeholder={
+                      hasExistingKey() ? "enter to reuse current key, or paste a new one…" : "paste your API key…"
+                    }
                     placeholderColor={theme.textFaint}
                   />
                 </box>
               </box>
               <box flexDirection="column" onMouseDown={() => setKeyField("url")}>
                 <text fg={theme.textFaint}>base URL (optional override · tab)</text>
-                <box border borderStyle="rounded" borderColor={keyField() === "url" ? accent() : theme.border} paddingLeft={1} paddingRight={1}>
+                <box
+                  border
+                  borderStyle="rounded"
+                  borderColor={keyField() === "url" ? accent() : theme.border}
+                  paddingLeft={1}
+                  paddingRight={1}
+                >
                   <input
                     value={baseURL()}
                     onInput={setBaseURL}
@@ -247,11 +280,27 @@ export function ModelModal() {
                 <text fg={theme.error}>✗ {keyError()}</text>
               </Show>
               <box flexDirection="row" gap={2}>
-                <box border borderStyle="rounded" borderColor={validating() ? theme.textFaint : theme.success} paddingLeft={1} paddingRight={1} onMouseDown={confirmKey}>
-                  <text fg={validating() ? theme.textFaint : theme.success}>{validating() ? "validating…" : "connect ⏎"}</text>
+                <box
+                  border
+                  borderStyle="rounded"
+                  borderColor={validating() ? theme.textFaint : theme.success}
+                  paddingLeft={1}
+                  paddingRight={1}
+                  onMouseDown={confirmKey}
+                >
+                  <text fg={validating() ? theme.textFaint : theme.success}>
+                    {validating() ? "validating…" : "connect ⏎"}
+                  </text>
                 </box>
-                <box border borderStyle="rounded" borderColor={theme.border} paddingLeft={1} paddingRight={1} onMouseDown={() => setStep("provider")}>
-                  <text fg={theme.textMuted}>back  esc</text>
+                <box
+                  border
+                  borderStyle="rounded"
+                  borderColor={theme.border}
+                  paddingLeft={1}
+                  paddingRight={1}
+                  onMouseDown={() => setStep("provider")}
+                >
+                  <text fg={theme.textMuted}>back esc</text>
                 </box>
               </box>
             </box>
@@ -277,7 +326,13 @@ export function ModelModal() {
               <scrollbox ref={(r: any) => (scrollRef = r)} maxHeight={12}>
                 <For each={filtered()}>
                   {(m, i) => (
-                    <Row id={`m-${i()}`} active={mIndex() === i()} accent={accent()} onHover={() => setMIndex(i())} onClick={() => chooseModel(m.id)}>
+                    <Row
+                      id={`m-${i()}`}
+                      active={mIndex() === i()}
+                      accent={accent()}
+                      onHover={() => setMIndex(i())}
+                      onClick={() => chooseModel(m.id)}
+                    >
                       <text fg={mIndex() === i() ? theme.text : theme.textMuted}>{m.name}</text>
                       <box flexGrow={1} />
                       <Show when={m.reasoning}>
@@ -304,7 +359,10 @@ export function ModelModal() {
                 levels={efforts()}
                 index={eIndex()}
                 onScrub={(i) => setEIndex(i)}
-                onPick={(i) => { setEIndex(i); finalize() }}
+                onPick={(i) => {
+                  setEIndex(i)
+                  finalize()
+                }}
               />
               <text fg={theme.textFaint}>←/→ move · click · ⏎ confirm · esc back</text>
             </box>

@@ -1,9 +1,9 @@
-import { test, expect } from "bun:test"
-import os from "node:os"
+import { expect, test } from "bun:test"
 import fs from "node:fs"
+import os from "node:os"
 import path from "node:path"
-import { createRoot } from "solid-js"
 import { Engine, type StreamFn } from "@friday/core"
+import { createRoot } from "solid-js"
 import { createAppStore } from "../src/store.tsx"
 
 process.env.FRIDAY_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "friday-home-"))

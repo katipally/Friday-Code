@@ -1,29 +1,37 @@
+import fs from "node:fs"
+import path from "node:path"
+import { connectServers, type McpServerConfig } from "@friday/mcp"
+import {
+  BUILTIN_PROVIDERS,
+  fetchModels,
+  getProviderKey,
+  loadAuth,
+  setProviderKey,
+  streamProvider,
+  validateKey,
+} from "@friday/providers"
 import {
   DEFAULT_MODE,
+  type Effort,
   type EngineEvent,
   type EngineEventBody,
-  type Effort,
   type ModeId,
   type ModelInfo,
   type ProviderInfo,
   type UICommand,
 } from "@friday/shared"
-import { BUILTIN_PROVIDERS, fetchModels, getProviderKey, loadAuth, setProviderKey, streamProvider, validateKey } from "@friday/providers"
 import { BUILTIN_TOOLS, buildRegistry, type Tool } from "@friday/tools"
-import { connectServers, type McpServerConfig } from "@friday/mcp"
+import { type CustomCommand, loadCommands } from "./commands.ts"
 import { loadConfig, saveConfig } from "./config.ts"
-import { projectPermissions, persistPermission, revokeProjectPermissions } from "./permissions.ts"
-import { loadCron, saveCron, parseInterval, type CronJob } from "./cron.ts"
-import { SessionStore } from "./sessions.ts"
-import { loadCommands, type CustomCommand } from "./commands.ts"
-import { SessionRunner, type RunnerHost, type SessionStats } from "./runner.ts"
-import type { StreamFn } from "./stream.ts"
+import { type CronJob, loadCron, parseInterval, saveCron } from "./cron.ts"
 import { notify } from "./notify.ts"
-import fs from "node:fs"
-import path from "node:path"
+import { persistPermission, projectPermissions, revokeProjectPermissions } from "./permissions.ts"
+import { type RunnerHost, SessionRunner, type SessionStats } from "./runner.ts"
+import { SessionStore } from "./sessions.ts"
+import type { StreamFn } from "./stream.ts"
 
-export type { StreamFn } from "./stream.ts"
 export type { SessionStats } from "./runner.ts"
+export type { StreamFn } from "./stream.ts"
 
 const now = () => Date.now()
 
@@ -110,7 +118,11 @@ export class Engine {
     this.contextWindow = cfg.contextWindow ?? 0
     this.modelCost = cfg.cost
 
-    const resumed = opts.resumeId ? this.store.get(opts.resumeId) : opts.continueLast ? this.store.latest(this.cwd) : undefined
+    const resumed = opts.resumeId
+      ? this.store.get(opts.resumeId)
+      : opts.continueLast
+        ? this.store.latest(this.cwd)
+        : undefined
     const row = resumed ?? this.store.create([this.cwd], crypto.randomUUID(), now())
     const runner = this.makeRunner(row)
     this.focusedId = runner.sessionId
@@ -129,7 +141,8 @@ export class Engine {
       const r = this.runners.get(sessionId)
       const label = r?.currentTitle() ?? "a session"
       if (body.type === "turn-done") notify("Friday", `“${label}” finished`)
-      else if (body.type === "permission-request" || body.type === "ask-user") notify("Friday", `“${label}” needs your input`)
+      else if (body.type === "permission-request" || body.type === "ask-user")
+        notify("Friday", `“${label}” needs your input`)
     }
     this.emit({ ...body, sessionId } as EngineEvent)
     // When a background task finishes (or errors), refresh the Tasks panel once `busy` has settled.
@@ -158,7 +171,9 @@ export class Engine {
     return [...this.taskMeta.entries()].map(([id, meta]) => {
       const r = this.runners.get(id)
       const msgs = r?.snapshotMessages() ?? []
-      const last = [...msgs].reverse().find((m) => m.role === "assistant" && "text" in m && m.text) as { text?: string } | undefined
+      const last = [...msgs].reverse().find((m) => m.role === "assistant" && "text" in m && m.text) as
+        | { text?: string }
+        | undefined
       return {
         id,
         title: r?.currentTitle() ?? meta.description,
@@ -332,7 +347,9 @@ export class Engine {
     this.store.delete(id)
   }
   listAllSessions(): { id: string; title: string; cwd: string; roots: string[]; updatedAt: number }[] {
-    return this.store.list().map((s) => ({ id: s.id, title: s.title, cwd: s.cwd, roots: s.roots, updatedAt: s.updatedAt }))
+    return this.store
+      .list()
+      .map((s) => ({ id: s.id, title: s.title, cwd: s.cwd, roots: s.roots, updatedAt: s.updatedAt }))
   }
   /** Session ids with a currently-running agent loop (for the RUNNING panel). */
   runningSessions(): string[] {
@@ -402,8 +419,15 @@ export class Engine {
     const cut = upto == null ? msgs.length : Math.max(0, Math.min(upto + 1, msgs.length))
     const slice = msgs.slice(0, cut)
     if (!slice.length) return
-    const row = this.store.create(focused.currentRoots(), crypto.randomUUID(), now(), `fork · ${focused.currentTitle()}`)
-    slice.forEach((m, i) => this.store.appendMessage(row.id, i, m))
+    const row = this.store.create(
+      focused.currentRoots(),
+      crypto.randomUUID(),
+      now(),
+      `fork · ${focused.currentTitle()}`,
+    )
+    slice.forEach((m, i) => {
+      this.store.appendMessage(row.id, i, m)
+    })
     const runner = this.makeRunner(row)
     this.focusedId = runner.sessionId
     runner.emitState(true)
@@ -472,7 +496,13 @@ export class Engine {
     return out
   }
   selection(): { providerId?: string; model?: string; effort: Effort; mode: ModeId; reasoning: boolean } {
-    return { providerId: this.providerId, model: this.model, effort: this.effort, mode: this.mode, reasoning: this.modelReasoning }
+    return {
+      providerId: this.providerId,
+      model: this.model,
+      effort: this.effort,
+      mode: this.mode,
+      reasoning: this.modelReasoning,
+    }
   }
   private resolveProvider(): ProviderInfo {
     const found = this.listProviders().find((p) => p.id === this.providerId)
@@ -497,7 +527,11 @@ export class Engine {
    * apiKey to validate the existing stored/env key (e.g. when the user keeps their current key).
    * Returns `{ ok: true }` when models can be listed, or an error message for the UI to show.
    */
-  async connectAndValidate(providerId: string, apiKey?: string, baseURL?: string): Promise<{ ok: boolean; error?: string }> {
+  async connectAndValidate(
+    providerId: string,
+    apiKey?: string,
+    baseURL?: string,
+  ): Promise<{ ok: boolean; error?: string }> {
     const provider = this.listProviders().find((x) => x.id === providerId)
     if (!provider) return { ok: false, error: "unknown provider" }
     const storedBase = loadAuth().providers[providerId]?.baseURL
@@ -511,17 +545,30 @@ export class Engine {
     // Persist only after a successful probe so a bad key never overwrites a working one.
     const baseOverride = baseURL && baseURL !== provider.baseURL ? baseURL : undefined
     if (typed) setProviderKey(providerId, typed, baseOverride)
-    else if (baseOverride && getProviderKey(providerId)) setProviderKey(providerId, getProviderKey(providerId)!, baseOverride)
+    else if (baseOverride && getProviderKey(providerId))
+      setProviderKey(providerId, getProviderKey(providerId)!, baseOverride)
     return { ok: true }
   }
-  selectModel(providerId: string, model: string, reasoning = false, contextWindow?: number, cost?: { input: number; output: number }): void {
+  selectModel(
+    providerId: string,
+    model: string,
+    reasoning = false,
+    contextWindow?: number,
+    cost?: { input: number; output: number },
+  ): void {
     this.providerId = providerId
     this.model = model
     this.modelReasoning = reasoning
     if (contextWindow && contextWindow > 0) this.contextWindow = contextWindow
     this.modelCost = cost ?? this.modelCost
     saveConfig({ providerId, model, reasoning, contextWindow: this.contextWindow || undefined, cost: this.modelCost })
-    this.dispatch(this.focusedId, { type: "model-changed", model, provider: providerId, reasoning, contextWindow: this.contextWindow })
+    this.dispatch(this.focusedId, {
+      type: "model-changed",
+      model,
+      provider: providerId,
+      reasoning,
+      contextWindow: this.contextWindow,
+    })
   }
   setMode(m: ModeId): void {
     this.mode = m

@@ -1,12 +1,12 @@
-import { createMemo, For, Show } from "solid-js"
 import { theme } from "@friday/shared"
+import { createMemo, For, Show } from "solid-js"
 import { useApp } from "../store.tsx"
 import { Logo } from "./Logo.tsx"
 import { Pressable } from "./Pressable.tsx"
 
 function home(p: string): string {
   const h = process.env.HOME
-  return h && p.startsWith(h) ? "~" + p.slice(h.length) : p
+  return h && p.startsWith(h) ? `~${p.slice(h.length)}` : p
 }
 
 function ago(ms?: number): string {
@@ -21,7 +21,7 @@ function ago(ms?: number): string {
 }
 
 function truncate(s: string, n: number): string {
-  return s.length > n ? s.slice(0, n - 1) + "…" : s
+  return s.length > n ? `${s.slice(0, n - 1)}…` : s
 }
 
 /**
@@ -54,7 +54,12 @@ export function EmptyHome() {
           <For each={recents()}>
             {(s: any) => (
               <box flexDirection="row" alignItems="center">
-                <Pressable label={`↻ ${truncate(s.title, 34)}`} fg={theme.text} grow onClick={() => app.switchSession(s.id)} />
+                <Pressable
+                  label={`↻ ${truncate(s.title, 34)}`}
+                  fg={theme.text}
+                  grow
+                  onClick={() => app.switchSession(s.id)}
+                />
                 <text fg={theme.textFaint}>{ago(s.updatedAt)} </text>
               </box>
             )}

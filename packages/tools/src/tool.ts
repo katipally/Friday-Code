@@ -33,9 +33,6 @@ export function toToolDef(t: Tool): ToolDef {
 }
 
 /** JSON-Schema object helper. */
-export function obj(
-  properties: Record<string, unknown>,
-  required: string[] = [],
-): Record<string, unknown> {
+export function obj(properties: Record<string, unknown>, required: string[] = []): Record<string, unknown> {
   return { type: "object", properties, required, additionalProperties: false }
 }

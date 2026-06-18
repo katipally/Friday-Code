@@ -1,9 +1,9 @@
-import { createSignal, createEffect, on, onCleanup, onMount, type Accessor } from "solid-js"
 import { theme } from "@friday/shared"
-import { animate, type AnimateOpts } from "./animate.ts"
-import { easeOutQuad } from "./easing.ts"
-import { motion } from "./config.ts"
+import { type Accessor, createEffect, createSignal, on, onCleanup, onMount } from "solid-js"
 import { lighten, mix } from "../util/colors.ts"
+import { type AnimateOpts, animate } from "./animate.ts"
+import { motion } from "./config.ts"
+import { easeOutQuad } from "./easing.ts"
 
 /**
  * Animate a signal toward a reactive target whenever the target changes.

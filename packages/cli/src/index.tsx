@@ -24,7 +24,10 @@ if (argv[0] === "run") {
 
 async function runHeadless(args: string[]): Promise<void> {
   const json = args.includes("--json")
-  const prompt = args.filter((a) => !a.startsWith("-")).join(" ").trim()
+  const prompt = args
+    .filter((a) => !a.startsWith("-"))
+    .join(" ")
+    .trim()
   if (!prompt) {
     process.stderr.write('Usage: friday run "<prompt>" [--json]\n')
     process.exit(2)
@@ -53,9 +56,9 @@ async function runHeadless(args: string[]): Promise<void> {
   await done
 
   if (errored) {
-    process.stderr.write(errored + "\n")
+    process.stderr.write(`${errored}\n`)
     process.exit(1)
   }
-  process.stdout.write(json ? JSON.stringify({ text: text.trim() }) + "\n" : text.trim() + "\n")
+  process.stdout.write(json ? `${JSON.stringify({ text: text.trim() })}\n` : `${text.trim()}\n`)
   process.exit(0)
 }

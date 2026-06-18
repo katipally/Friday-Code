@@ -1,11 +1,11 @@
-import { createEffect, createSignal, For, Show, type JSX } from "solid-js"
-import { theme, getMode } from "@friday/shared"
-import { useApp } from "../store.tsx"
+import { getMode, theme } from "@friday/shared"
+import { createEffect, createSignal, For, type JSX, Show } from "solid-js"
 import { Reveal, shimmerAccent, useHover, useTween } from "../motion/index.ts"
-import { CloseButton } from "./PanelChrome.tsx"
-import { CollapseTab } from "./Divider.tsx"
-import { Pressable } from "./Pressable.tsx"
+import { useApp } from "../store.tsx"
 import { G } from "../util/term.ts"
+import { CollapseTab } from "./Divider.tsx"
+import { CloseButton } from "./PanelChrome.tsx"
+import { Pressable } from "./Pressable.tsx"
 
 function fmtTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
@@ -14,7 +14,7 @@ function fmtTokens(n: number): string {
 /** Truncate to fit the panel width, keeping the tail of paths (the filename) visible. */
 function truncate(s: string, n: number, fromStart = false): string {
   if (s.length <= n) return s
-  return fromStart ? "…" + s.slice(s.length - (n - 1)) : s.slice(0, n - 1) + "…"
+  return fromStart ? `…${s.slice(s.length - (n - 1))}` : `${s.slice(0, n - 1)}…`
 }
 
 /** A collapsible section that flags `*new` and auto-opens when its content changes. */
@@ -29,7 +29,14 @@ function Section(props: {
   const h = useHover({ base: theme.bgPanel, hover: theme.bgHover })
   return (
     <box flexDirection="column">
-      <box flexDirection="row" gap={1} backgroundColor={h.bg()} onMouseOver={h.onMouseOver} onMouseOut={h.onMouseOut} onMouseDown={props.onToggle}>
+      <box
+        flexDirection="row"
+        gap={1}
+        backgroundColor={h.bg()}
+        onMouseOver={h.onMouseOver}
+        onMouseOut={h.onMouseOut}
+        onMouseDown={props.onToggle}
+      >
         <text fg={h.hovered() ? theme.text : theme.textMuted}>{props.open ? "▾" : "▸"}</text>
         <text fg={h.hovered() ? theme.text : theme.textMuted}>{props.label}</text>
         <Show when={props.count != null}>
@@ -67,9 +74,16 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
   const [taskHov, setTaskHov] = createSignal(-1)
 
   // Auto-reveal Todos/Files when their backing data changes (signature compare).
-  const todoSig = () => app.todos().map((t) => `${t.status}:${t.text}`).join("|")
+  const todoSig = () =>
+    app
+      .todos()
+      .map((t) => `${t.status}:${t.text}`)
+      .join("|")
   const fileSig = () =>
-    [...app.changedFiles().map((f) => `${f.status}${f.path}${f.added}${f.removed}`), ...app.diagnostics().map((d) => `${d.path}${d.errors}${d.warnings}`)].join("|")
+    [
+      ...app.changedFiles().map((f) => `${f.status}${f.path}${f.added}${f.removed}`),
+      ...app.diagnostics().map((d) => `${d.path}${d.errors}${d.warnings}`),
+    ].join("|")
   // Seed each tracker with the CURRENT value (not null) so the effect's first run is a no-op and any
   // later change reliably reveals the section. The previous `!== null` guard suppressed the very
   // first populate (empty → first list), which is exactly when the user wants to see it appear.
@@ -101,7 +115,11 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
     prevPlan = n
   })
   // Reveal Tasks when the set of background tasks (or their statuses) changes.
-  const taskSig = () => app.tasks().map((t) => `${t.id}:${t.status}`).join("|")
+  const taskSig = () =>
+    app
+      .tasks()
+      .map((t) => `${t.id}:${t.status}`)
+      .join("|")
   let prevTask = taskSig()
   createEffect(() => {
     const sig = taskSig()
@@ -131,7 +149,8 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
 
   const mcpHover = useHover({ base: theme.bgPanel, hover: theme.bgHover })
   const [planHov, setPlanHov] = createSignal(-1)
-  const pct = () => (app.contextWindow() > 0 ? Math.min(100, Math.round((app.tokens() / app.contextWindow()) * 100)) : 0)
+  const pct = () =>
+    app.contextWindow() > 0 ? Math.min(100, Math.round((app.tokens() / app.contextWindow()) * 100)) : 0
   // The bar tweens toward a target: the live usage normally, the "before" level while compacting,
   // and the freed "after" level the moment a compaction completes (real token count lags a turn).
   const targetPct = () => {
@@ -155,10 +174,7 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
   }
 
   return (
-    <Show
-      when={app.rightOpen()}
-      fallback={<CollapseTab side="left" onOpen={() => app.setRightOpen(true)} />}
-    >
+    <Show when={app.rightOpen()} fallback={<CollapseTab side="left" onOpen={() => app.setRightOpen(true)} />}>
       <box
         width={props.fullscreen ? "100%" : (props.widthOverride ?? app.rightWidth())}
         height="100%"
@@ -176,7 +192,11 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
           <box flexDirection="column" gap={1}>
             {/* Always-on stat block. */}
             <box flexDirection="column">
-              <Pressable label={truncate(app.model(), innerW() - 2)} fg={theme.text} onClick={() => app.setModelModalOpen(true)} />
+              <Pressable
+                label={truncate(app.model(), innerW() - 2)}
+                fg={theme.text}
+                onClick={() => app.setModelModalOpen(true)}
+              />
               <Show when={app.reasoningModel()}>
                 <Pressable label={`◇ ${app.effort()} · tap to change`} onClick={() => app.setEffortOpen(true)} />
               </Show>
@@ -185,12 +205,15 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
             <box flexDirection="column">
               <Show
                 when={app.contextWindow() > 0}
-                fallback={<text fg={theme.textFaint}>{fmtTokens(app.tokens())} tokens · ${app.cost().toFixed(3)}</text>}
+                fallback={
+                  <text fg={theme.textFaint}>
+                    {fmtTokens(app.tokens())} tokens · ${app.cost().toFixed(3)}
+                  </text>
+                }
               >
                 <text fg={app.compacting() ? accent() : barPct() > 80 ? theme.warning : accent()}>
                   {"█".repeat(Math.round((barPct() / 100) * 12))}
-                  {"░".repeat(12 - Math.round((barPct() / 100) * 12))} {barPct()}%
-                  {app.compacting() ? " ↻" : ""}
+                  {"░".repeat(12 - Math.round((barPct() / 100) * 12))} {barPct()}%{app.compacting() ? " ↻" : ""}
                 </text>
                 <text fg={theme.textFaint}>
                   {fmtTokens(app.tokens())}/{fmtTokens(app.contextWindow())} · ${app.cost().toFixed(3)}
@@ -199,7 +222,8 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
               {/* Optional usage budget (/budget): warn when tokens or $ exceed it. */}
               <Show when={app.budget()}>
                 <text fg={budgetOver() ? theme.error : theme.textFaint}>
-                  {budgetOver() ? G.warn + " " : ""}budget {budgetLabel()}{budgetOver() ? " exceeded" : ""}
+                  {budgetOver() ? `${G.warn} ` : ""}budget {budgetLabel()}
+                  {budgetOver() ? " exceeded" : ""}
                 </text>
               </Show>
             </box>
@@ -217,8 +241,17 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
               </Show>
             </box>
 
-            <box flexDirection="row" gap={1} backgroundColor={mcpHover.bg()} onMouseOver={mcpHover.onMouseOver} onMouseOut={mcpHover.onMouseOut} onMouseDown={() => app.setMcpModalOpen(true)}>
-              <text fg={app.mcpServers().length ? theme.success : theme.textFaint}>⚡ {app.mcpServers().length} mcp</text>
+            <box
+              flexDirection="row"
+              gap={1}
+              backgroundColor={mcpHover.bg()}
+              onMouseOver={mcpHover.onMouseOver}
+              onMouseOut={mcpHover.onMouseOut}
+              onMouseDown={() => app.setMcpModalOpen(true)}
+            >
+              <text fg={app.mcpServers().length ? theme.success : theme.textFaint}>
+                ⚡ {app.mcpServers().length} mcp
+              </text>
               <text fg={mcpHover.hovered() ? theme.text : theme.textFaint}>· {app.skills().length} skills</text>
             </box>
             <Show when={app.contextFiles().length}>
@@ -228,7 +261,13 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
             <text fg={theme.borderMuted}>{"─".repeat(innerW())}</text>
 
             {/* Plans proposed this session — click one to re-open the full plan + execute gate. */}
-            <Section label="plans" count={app.plans().length} open={plansOpen()} fresh={plansNew()} onToggle={togglePlans}>
+            <Section
+              label="plans"
+              count={app.plans().length}
+              open={plansOpen()}
+              fresh={plansNew()}
+              onToggle={togglePlans}
+            >
               <Show when={app.plans().length} fallback={<text fg={theme.textFaint}>none yet</text>}>
                 <For each={app.plans()}>
                   {(p, i) => (
@@ -241,7 +280,9 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
                       onMouseDown={() => app.viewPlan(p)}
                     >
                       <text fg={getMode("plan").accent}>{G.modePlan}</text>
-                      <text fg={planHov() === i() ? theme.text : theme.textMuted}>{truncate(p.title, innerW() - 9)}</text>
+                      <text fg={planHov() === i() ? theme.text : theme.textMuted}>
+                        {truncate(p.title, innerW() - 9)}
+                      </text>
                       <box flexGrow={1} />
                       <Show when={planHov() === i()}>
                         <text fg={theme.textFaint}>view</text>
@@ -254,7 +295,13 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
 
             {/* Background tasks (agent-spawned async sessions) — click to open one's transcript. */}
             <Show when={app.tasks().length}>
-              <Section label="tasks" count={app.tasks().length} open={tasksOpen()} fresh={tasksNew()} onToggle={toggleTasks}>
+              <Section
+                label="tasks"
+                count={app.tasks().length}
+                open={tasksOpen()}
+                fresh={tasksNew()}
+                onToggle={toggleTasks}
+              >
                 <For each={app.tasks()}>
                   {(t, i) => (
                     <box
@@ -268,7 +315,9 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
                       <text fg={t.status === "running" ? accent() : theme.success}>
                         {t.status === "running" ? G.caret : G.todoDone}
                       </text>
-                      <text fg={taskHov() === i() ? theme.text : theme.textMuted}>{truncate(t.title, innerW() - 6)}</text>
+                      <text fg={taskHov() === i() ? theme.text : theme.textMuted}>
+                        {truncate(t.title, innerW() - 6)}
+                      </text>
                       <box flexGrow={1} />
                       <Show when={taskHov() === i()}>
                         <text fg={theme.textFaint}>open</text>
@@ -280,12 +329,20 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
             </Show>
 
             {/* Todos — auto-reveals when the agent rewrites the task list. */}
-            <Section label="todos" count={app.todos().length} open={todosOpen()} fresh={todosNew()} onToggle={toggleTodos}>
+            <Section
+              label="todos"
+              count={app.todos().length}
+              open={todosOpen()}
+              fresh={todosNew()}
+              onToggle={toggleTodos}
+            >
               <Show when={app.todos().length} fallback={<text fg={theme.textFaint}>none yet</text>}>
                 <For each={app.todos()}>
                   {(t) => (
                     <box flexDirection="row" gap={1}>
-                      <text fg={t.status === "done" ? theme.success : t.status === "active" ? accent() : theme.textFaint}>
+                      <text
+                        fg={t.status === "done" ? theme.success : t.status === "active" ? accent() : theme.textFaint}
+                      >
                         {t.status === "done" ? G.todoDone : t.status === "active" ? G.caret : G.todoOpen}
                       </text>
                       <text fg={t.status === "active" ? theme.text : theme.textMuted}>{t.text}</text>
@@ -304,11 +361,16 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
               fresh={filesNew()}
               onToggle={toggleFiles}
             >
-              <Show when={app.changedFiles().length || app.diagnostics().length} fallback={<text fg={theme.textFaint}>no changes yet</text>}>
+              <Show
+                when={app.changedFiles().length || app.diagnostics().length}
+                fallback={<text fg={theme.textFaint}>no changes yet</text>}
+              >
                 <For each={app.changedFiles()}>
                   {(f) => (
                     <box flexDirection="row" gap={1}>
-                      <text fg={f.status === "D" ? theme.error : f.status === "A" ? theme.success : theme.warning}>{f.status}</text>
+                      <text fg={f.status === "D" ? theme.error : f.status === "A" ? theme.success : theme.warning}>
+                        {f.status}
+                      </text>
                       <text fg={theme.textMuted}>{truncate(f.path, innerW() - 6, true)}</text>
                       <Show when={f.kind === "dir"}>
                         <text fg={theme.textFaint}>(dir)</text>

@@ -63,7 +63,9 @@ export function systemPrompt(opts: {
     "- ask_user: pause and ask the user clarifying question(s) with selectable { label, description } options when you need a decision; a free-text answer is always offered too.",
     "- todo_write: for any task with 3+ steps, maintain a live task list. Pass the FULL list each call; keep one item 'active', mark items 'done' as you finish. This keeps the user oriented.",
     "- Language server (when available): lsp_hover / lsp_definition / lsp_symbols give real type info, jump-to-def, and symbol search. After you edit a file, its compiler diagnostics are appended to the tool result automatically — read them and fix real errors before moving on.",
-    opts.memory ? `\n# Memory\nDurable facts you saved previously (use them; update via the memory tool when they change):\n${opts.memory}` : "",
+    opts.memory
+      ? `\n# Memory\nDurable facts you saved previously (use them; update via the memory tool when they change):\n${opts.memory}`
+      : "",
     skillsSection(opts.skills),
     agentsSection(opts.agents),
     deferredToolsSection(opts.deferredTools),

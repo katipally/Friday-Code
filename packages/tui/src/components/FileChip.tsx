@@ -1,18 +1,13 @@
 import { theme } from "@friday/shared"
-import { chipIcon, type Chip } from "../util/mentions.ts"
 import { useHover } from "../motion/index.ts"
+import { type Chip, chipIcon } from "../util/mentions.ts"
 
 /** A click-to-open file reference chip with a hover highlight. */
-export function FileChip(props: {
-  chip: Chip
-  accent: string
-  onOpen: () => void
-  max?: number
-}) {
+export function FileChip(props: { chip: Chip; accent: string; onOpen: () => void; max?: number }) {
   const h = useHover({ base: theme.bg, hover: theme.bgHover })
   const name = () => {
     const n = props.chip.rel.split("/").pop() || props.chip.rel
-    return props.max && n.length > props.max ? n.slice(0, props.max - 1) + "…" : n
+    return props.max && n.length > props.max ? `${n.slice(0, props.max - 1)}…` : n
   }
   return (
     <box

@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test"
+import { expect, test } from "bun:test"
 import { MCPClient } from "../src/client.ts"
 import type { Transport } from "../src/transport.ts"
 
@@ -8,8 +8,17 @@ function fakeTransport(): Transport {
     async request(method: string, params: any) {
       if (method === "initialize") return { protocolVersion: "2025-06-18" }
       if (method === "tools/list")
-        return { tools: [{ name: "echo", description: "echo text", inputSchema: { type: "object", properties: { text: { type: "string" } } } }] }
-      if (method === "tools/call") return { content: [{ type: "text", text: `called ${params.name}: ${JSON.stringify(params.arguments)}` }] }
+        return {
+          tools: [
+            {
+              name: "echo",
+              description: "echo text",
+              inputSchema: { type: "object", properties: { text: { type: "string" } } },
+            },
+          ],
+        }
+      if (method === "tools/call")
+        return { content: [{ type: "text", text: `called ${params.name}: ${JSON.stringify(params.arguments)}` }] }
       return {}
     },
     notify() {},
