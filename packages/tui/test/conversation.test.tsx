@@ -51,7 +51,9 @@ test("full render path: prompt -> tool card + diff -> assistant text", async () 
   const frame = t.captureCharFrame()
   expect(frame).toContain("create foo.txt") // user bubble
   expect(frame).toContain("write foo.txt") // tool card title
-  expect(frame).toContain("+ hello") // diff added line
+  // Tool output/diff auto-collapses once the tool finishes (click the title to expand), so the diff
+  // body is not shown by default — only the title + a ▸ affordance.
+  expect(frame).not.toContain("+ hello")
   expect(frame).toContain("Created foo.txt") // assistant text
   expect(fs.existsSync(path.join(cwd, "foo.txt"))).toBe(true)
 

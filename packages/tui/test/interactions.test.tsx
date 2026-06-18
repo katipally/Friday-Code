@@ -214,3 +214,76 @@ test("Ctrl+Y opens session history grouped by directory", async () => {
 
   t.renderer.destroy()
 })
+
+test("permission hotkey is not leaked into the composer", async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "friday-cwd-"))
+  const e = new Engine({
+    cwd,
+    streamFn: makeStreamFn([
+      [
+        { type: "tool_start", index: 0, id: "c1", name: "bash" },
+        { type: "tool_delta", index: 0, argsDelta: JSON.stringify({ command: "ls" }) },
+        { type: "tool_stop", index: 0 },
+        { type: "done", stopReason: "tool_use" },
+      ],
+      [{ type: "text", delta: "done" }, { type: "done", stopReason: "stop" }],
+    ]),
+  })
+  e.selectModel("anthropic", "claude")
+  const t = await testRender(() => <App engine={e} />, { width: 100, height: 30 })
+  await t.renderOnce()
+  t.mockInput.pressEnter()
+  await t.flush()
+  await t.mockInput.typeText("count files")
+  await t.flush()
+  t.mockInput.pressEnter() // submit -> bash -> permission
+  await t.flush()
+  await t.flush()
+  expect(t.captureCharFrame()).toContain("permission")
+  t.mockInput.pressKey("a") // allow-once
+  await t.flush()
+  await t.flush()
+  // The composer is empty again (placeholder shows) — the `a` did NOT leak into it.
+  expect(t.captureCharFrame()).toContain("ask anything")
+  t.renderer.destroy()
+})
+
+test("plan custom input lets you type directly in the modal", async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "friday-cwd-"))
+  const e = new Engine({
+    cwd,
+    streamFn: makeStreamFn([
+      [
+        { type: "tool_start", index: 0, id: "c1", name: "exit_plan" },
+        { type: "tool_delta", index: 0, argsDelta: JSON.stringify({ plan: "# Plan\n- step" }) },
+        { type: "tool_stop", index: 0 },
+        { type: "done", stopReason: "tool_use" },
+      ],
+      [{ type: "text", delta: "ok" }, { type: "done", stopReason: "stop" }],
+    ]),
+  })
+  e.selectModel("anthropic", "claude")
+  const t = await testRender(() => <App engine={e} />, { width: 100, height: 34 })
+  await t.renderOnce()
+  t.mockInput.pressEnter()
+  await t.flush()
+  t.mockInput.pressTab({ shift: true }) // default -> plan
+  await t.flush()
+  await t.mockInput.typeText("plan it")
+  await t.flush()
+  t.mockInput.pressEnter() // submit -> exit_plan -> plan gate
+  await t.flush()
+  await t.flush()
+  for (let i = 0; i < 4; i++) {
+    t.mockInput.pressArrow("down") // navigate to "custom input…"
+    await t.flush()
+  }
+  t.mockInput.pressEnter() // select custom -> reveal editor (deferred mount)
+  await t.flush()
+  await t.flush()
+  await t.mockInput.typeText("ZQX-refine")
+  await t.flush()
+  // The text lands in the modal's editor, not lost or leaked.
+  expect(t.captureCharFrame()).toContain("ZQX-refine")
+  t.renderer.destroy()
+})

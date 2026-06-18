@@ -1,4 +1,4 @@
-import { createMemo, createSignal, For, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { theme, getMode, type ModeId } from "@friday/shared"
 import { useApp } from "../store.tsx"
@@ -46,9 +46,19 @@ export function PlanCard() {
 
   function choose(c: Choice) {
     if (c.kind === "mode") app.executePlan(c.mode, app.planPending() ?? undefined)
-    else if (c.kind === "custom") setTyping(true) // reveal the inline refine editor
+    // Reveal the inline editor on the NEXT tick so the selecting Enter finishes dispatching first —
+    // otherwise that same Enter reaches the freshly-mounted textarea (Enter = submit) and instantly
+    // closes it with empty text. (AskCard avoids this because it opens its editor with `i`, not Enter.)
+    else if (c.kind === "custom") queueMicrotask(() => setTyping(true))
     else app.dismissPlan() // "keep planning" just closes the gate; user types in the composer
   }
+
+  // Explicitly grab focus when the inline editor appears — relying on the reactive `focused` prop
+  // alone is unreliable when it mounts mid-keypress-dispatch (the selecting Enter), so the textarea
+  // would render but never receive input.
+  createEffect(() => {
+    if (typing()) queueMicrotask(() => { try { input?.focus?.() } catch {} })
+  })
 
   function submitRefine() {
     const text: string = (input?.plainText ?? "").trim()
@@ -132,25 +142,27 @@ export function PlanCard() {
               </For>
             </box>
 
-            {/* Inline refine editor — revealed by "custom input…"; stays in plan mode on submit. */}
-            <Show when={typing()}>
-              <box border borderStyle="rounded" borderColor={accent()} paddingLeft={1} paddingRight={1} marginTop={1}>
-                <textarea
-                  ref={(r: any) => (input = r)}
-                  onSubmit={submitRefine}
-                  keyBindings={[{ name: "return", action: "submit" }]}
-                  focused={typing()}
-                  placeholder="refine the plan — ⏎ to send, esc to cancel"
-                  placeholderColor={theme.textFaint}
-                  minHeight={1}
-                  maxHeight={4}
-                />
-              </box>
-            </Show>
-
             <text fg={theme.textFaint}>
               {typing() ? "⏎ refine · esc cancel" : "↑↓ move · ⏎ choose · esc keep planning"}
             </text>
+          </Show>
+
+          {/* Inline refine editor — revealed by "custom input…"; stays in plan mode on submit.
+              Kept as a TOP-LEVEL sibling (not nested inside the !readOnly Show) so re-renders never
+              destroy/recreate it mid-typing, which would silently drop focus. */}
+          <Show when={!readOnly() && typing()}>
+            <box border borderStyle="rounded" borderColor={accent()} paddingLeft={1} paddingRight={1}>
+              <textarea
+                ref={(r: any) => (input = r)}
+                onSubmit={submitRefine}
+                keyBindings={[{ name: "return", action: "submit" }]}
+                focused={typing()}
+                placeholder="refine the plan — ⏎ to send, esc to cancel"
+                placeholderColor={theme.textFaint}
+                minHeight={1}
+                maxHeight={4}
+              />
+            </box>
           </Show>
         </box>
       </Scrim>

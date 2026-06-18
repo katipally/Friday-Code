@@ -131,9 +131,15 @@ export function AskCard() {
     else nextQ(1)
   }
 
+  // Defer revealing the editor to the next tick so the key that opened it (Enter/Space/i) finishes
+  // dispatching first — otherwise that key reaches the freshly-focused textarea and is typed in.
+  function startTyping() {
+    queueMicrotask(() => setTyping(true))
+  }
+
   function chooseRow(i: number) {
     if (i < opts().length) return chooseOption(i)
-    setTyping(true) // the custom-answer row
+    startTyping() // the custom-answer row
   }
 
   function submitFree() {
@@ -177,7 +183,7 @@ export function AskCard() {
     if (key.name === "escape") return confirm() // esc submits what we have (unanswered → "(no answer)")
     const n = Number(key.name)
     if (!Number.isNaN(n) && n >= 1 && n <= opts().length) return chooseOption(n - 1)
-    if (key.name === "i") return setTyping(true)
+    if (key.name === "i") return startTyping()
     if (key.name === "c") return confirm()
     if (key.name === "tab") return nextQ(key.shift ? -1 : 1)
     if (key.name === "left" || key.name === "h") return nextQ(-1)

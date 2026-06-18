@@ -97,32 +97,38 @@ function AssistantMessage(props: { item: Extract<ViewItem, { kind: "assistant" }
     const t = fmtElapsed(it.durationMs)
     return [tok, t].filter(Boolean).join(" · ")
   }
+  const hasText = () => props.item.text.trim().length > 0
+  const hasReasoning = () => props.item.reasoning.length > 0
   return (
-    <box flexDirection="column" marginBottom={1}>
-      <ThinkingCard item={props.item} />
-      <Show when={props.item.text.length > 0}>
-        <box flexDirection="row" gap={1}>
-          <text fg={accent()}>{G.marker}</text>
-          <box flexGrow={1} flexDirection="column">
-            <Markdown content={props.item.text} streaming={!props.item.done} />
-            <Show when={!props.item.done}>
-              <text fg={theme.textFaint}>▋</text>
-            </Show>
-            <Show when={props.item.done && !props.item.intermediate}>
-              <box flexDirection="row" alignItems="center" paddingTop={0}>
-                <Pressable label="⧉ copy" onClick={copy} />
-                <Pressable label="⑂ fork" onClick={fork} />
-                <Show when={meta()}>
-                  <box paddingLeft={1}>
-                    <text fg={theme.textFaint}>◇ {meta()}</text>
-                  </box>
-                </Show>
-              </box>
-            </Show>
+    // Render nothing for a finished, fully-empty step (reasoning-only and no-op steps would otherwise
+    // leave a bare ⏺ / blank line after the thinking block).
+    <Show when={hasText() || hasReasoning() || !props.item.done}>
+      <box flexDirection="column" marginBottom={hasText() || hasReasoning() ? 1 : 0}>
+        <ThinkingCard item={props.item} />
+        <Show when={hasText()}>
+          <box flexDirection="row" gap={1}>
+            <text fg={accent()}>{G.marker}</text>
+            <box flexGrow={1} flexDirection="column">
+              <Markdown content={props.item.text} streaming={!props.item.done} />
+              <Show when={!props.item.done}>
+                <text fg={theme.textFaint}>▋</text>
+              </Show>
+              <Show when={props.item.done && !props.item.intermediate}>
+                <box flexDirection="row" alignItems="center" paddingTop={0}>
+                  <Pressable label="⧉ copy" onClick={copy} />
+                  <Pressable label="⑂ fork" onClick={fork} />
+                  <Show when={meta()}>
+                    <box paddingLeft={1}>
+                      <text fg={theme.textFaint}>◇ {meta()}</text>
+                    </box>
+                  </Show>
+                </box>
+              </Show>
+            </box>
           </box>
-        </box>
-      </Show>
-    </box>
+        </Show>
+      </box>
+    </Show>
   )
 }
 

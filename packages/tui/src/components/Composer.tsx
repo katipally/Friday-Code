@@ -48,19 +48,16 @@ export function Composer() {
   // since OpenTUI only re-applies the `focused` prop when its *value* changes.
   createEffect(() => {
     const f = focused()
-    // Assert synchronously first to close the race where the first keystroke after a modal closes
-    // lands before focus is re-applied; the microtask remains as a fallback for OpenTUI's render
-    // timing (focus() can be a no-op before the textarea has re-rendered).
-    try {
-      if (f) ta?.focus?.()
-      else ta?.blur?.()
-    } catch {}
-    queueMicrotask(() => {
-      try {
-        if (f) ta?.focus?.()
-        else ta?.blur?.()
-      } catch {}
-    })
+    // BLUR immediately when a modal opens — it must win the same tick so keys can't reach the composer.
+    if (!f) {
+      try { ta?.blur?.() } catch {}
+      return
+    }
+    // FOCUS only on the next microtask, never synchronously. A modal is usually dismissed by a
+    // keypress (e.g. `a` to allow, ⏎ to confirm); refocusing the composer synchronously inside that
+    // same dispatch makes the dismiss key leak into the composer. Deferring lets the key finish first,
+    // and the microtask still lands before the user's next keystroke.
+    queueMicrotask(() => { try { if (focused()) ta?.focus?.() } catch {} })
   })
 
   // OpenTUI's autoFocus blurs the textarea when another focusable element (the chat scrollbox,
@@ -237,7 +234,6 @@ export function Composer() {
               { name: "return", action: "submit" },
               { name: "return", shift: true, action: "newline" },
             ]}
-            focused={focused()}
             placeholder="ask anything…   /command · @file · ⇧⏎ newline"
             placeholderColor={theme.textFaint}
             textColor={theme.text}

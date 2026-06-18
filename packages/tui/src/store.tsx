@@ -260,7 +260,8 @@ export function createAppStore(engine: Engine) {
     composerEl = el
   }
   function focusComposer() {
-    composerEl?.focus?.()
+    // Defer so a key that dismissed a modal (and triggered this) can't leak into the refocused composer.
+    queueMicrotask(() => composerEl?.focus?.())
   }
   /** Replace the composer text (e.g. when rewinding to a past prompt) and focus it. */
   function setComposerText(text: string) {

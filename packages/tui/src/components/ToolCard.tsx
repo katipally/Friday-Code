@@ -17,6 +17,10 @@ export function ToolCard(props: { item: Extract<ViewItem, { kind: "tool" }> }) {
   const markerColor = () =>
     props.item.status === "running" ? accent() : props.item.status === "error" ? theme.error : theme.success
 
+  const hasBody = () => !!props.item.diff || !!props.item.output
+  // Auto-collapse once the tool finishes (like the thinking block): show the body live while running,
+  // then collapse to just the title on done. Click the title to expand/re-collapse.
+  const expanded = () => props.item.status === "running" || props.item.open
   const outputLines = () => props.item.output.split("\n")
   const clippedOutput = () => {
     const lines = outputLines()
@@ -31,24 +35,30 @@ export function ToolCard(props: { item: Extract<ViewItem, { kind: "tool" }> }) {
       <box flexDirection="row" gap={1} onMouseDown={() => app.toggleToolOpen(props.item.id)}>
         <text fg={markerColor()}>{marker()}</text>
         <text fg={theme.text}>{props.item.title ?? props.item.name}</text>
+        {/* expand/collapse affordance, shown once there's a body and the tool has finished */}
+        <Show when={hasBody() && props.item.status !== "running"}>
+          <text fg={theme.textFaint}>{props.item.open ? "▾" : "▸"}</text>
+        </Show>
       </box>
 
-      <Show when={props.item.diff}>
-        <box flexDirection="row" gap={1}>
-          <text fg={theme.borderMuted}>{GLYPH.branch}</text>
-          <box flexGrow={1}>
-            <DiffCard diff={props.item.diff!} />
+      <Show when={expanded()}>
+        <Show when={props.item.diff}>
+          <box flexDirection="row" gap={1}>
+            <text fg={theme.borderMuted}>{GLYPH.branch}</text>
+            <box flexGrow={1}>
+              <DiffCard diff={props.item.diff!} />
+            </box>
           </box>
-        </box>
-      </Show>
+        </Show>
 
-      <Show when={!props.item.diff && props.item.output}>
-        <box flexDirection="row" gap={1}>
-          <text fg={theme.borderMuted}>{GLYPH.branch}</text>
-          <text fg={props.item.status === "error" ? theme.error : theme.textMuted} selectable>
-            {clippedOutput()}
-          </text>
-        </box>
+        <Show when={!props.item.diff && props.item.output}>
+          <box flexDirection="row" gap={1}>
+            <text fg={theme.borderMuted}>{GLYPH.branch}</text>
+            <text fg={props.item.status === "error" ? theme.error : theme.textMuted} selectable>
+              {clippedOutput()}
+            </text>
+          </box>
+        </Show>
       </Show>
     </box>
   )
