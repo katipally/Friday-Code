@@ -69,6 +69,24 @@ const TARGETS: Target[] = [
     win: false,
     npmPackageName: "friday-code-linux-arm64",
   },
+  // Musl variants for Alpine Linux and minimal Docker images (statically linked).
+  // Must be built inside a musl environment (see release.yml Alpine container jobs).
+  {
+    name: "linux-x64-musl",
+    bun: "bun-linux-x64-musl",
+    os: "linux",
+    cpu: "x64",
+    win: false,
+    npmPackageName: "friday-code-linux-x64-musl",
+  },
+  {
+    name: "linux-arm64-musl",
+    bun: "bun-linux-arm64-musl",
+    os: "linux",
+    cpu: "arm64",
+    win: false,
+    npmPackageName: "friday-code-linux-arm64-musl",
+  },
   {
     name: "win32-x64",
     bun: "bun-windows-x64",
@@ -76,6 +94,14 @@ const TARGETS: Target[] = [
     cpu: "x64",
     win: true,
     npmPackageName: "friday-code-windows-x64",
+  },
+  {
+    name: "win32-arm64",
+    bun: "bun-windows-arm64",
+    os: "win32",
+    cpu: "arm64",
+    win: true,
+    npmPackageName: "friday-code-windows-arm64",
   },
 ]
 

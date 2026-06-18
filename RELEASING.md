@@ -8,9 +8,9 @@ distributed via npm, Homebrew, Scoop, a curl script, and GitHub Releases.
 
 1. **npm**: you must own `friday-code` (you do). Create an automation token and add it as the
    repo secret **`NPM_TOKEN`** (Settings → Secrets and variables → Actions).
-2. **Release approval gate**: create a GitHub Environment named **`release`** (Settings →
-   Environments) and add yourself as a required reviewer. The `npm-publish` job waits on it, so
-   nothing reaches npm without your click.
+2. **Release approval gate** (optional): create a GitHub Environment named **`release`**
+   (Settings → Environments) and add yourself as a required reviewer. The `npm-publish` job waits
+   on it, so you can add a manual approval step before packages hit npm.
 3. **Homebrew tap** (optional but recommended): create repo `katipally/homebrew-tap`, copy
    `packaging/homebrew/friday.rb` to `Formula/friday.rb`.
 4. **Scoop bucket** (optional, Windows): create repo `katipally/scoop-bucket`, copy
@@ -26,39 +26,53 @@ distributed via npm, Homebrew, Scoop, a curl script, and GitHub Releases.
   `2.0.0`.
 - Update `CHANGELOG.md`.
 
-## Cut a release (recommended path)
+## Cut a release
+
+Publishing is **fully automatic** when you push a version tag:
 
 ```bash
-# from a clean main with everything committed
-git tag v2.0.0
-git push origin main
-git push origin v2.0.0          # builds binaries and updates the GitHub Release
+# from a clean main with everything committed and version bumped
+git tag v2.0.1
+git push origin v2.0.1          # triggers build → GitHub Release → npm publish
 ```
 
-The release workflow then:
+The release workflow automatically:
 
-1. Builds each target on a native runner (`darwin-arm64`, `darwin-x64`, `linux-x64`,
-   `linux-arm64`, `win32-x64`) and smoke-tests `--version`.
+1. Builds each target on a native runner (see platform table below) and smoke-tests `--version`.
 2. Creates a **GitHub Release** with all binaries + `SHASUMS256.txt`.
-3. Stops before npm.
+3. Publishes all platform packages and the `friday-code` launcher to npm with provenance.
 
-To publish to npm, manually run the **Release** workflow from GitHub Actions with:
+The publish step is **idempotent** — if a platform package version is already on npm (e.g. from
+a previous partial run), it is skipped rather than failing. This means reruns and retries always
+complete successfully.
 
-- `tag`: `v2.0.0`
-- `publish_npm`: `true`
+To rerun or manually trigger for a specific tag (e.g. after a flaky runner):
 
-That rebuilds the same tag, updates the GitHub Release assets, then publishes the platform packages
-and the `friday-code` launcher to npm with provenance. If the `release` environment has required
-reviewers configured, GitHub will pause for approval before the npm job starts.
+```
+GitHub Actions → Release workflow → Run workflow → tag: v2.0.1
+```
 
-After it finishes, update the Homebrew formula and Scoop manifest hashes (from `SHASUMS256.txt`)
-in their repos — or automate that as a follow-up step.
+## Platform targets
+
+| npm package | Platform | Runner |
+|---|---|---|
+| `friday-code-darwin-arm64` | macOS Apple Silicon | `macos-14` |
+| `friday-code-darwin-x64` | macOS Intel | `macos-15-intel` |
+| `friday-code-linux-x64` | Linux glibc x64 | `ubuntu-latest` |
+| `friday-code-linux-arm64` | Linux glibc ARM64 | `ubuntu-24.04-arm` |
+| `friday-code-linux-x64-musl` | Linux musl x64 (Alpine/Docker) | `ubuntu-latest` + Alpine container |
+| `friday-code-linux-arm64-musl` | Linux musl ARM64 (Alpine/Docker) | `ubuntu-24.04-arm` + Alpine container |
+| `friday-code-windows-x64` | Windows x64 | `windows-latest` |
+| `friday-code-windows-arm64` | Windows ARM64 | `windows-11-arm` |
+
+The launcher (`friday-code`) detects the current platform (including musl vs glibc on Linux) at
+install time and loads the correct optional dependency.
 
 ## Manual / local build (for testing or fallback)
 
 ```bash
 bun install --frozen-lockfile
-FRIDAY_VERSION=2.0.0 bun run scripts/build.ts --target=darwin-arm64   # host target
+FRIDAY_VERSION=2.0.1 bun run scripts/build.ts --target=darwin-arm64   # host target
 # or --all on a machine that has every platform's native OpenTUI lib (rare)
 
 dist/bin/friday-<target>           # raw binaries + dist/bin/SHASUMS256.txt
@@ -90,6 +104,12 @@ On a clean machine (or VM) per OS:
 
 ```bash
 npm install -g friday-code && friday --version && friday   # connects via /model, run a prompt
+```
+
+Docker/Alpine (musl) smoke test:
+
+```bash
+docker run --rm node:22-alpine sh -c "npm install -g friday-code && friday --version"
 ```
 
 ## Future channels (as demand appears)

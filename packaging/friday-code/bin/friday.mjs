@@ -3,18 +3,32 @@
 // (installed as an optional dependency by npm) and exec it — forwarding args, stdio,
 // exit code, and termination signals. The binaries embed the Bun runtime + native
 // renderer, so no Bun/Node toolchain is needed at runtime.
+import { readdirSync } from "node:fs"
 import { spawn } from "node:child_process"
 import { createRequire } from "node:module"
 
 const require = createRequire(import.meta.url)
 const { platform, arch } = process
 
+// Detect musl libc (Alpine Linux, minimal Docker images) by looking for the
+// musl dynamic linker in /lib. On glibc systems this directory has no ld-musl-* files.
+function isMusl() {
+  if (platform !== "linux") return false
+  try {
+    return readdirSync("/lib").some((f) => f.startsWith("ld-musl-"))
+  } catch {
+    return false
+  }
+}
+const musl = isMusl()
+
 const PKGS = {
   "darwin-arm64": "friday-code-darwin-arm64",
-  "darwin-x64": "friday-code-darwin-x64",
-  "linux-x64": "friday-code-linux-x64",
-  "linux-arm64": "friday-code-linux-arm64",
-  "win32-x64": "friday-code-windows-x64",
+  "darwin-x64":   "friday-code-darwin-x64",
+  "linux-x64":    musl ? "friday-code-linux-x64-musl"  : "friday-code-linux-x64",
+  "linux-arm64":  musl ? "friday-code-linux-arm64-musl" : "friday-code-linux-arm64",
+  "win32-x64":    "friday-code-windows-x64",
+  "win32-arm64":  "friday-code-windows-arm64",
 }
 
 const key = `${platform}-${arch}`
