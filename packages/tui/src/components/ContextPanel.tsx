@@ -56,7 +56,7 @@ function Section(props: {
 export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: number } = {}) {
   const app = useApp()
   const accent = () => shimmerAccent(getMode(app.mode()).accent)
-  const [todosOpen, setTodosOpen] = createSignal(false)
+  const [todosOpen, setTodosOpen] = createSignal(true)
   const [todosNew, setTodosNew] = createSignal(false)
   const [filesOpen, setFilesOpen] = createSignal(false)
   const [filesNew, setFilesNew] = createSignal(false)
@@ -67,11 +67,15 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
   const todoSig = () => app.todos().map((t) => `${t.status}:${t.text}`).join("|")
   const fileSig = () =>
     [...app.changedFiles().map((f) => `${f.status}${f.path}${f.added}${f.removed}`), ...app.diagnostics().map((d) => `${d.path}${d.errors}${d.warnings}`)].join("|")
-  let prevTodo: string | null = null
-  let prevFile: string | null = null
+  // Seed each tracker with the CURRENT value (not null) so the effect's first run is a no-op and any
+  // later change reliably reveals the section. The previous `!== null` guard suppressed the very
+  // first populate (empty → first list), which is exactly when the user wants to see it appear.
+  let prevTodo = todoSig()
+  let prevFile = fileSig()
+  let prevPlan = app.plans().length
   createEffect(() => {
     const sig = todoSig()
-    if (prevTodo !== null && sig !== prevTodo && sig) {
+    if (sig !== prevTodo && sig) {
       setTodosOpen(true)
       setTodosNew(true)
     }
@@ -79,16 +83,15 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
   })
   createEffect(() => {
     const sig = fileSig()
-    if (prevFile !== null && sig !== prevFile && sig) {
+    if (sig !== prevFile && sig) {
       setFilesOpen(true)
       setFilesNew(true)
     }
     prevFile = sig
   })
-  let prevPlan: number | null = null
   createEffect(() => {
     const n = app.plans().length
-    if (prevPlan !== null && n !== prevPlan && n) {
+    if (n !== prevPlan && n) {
       setPlansOpen(true)
       setPlansNew(true)
     }

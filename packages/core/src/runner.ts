@@ -58,6 +58,29 @@ function safeParse(s: string): unknown {
   }
 }
 
+/** Like safeParse but reports failure, so a tool whose streamed args were truncated/corrupt is
+ * rejected (fed back as an error) instead of silently executing with `{}` (e.g. edit with no path). */
+function tryParseArgs(s: string): { ok: true; value: unknown } | { ok: false } {
+  const t = (s ?? "").trim()
+  if (!t) return { ok: true, value: {} }
+  try {
+    return { ok: true, value: JSON.parse(t) }
+  } catch {
+    return { ok: false }
+  }
+}
+
+/** Clamp a model-supplied todo status to the rendered enum (tolerate common aliases). */
+function normTodoStatus(s?: string): TodoStatus {
+  if (s === "pending" || s === "active" || s === "done") return s
+  if (s === "in_progress" || s === "in-progress" || s === "running") return "active"
+  if (s === "completed" || s === "complete" || s === "finished") return "done"
+  return "pending"
+}
+
+/** Cap on accumulated streamed tool-call arguments — guards against a pathological provider OOM. */
+const MAX_TOOL_ARGS = 1_000_000
+
 /**
  * Safety net for when the model writes choices into the question text instead of the `options`
  * array (a common slip). Pulls out an inline `Options: [...]` / `Options: a, b, c` or a trailing
@@ -171,6 +194,9 @@ export class SessionRunner {
   private seq: number
   private startedAt = now()
   private totalTokens = 0
+  /** input tokens the provider reported for the most recent request — the real size of the current
+   * context, used to drive auto-compaction (more accurate than the char estimate). */
+  private lastInputTokens = 0
 
   private context: ProjectContext
   private skills: Skill[]
@@ -310,10 +336,22 @@ export class SessionRunner {
   // ---- command handling ----
   abortRun(): void {
     this.abort?.abort()
+    this.settleInputWaiters()
   }
   dispose(): void {
     this.abort?.abort()
+    this.settleInputWaiters()
     this.lsp.dispose()
+  }
+  /** Release any in-flight permission/ask awaits (deny / no-answer) so the agent loop unwinds on
+   * abort instead of hanging forever on a promise the user will never answer. */
+  private settleInputWaiters(): void {
+    if (this.pending.size === 0 && this.pendingAsk.size === 0) return
+    for (const p of this.pending.values()) p.resolve("deny")
+    this.pending.clear()
+    for (const r of this.pendingAsk.values()) r({})
+    this.pendingAsk.clear()
+    this.needsInput = false
   }
   handlePermissionReply(requestId: string, decision: "allow-once" | "allow-always" | "deny"): boolean {
     const p = this.pending.get(requestId)
@@ -371,6 +409,9 @@ export class SessionRunner {
     this.host.store.truncateMessages(this.sessionId, cp.messageSeq)
     this.checkpoints = this.checkpoints.slice(0, idx)
     this.currentCheckpoint = undefined
+    // Drop any compaction summary — its throughIndex points into the now-truncated history and
+    // would otherwise make sendMessages() prepend a stale summary / slice the wrong range.
+    this.compaction = undefined
 
     this.emit({ type: "status", text: `rewound to “${cp.label}”` })
     this.emit({ type: "session-loaded", sessionId: this.sessionId, title: this.title, cwd: this.cwd, roots: this.roots, messages: this.messages })
@@ -381,6 +422,7 @@ export class SessionRunner {
     applyFiles(this.redoState.files)
     this.messages = [...this.redoState.messages]
     this.seq = this.messages.length
+    this.compaction = undefined // rebuilt history — a stale summary index would corrupt context
     this.host.store.truncateMessages(this.sessionId, 0)
     this.messages.forEach((m, i) => this.host.store.appendMessage(this.sessionId, i, m))
     this.redoState = undefined
@@ -491,6 +533,7 @@ export class SessionRunner {
         }
         case "tool_delta": {
           const c = calls.get(ev.index) ?? { id: "", name: "", args: "" }
+          if (c.args.length + ev.argsDelta.length > MAX_TOOL_ARGS) throw new Error("tool arguments exceeded the size limit")
           c.args += ev.argsDelta
           calls.set(ev.index, c)
           break
@@ -518,7 +561,11 @@ export class SessionRunner {
 
   private async maybeCompact(provider: ProviderInfo, apiKey: string | undefined, signal: AbortSignal, force: boolean): Promise<void> {
     const window = this.host.selection().contextWindow || COMPACTION.defaultWindow
-    if (!force && estimateTokens(this.sendMessages()) < Math.floor(window * COMPACTION.threshold)) return
+    // Trigger off the real input-token count of the last request (most accurate proxy for the
+    // current context size); fall back to the char estimate before the first usage arrives.
+    const limit = Math.min(Math.floor(window * COMPACTION.threshold), window - COMPACTION.buffer)
+    const used = this.lastInputTokens > 0 ? this.lastInputTokens : estimateTokens(this.sendMessages())
+    if (!force && used < limit) return
     const floor = this.compaction?.throughIndex ?? 0
     const cut = safeCutIndex(this.messages, this.messages.length - COMPACTION.keepRecent, floor)
     if (cut <= floor) return
@@ -653,7 +700,13 @@ export class SessionRunner {
           inTok += i
           outTok += o
           this.totalTokens += i + o
-          const cost = sel.cost ? (inTok / 1_000_000) * sel.cost.input + (outTok / 1_000_000) * sel.cost.output : undefined
+          // The input figure for a request is the full context it ingested → remember the latest as
+          // the current context size (drives auto-compaction). Don't sum it across steps.
+          if (i > 0) this.lastInputTokens = i
+          const cost =
+            sel.cost && sel.cost.input != null && sel.cost.output != null
+              ? (inTok / 1_000_000) * sel.cost.input + (outTok / 1_000_000) * sel.cost.output
+              : undefined
           this.emit({ type: "usage", input: inTok, output: outTok, costUsd: cost })
         },
       })
@@ -673,14 +726,18 @@ export class SessionRunner {
         return
       }
 
+      // This step ends in tool calls, so a new assistant bubble will open next step. Finalize THIS
+      // bubble now (stops its streaming caret) without ending the turn — busy stays true.
+      this.emit({ type: "message-stop", id, intermediate: true })
+
       for (const tc of toolCalls) {
         if (signal.aborted) return
 
         if (tc.name === TODO_WRITE) {
-          const a = safeParse(tc.arguments) as { todos?: { text?: string; status?: TodoStatus }[] }
+          const a = safeParse(tc.arguments) as { todos?: { text?: string; status?: string }[] }
           this.todos = (a.todos ?? [])
             .filter((t) => t.text)
-            .map((t, i) => ({ id: `t${i}`, text: t.text!, status: (t.status ?? "pending") as TodoStatus }))
+            .map((t, i) => ({ id: `t${i}`, text: t.text!, status: normTodoStatus(t.status) }))
           this.emit({ type: "todos", items: this.todos })
           const rendered = this.todos.length
             ? this.todos.map((t) => `${t.status === "done" ? "[x]" : t.status === "active" ? "[~]" : "[ ]"} ${t.text}`).join("\n")
@@ -764,7 +821,15 @@ export class SessionRunner {
           continue
         }
 
-        let args = safeParse(tc.arguments)
+        const parsed = tryParseArgs(tc.arguments)
+        if (!parsed.ok) {
+          // Truncated/corrupt streamed JSON — reject rather than run e.g. edit/write with empty input.
+          const msg = `Tool ${tc.name} was not run: its arguments were not valid JSON. Re-issue the call with valid JSON.`
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: msg, isError: true })
+          this.emit({ type: "tool-result", callId: tc.id, ok: false, output: msg })
+          continue
+        }
+        let args = parsed.value
 
         // PreToolUse hook: may block the call or replace its input.
         const pre = await this.hook("PreToolUse", { tool_name: tc.name, tool_input: args }, tc.name)
@@ -806,6 +871,11 @@ export class SessionRunner {
         this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: result.output, isError: result.isError })
         this.emit({ type: "tool-result", callId: tc.id, ok: !result.isError, output: result.output, title: result.title, diff: result.diff })
       }
+    }
+    // Fell out of the loop without finishing → the step budget ran out mid-task. Tell the user so
+    // it doesn't look like work silently stopped; the `finally` in runPrompt finalizes the bubble.
+    if (!this.abort?.signal.aborted) {
+      this.emit({ type: "notice", text: `Reached the ${MAX_STEPS}-step limit — stopping. Ask me to continue if needed.` })
     }
   }
 

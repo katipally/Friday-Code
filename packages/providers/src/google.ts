@@ -1,6 +1,7 @@
 import type { ChatRequest, Message, ProviderEvent, ToolDef } from "@friday/shared"
 import { sseLines } from "./sse.ts"
 import { thinkingBudget } from "./effort.ts"
+import { fetchWithRetry } from "./retry.ts"
 
 /** Convert canonical messages to Gemini `contents` + systemInstruction. */
 function toGoogle(messages: Message[]): { system?: string; contents: unknown[] } {
@@ -60,12 +61,16 @@ export async function* streamGoogle(opts: {
   }
 
   const url = `${baseURL.replace(/\/$/, "")}/models/${req.model}:streamGenerateContent?alt=sse${apiKey ? `&key=${apiKey}` : ""}`
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
+  const res = await fetchWithRetry(
+    url,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal,
+    },
     signal,
-  })
+  )
   if (!res.ok || !res.body) {
     const text = await res.text().catch(() => "")
     throw new Error(`HTTP ${res.status}: ${text.slice(0, 400) || res.statusText}`)

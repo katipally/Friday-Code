@@ -1,5 +1,6 @@
 import type { ChatRequest, Message, ProviderEvent, ToolDef } from "@friday/shared"
 import { sseLines } from "./sse.ts"
+import { fetchWithRetry } from "./retry.ts"
 
 /** Convert canonical messages to the Responses API: top-level `instructions` + typed `input` items. */
 function toResponsesInput(messages: Message[]): { instructions?: string; input: unknown[] } {
@@ -54,16 +55,20 @@ export async function* streamOpenAIResponses(opts: {
   if (req.effort) body.reasoning = { effort: EFFORT_MAP[req.effort], summary: "auto" }
   if (req.maxTokens) body.max_output_tokens = req.maxTokens
 
-  const res = await fetch(`${baseURL.replace(/\/$/, "")}/responses`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
-      ...opts.headers,
+  const res = await fetchWithRetry(
+    `${baseURL.replace(/\/$/, "")}/responses`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+        ...opts.headers,
+      },
+      body: JSON.stringify(body),
+      signal,
     },
-    body: JSON.stringify(body),
     signal,
-  })
+  )
   if (!res.ok || !res.body) {
     const text = await res.text().catch(() => "")
     throw new Error(`HTTP ${res.status}: ${text.slice(0, 400) || res.statusText}`)

@@ -16,13 +16,26 @@ export function estimateTokens(messages: Message[]): number {
 }
 
 /**
- * Find a safe cut index at or before `target`: the start of a user turn, so we
- * never split an assistant tool_call from its tool results (which providers reject).
+ * Find a safe cut index at or before `target`: a message boundary we can slice at without splitting
+ * an assistant tool_call from its tool results (which providers reject).
+ *
+ * Preference order, scanning back from `target`:
+ *  1. the start of a user turn (cleanest), else
+ *  2. a "clean" assistant message — one NOT immediately preceded by a tool result, so it doesn't
+ *     belong to a tool_call/tool_result chain. This lets a very long single turn (lots of tool
+ *     calls, no intervening user message) still compact instead of growing unbounded.
  * Returns 0 if no safe boundary exists past `floor`.
  */
 export function safeCutIndex(messages: Message[], target: number, floor = 0): number {
-  for (let i = Math.min(target, messages.length - 1); i > floor; i--) {
+  const start = Math.min(target, messages.length - 1)
+  for (let i = start; i > floor; i--) {
     if (messages[i]!.role === "user") return i
+  }
+  // No user boundary in range — fall back to a clean assistant boundary (not mid tool chain).
+  for (let i = start; i > floor; i--) {
+    const m = messages[i]!
+    const prev = messages[i - 1]
+    if (m.role === "assistant" && (!prev || prev.role !== "tool")) return i
   }
   return 0
 }
@@ -50,4 +63,6 @@ export const COMPACTION = {
   keepRecent: 8,
   /** Fallback context window when the model's is unknown. */
   defaultWindow: 128_000,
+  /** Always keep at least this much headroom below the window (room for the next turn + summary). */
+  buffer: 16_000,
 }

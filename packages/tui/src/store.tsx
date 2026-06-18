@@ -25,6 +25,9 @@ export type ViewItem =
       reasoning: string
       thinkingOpen: boolean
       done: boolean
+      /** finalized mid-turn because it ended in tool calls (not the turn's last bubble) — caret off,
+       * but no per-step copy/fork/meta action row. */
+      intermediate?: boolean
       startedAt: number
       durationMs?: number
       /** per-turn token usage, attributed on turn-done (shown in the action row) */
@@ -168,13 +171,17 @@ export function createAppStore(engine: Engine) {
   // transcript so switching to a live session shows its in-flight turn.
   const [sessionItems, setSessionItems] = createStore<Record<string, ViewItem[]>>({})
   const seeded = new Set<string>()
-  const items = () => sessionItems[activeSession()] ?? []
+  // Memoized so the focused-session arrays keep a stable identity between unrelated re-renders —
+  // a fresh `?? []` each call would make <For> re-create rows and flicker. EMPTY is shared so the
+  // "no data yet" case is referentially stable too.
+  const EMPTY: never[] = []
+  const items = createMemo(() => sessionItems[activeSession()] ?? EMPTY)
   const [contextFiles, setContextFiles] = createSignal<string[]>(engine.contextInfo().files)
   const [skills, setSkills] = createSignal(engine.listSkills())
   const [mcpServers, setMcpServers] = createSignal(engine.listMcpServers())
   const [sessions, setSessions] = createSignal<SessionItem[]>(engine.listSessions())
   const [allSessions, setAllSessions] = createSignal(engine.listAllSessions())
-  const changedFiles = () => sessionChanged()[activeSession()] ?? []
+  const changedFiles = createMemo(() => sessionChanged()[activeSession()] ?? EMPTY)
   // "activeSessions" kept for session-switch indexing (live runners ordered focused-first).
   const activeSessions = () =>
     [...sessions()].sort((a, b) => (a.id === activeSession() ? -1 : b.id === activeSession() ? 1 : 0))
@@ -194,12 +201,12 @@ export function createAppStore(engine: Engine) {
   const mascot = () => sessionMascot()[activeSession()] ?? ("idle" as MascotState)
   const busy = () => !!sessionBusy()[activeSession()]
   const tokens = () => sessionTokens()[activeSession()] ?? 0
-  const todos = () => sessionTodos()[activeSession()] ?? []
+  const todos = createMemo(() => sessionTodos()[activeSession()] ?? EMPTY)
   const pending = () => sessionPending()[activeSession()] ?? null
   const askPending = () => sessionAsk()[activeSession()] ?? null
-  const plans = () => sessionPlans()[activeSession()] ?? []
+  const plans = createMemo(() => sessionPlans()[activeSession()] ?? EMPTY)
   const planPending = () => sessionPlanPending()[activeSession()] ?? null
-  const diagnostics = () => sessionDiag()[activeSession()] ?? []
+  const diagnostics = createMemo(() => sessionDiag()[activeSession()] ?? EMPTY)
   const cost = () => sessionCost()[activeSession()] ?? 0
   const sessionRunning = (id: string) => !!sessionBusy()[id]
   const sessionNeedsInput = (id: string) => !!sessionNeeds()[id]
@@ -423,6 +430,19 @@ export function createAppStore(engine: Engine) {
         lastUsage.delete(sid)
         break
       }
+      case "message-stop":
+        // Finalize an intermediate assistant bubble (it ended in tool calls) so its streaming caret
+        // stops and its markdown stabilizes — WITHOUT clearing busy or attributing usage (the turn
+        // continues; usage belongs to the final bubble).
+        flushItem(e.id)
+        patchItemIn(sid, e.id, (it) => {
+          if (it.kind !== "assistant") return
+          it.done = true
+          it.intermediate = true
+          it.thinkingOpen = false
+          it.durationMs = Date.now() - it.startedAt
+        })
+        break
       case "usage":
         // `input`/`output` are cumulative for the whole turn — remember the latest snapshot so it
         // can be attributed to the assistant bubble when the turn finalizes (per-message metadata).

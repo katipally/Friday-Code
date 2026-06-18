@@ -60,6 +60,13 @@ export function Composer() {
   // since OpenTUI only re-applies the `focused` prop when its *value* changes.
   createEffect(() => {
     const f = focused()
+    // Assert synchronously first to close the race where the first keystroke after a modal closes
+    // lands before focus is re-applied; the microtask remains as a fallback for OpenTUI's render
+    // timing (focus() can be a no-op before the textarea has re-rendered).
+    try {
+      if (f) ta?.focus?.()
+      else ta?.blur?.()
+    } catch {}
     queueMicrotask(() => {
       try {
         if (f) ta?.focus?.()

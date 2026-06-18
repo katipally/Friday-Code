@@ -1,3 +1,6 @@
+/** Guard against a pathological response with no newline growing the buffer unbounded (OOM). */
+const MAX_SSE_LINE = 8_000_000
+
 /** Yield SSE lines from a fetch response body (handles chunk boundaries). */
 export async function* sseLines(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
   const reader = body.getReader()
@@ -8,6 +11,7 @@ export async function* sseLines(body: ReadableStream<Uint8Array>): AsyncGenerato
       const { done, value } = await reader.read()
       if (done) break
       buffer += decoder.decode(value, { stream: true })
+      if (buffer.length > MAX_SSE_LINE) throw new Error("SSE line exceeded the size limit")
       let idx: number
       while ((idx = buffer.indexOf("\n")) >= 0) {
         const line = buffer.slice(0, idx).replace(/\r$/, "")

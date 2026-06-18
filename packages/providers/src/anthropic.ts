@@ -1,6 +1,7 @@
 import type { ChatRequest, Message, ProviderEvent, ToolDef } from "@friday/shared"
 import { safeJsonParse, sseLines } from "./sse.ts"
 import { thinkingBudget } from "./effort.ts"
+import { fetchWithRetry } from "./retry.ts"
 
 function toAnthropic(messages: Message[]): { system?: string; messages: unknown[] } {
   let system: string | undefined
@@ -25,7 +26,9 @@ function toAnthropic(messages: Message[]): { system?: string; messages: unknown[
       for (const tc of m.toolCalls ?? []) {
         content.push({ type: "tool_use", id: tc.id, name: tc.name, input: safeJsonParse(tc.arguments || "{}") })
       }
-      out.push({ role: "assistant", content: content.length ? content : [{ type: "text", text: "" }] })
+      // Skip assistant turns with no content at all rather than emitting an empty text block
+      // (some providers reject `{type:"text",text:""}`).
+      if (content.length) out.push({ role: "assistant", content })
     } else if (m.role === "tool") {
       out.push({
         role: "user",
@@ -71,17 +74,21 @@ export async function* streamAnthropic(opts: {
     body.max_tokens = Math.min(budget + (req.maxTokens ?? 8192), 32000) // must exceed the budget, capped for safety
   }
 
-  const res = await fetch(`${baseURL.replace(/\/$/, "")}/messages`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "anthropic-version": "2023-06-01",
-      ...(apiKey ? { "x-api-key": apiKey } : {}),
-      ...opts.headers,
+  const res = await fetchWithRetry(
+    `${baseURL.replace(/\/$/, "")}/messages`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "anthropic-version": "2023-06-01",
+        ...(apiKey ? { "x-api-key": apiKey } : {}),
+        ...opts.headers,
+      },
+      body: JSON.stringify(body),
+      signal,
     },
-    body: JSON.stringify(body),
     signal,
-  })
+  )
 
   if (!res.ok || !res.body) {
     const text = await res.text().catch(() => "")
@@ -100,8 +107,10 @@ export async function* streamAnthropic(opts: {
       case "message_start": {
         const u = json.message?.usage
         if (u) {
+          // Include cache read/creation so a fully-cached turn (input_tokens===0) still reports a
+          // real context size — needed for the token bar and compaction trigger.
           const input = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
-          if (input) yield { type: "usage", input, output: 0 }
+          yield { type: "usage", input, output: 0 }
         }
         break
       }

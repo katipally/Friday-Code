@@ -108,7 +108,7 @@ function AssistantMessage(props: { item: Extract<ViewItem, { kind: "assistant" }
             <Show when={!props.item.done}>
               <text fg={theme.textFaint}>▋</text>
             </Show>
-            <Show when={props.item.done}>
+            <Show when={props.item.done && !props.item.intermediate}>
               <box flexDirection="row" alignItems="center" paddingTop={0}>
                 <Pressable label="⧉ copy" onClick={copy} />
                 <Pressable label="⑂ fork" onClick={fork} />

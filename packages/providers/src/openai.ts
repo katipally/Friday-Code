@@ -1,6 +1,7 @@
 import type { ChatRequest, Message, ProviderEvent, ToolDef } from "@friday/shared"
 import { sseLines } from "./sse.ts"
 import { createThinkSplitter } from "./think.ts"
+import { fetchWithRetry } from "./retry.ts"
 
 /** Convert canonical messages to OpenAI Chat Completions format. */
 function toMessages(messages: Message[]): unknown[] {
@@ -67,16 +68,20 @@ export async function* streamOpenAI(opts: {
   if (req.effort) body.reasoning_effort = EFFORT_MAP[req.effort]
   if (req.maxTokens) body.max_tokens = req.maxTokens
 
-  const res = await fetch(`${baseURL.replace(/\/$/, "")}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
-      ...opts.headers,
+  const res = await fetchWithRetry(
+    `${baseURL.replace(/\/$/, "")}/chat/completions`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+        ...opts.headers,
+      },
+      body: JSON.stringify(body),
+      signal,
     },
-    body: JSON.stringify(body),
     signal,
-  })
+  )
 
   if (!res.ok || !res.body) {
     const text = await res.text().catch(() => "")

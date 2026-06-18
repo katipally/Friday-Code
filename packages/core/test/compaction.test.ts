@@ -18,11 +18,14 @@ test("estimateTokens scales with content", () => {
   expect(big).toBeGreaterThanOrEqual(900) // ~4000 chars / 4
 })
 
-test("safeCutIndex lands on a user-message boundary, never splitting a tool pair", () => {
-  // target index 3 is a tool/assistant region; the safe cut must fall back to the user turn at 4 or 0.
+test("safeCutIndex returns a safe boundary that never splits a tool pair", () => {
+  // No user turn exists in (0, 3], so it falls back to a clean assistant boundary (one not preceded
+  // by a tool result) — here index 1, which keeps the assistant tool_use + its tool_result together.
   const cut = safeCutIndex(convo, 3)
-  expect(convo[cut]?.role === "user" || cut === 0).toBe(true)
-  // With target at the later user turn, it should pick index 4.
+  expect(convo[cut]?.role).not.toBe("tool") // never start the kept slice on an orphan tool_result
+  const safe = cut === 0 || convo[cut]?.role === "user" || (convo[cut]?.role === "assistant" && convo[cut - 1]?.role !== "tool")
+  expect(safe).toBe(true)
+  // A user boundary is always preferred when one is in range: target at the later user turn → 4.
   expect(safeCutIndex(convo, 5)).toBe(4)
 })
 
