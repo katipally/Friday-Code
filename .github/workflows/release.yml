@@ -12,6 +12,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     name: build ${{ matrix.target }}
@@ -22,6 +26,8 @@ jobs:
         include:
           - target: darwin-arm64
             runner: macos-14
+          - target: darwin-x64
+            runner: macos-15-intel
           - target: linux-x64
             runner: ubuntu-latest
           - target: linux-arm64
@@ -30,6 +36,8 @@ jobs:
             runner: windows-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -47,10 +55,11 @@ jobs:
       - name: Smoke test the binary
         shell: bash
         run: |
+          EXPECTED="${GITHUB_REF_NAME#v}"
           BIN=$(ls dist/bin/friday-${{ matrix.target }}*)
           OUT=$("$BIN" --version)
           echo "version: $OUT"
-          test -n "$OUT"
+          test "$OUT" = "$EXPECTED"
 
       - name: Upload raw binary
         uses: actions/upload-artifact@v7
@@ -100,7 +109,7 @@ jobs:
 
   npm-publish:
     name: npm publish
-    needs: build
+    needs: github-release
     runs-on: ubuntu-latest
     environment: release # requires manual approval before it runs
     permissions:
@@ -117,9 +126,19 @@ jobs:
           pattern: npm-*
           path: npm
 
-      - name: Publish platform packages, then the launcher
+      - name: Verify npm artifacts
+        shell: bash
         run: |
-          set -e
+          set -euo pipefail
+          for target in darwin-arm64 darwin-x64 linux-x64 linux-arm64 win32-x64; do
+            test -f "./npm/npm-$target/friday-code-$target/package.json"
+          done
+          test -f "./npm/npm-launcher/friday-code/package.json"
+
+      - name: Publish platform packages, then the launcher
+        shell: bash
+        run: |
+          set -euo pipefail
           shopt -s nullglob
           for dir in ./npm/npm-*/friday-code-*; do
             echo "publishing $dir"

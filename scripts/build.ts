@@ -52,7 +52,12 @@ if (targets.length === 0) {
 }
 
 const shimPkg = JSON.parse(await readFile(path.join(SHIM_SRC, "package.json"), "utf8"))
-const VERSION: string = process.env.FRIDAY_VERSION ?? shimPkg.version
+const RAW_VERSION: string = process.env.FRIDAY_VERSION ?? shimPkg.version
+const VERSION = RAW_VERSION.replace(/^v(?=\d)/, "")
+if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(VERSION)) {
+  console.error(`Invalid release version "${RAW_VERSION}". Expected semver like 2.0.0 or v2.0.0.`)
+  process.exit(1)
+}
 console.log(`Friday build · version ${VERSION} · targets: ${targets.map((t) => t.name).join(", ")}\n`)
 
 await rm(DIST, { recursive: true, force: true })

@@ -22,7 +22,8 @@ distributed via npm, Homebrew, Scoop, a curl script, and GitHub Releases.
 - This release line is **2.x** (the npm name `friday-code` already had an unrelated `1.x`).
 - Bump the version in: root `package.json`, every `packages/*/package.json`, and
   `packaging/friday-code/package.json`. The build stamps the binary and all generated platform
-  packages from `FRIDAY_VERSION` (the git tag in CI).
+  packages from `FRIDAY_VERSION`; CI accepts a tag like `v2.0.0` and writes npm-safe version
+  `2.0.0`.
 - Update `CHANGELOG.md`.
 
 ## Cut a release (automated path — recommended)
