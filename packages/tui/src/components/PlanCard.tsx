@@ -1,5 +1,5 @@
 import { createMemo, createSignal, For, Show } from "solid-js"
-import { useKeyboard } from "@opentui/solid"
+import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { theme, getMode, type ModeId } from "@friday/shared"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
@@ -16,8 +16,8 @@ const CHOICES: Choice[] = [
   { kind: "mode", mode: "default", label: "run · default", hint: "execute, asking before edits & commands" },
   { kind: "mode", mode: "accept-edit", label: "run · accept-edit", hint: "auto-apply edits, ask for bash/network" },
   { kind: "mode", mode: "yolo", label: "run · yolo", hint: "full auto, no prompts" },
-  { kind: "keep", label: "keep planning", hint: "stay read-only, refine the plan" },
-  { kind: "custom", label: "custom input…", hint: "close and type your own next step" },
+  { kind: "keep", label: "keep planning", hint: "close — type your next step in the composer" },
+  { kind: "custom", label: "custom input…", hint: "type here to refine the plan, stay in plan mode" },
 ]
 
 /**
@@ -29,19 +29,40 @@ const CHOICES: Choice[] = [
  */
 export function PlanCard() {
   const app = useApp()
+  const dims = useTerminalDimensions()
   const accent = () => getMode(app.mode()).accent
   const plan = () => app.planPending()
   const readOnly = () => app.planReadOnly()
   const [sel, setSel] = createSignal(0)
+  // "custom input…" reveals an inline editor; only focused while typing so it never steals choice keys.
+  const [typing, setTyping] = createSignal(false)
   let sb: { scrollBy?: (n: number) => void } | null = null
+  let input: any
+
+  // Fill ~70% of the terminal, then the plan body scrolls. The execute gate reserves more vertical
+  // chrome (divider + 5 choices + footer) than the read-only viewer.
+  const W = () => Math.min(dims().width - 4, Math.max(64, Math.round(dims().width * 0.7)))
+  const planMaxH = () => Math.max(6, Math.round(dims().height * 0.7) - (readOnly() ? 6 : 14))
 
   function choose(c: Choice) {
     if (c.kind === "mode") app.executePlan(c.mode, app.planPending() ?? undefined)
-    else app.dismissPlan() // keep planning + custom input both just close the gate
+    else if (c.kind === "custom") setTyping(true) // reveal the inline refine editor
+    else app.dismissPlan() // "keep planning" just closes the gate; user types in the composer
+  }
+
+  function submitRefine() {
+    const text: string = (input?.plainText ?? "").trim()
+    input?.clear?.()
+    setTyping(false)
+    if (text) app.refinePlan(text) // stay in plan mode; the agent revises and re-opens the gate
   }
 
   useKeyboard((key) => {
     if (!plan()) return
+    if (typing()) {
+      if (key.name === "escape") return setTyping(false)
+      return // the textarea owns the rest while typing
+    }
     if (key.name === "escape") return app.dismissPlan()
     // Read-only viewer: arrows scroll the plan; there are no choices to move through.
     if (readOnly()) {
@@ -63,7 +84,7 @@ export function PlanCard() {
       <Scrim onClose={() => app.dismissPlan()}>
         <box
           flexDirection="column"
-          width={78}
+          width={W()}
           border
           borderStyle="rounded"
           borderColor={shimmerAccent(getMode("plan").accent)}
@@ -80,7 +101,7 @@ export function PlanCard() {
           </box>
 
           {/* full plan detail — taller in the viewer since there are no choices below it */}
-          <scrollbox ref={(r: any) => (sb = r)} maxHeight={readOnly() ? 24 : 18} paddingLeft={1} paddingRight={1}>
+          <scrollbox ref={(r: any) => (sb = r)} maxHeight={planMaxH()} paddingLeft={1} paddingRight={1}>
             <Markdown content={lines()} />
           </scrollbox>
 
@@ -110,7 +131,26 @@ export function PlanCard() {
                 )}
               </For>
             </box>
-            <text fg={theme.textFaint}>↑↓ move · ⏎ choose · esc keep planning</text>
+
+            {/* Inline refine editor — revealed by "custom input…"; stays in plan mode on submit. */}
+            <Show when={typing()}>
+              <box border borderStyle="rounded" borderColor={accent()} paddingLeft={1} paddingRight={1} marginTop={1}>
+                <textarea
+                  ref={(r: any) => (input = r)}
+                  onSubmit={submitRefine}
+                  keyBindings={[{ name: "return", action: "submit" }]}
+                  focused={typing()}
+                  placeholder="refine the plan — ⏎ to send, esc to cancel"
+                  placeholderColor={theme.textFaint}
+                  minHeight={1}
+                  maxHeight={4}
+                />
+              </box>
+            </Show>
+
+            <text fg={theme.textFaint}>
+              {typing() ? "⏎ refine · esc cancel" : "↑↓ move · ⏎ choose · esc keep planning"}
+            </text>
           </Show>
         </box>
       </Scrim>

@@ -688,6 +688,14 @@ export function createAppStore(engine: Engine) {
       text: plan?.text ? `${CARRY_OUT_PREFIX}\n\n${plan.text}` : "Carry out the plan you just proposed, step by step.",
     })
   }
+  /** "custom input…" on the plan gate: close the gate but STAY in plan mode and send the typed text
+   * as a refinement. The agent revises the plan and calls exit_plan again, which re-opens the gate
+   * with the updated plan. (Distinct from "keep planning", which closes with no message.) */
+  function refinePlan(text: string) {
+    const t = text.trim()
+    dismissPlan()
+    if (t) submitRaw(t)
+  }
   /** Re-open a previously proposed plan in the plan card as a READ-ONLY viewer (no execute options). */
   function viewPlan(entry: PlanEntry) {
     setPlanReadOnly(true)
@@ -855,6 +863,7 @@ export function createAppStore(engine: Engine) {
     planReadOnly,
     dismissPlan,
     executePlan,
+    refinePlan,
     viewPlan,
     items,
     sessions,
