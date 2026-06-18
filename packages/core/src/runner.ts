@@ -31,7 +31,7 @@ import {
 } from "@friday/tools"
 import { LspManager, formatDiagnostics } from "@friday/lsp"
 import { runHooks, type HookEvent, type HookPayload, type HooksConfig } from "./hooks.ts"
-import { gitStatus, gitDiff, gitCommitAll } from "./git.ts"
+import { gitStatus, gitDiff, gitCommitAll, gitShowHead, gitIsTracked } from "./git.ts"
 import { bashRisk, matchesList } from "./safety.ts"
 import { subagentPrompt, customAgentPrompt, systemPrompt } from "./prompt.ts"
 import type { SessionStore } from "./sessions.ts"
@@ -443,32 +443,62 @@ export class SessionRunner {
     this.emit({ type: "session-changed", sessionId: this.sessionId, title, cwd: this.cwd, roots: this.roots })
   }
 
+  /** After a bash command, snapshot the prior content of files it changed into the current checkpoint
+   * so `/undo` can revert them too. `before` is the set of git-changed paths captured pre-command:
+   *  - a path newly changed that's tracked → its pre-bash content is HEAD (it was clean before), or
+   *  - newly changed + untracked → it was created by bash, so prior content is null (undo deletes it).
+   * Files already dirty before the command are left to their own (edit-tool) snapshots. */
+  private async snapshotBashChanges(before: Set<string>): Promise<void> {
+    const cp = this.currentCheckpoint
+    if (!cp) return
+    const after = await gitStatus(this.cwd)
+    if (!after.repo) return
+    for (const f of after.files) {
+      if (before.has(f.path)) continue
+      const abs = path.resolve(this.cwd, f.path)
+      if (cp.files.has(abs)) continue
+      const tracked = await gitIsTracked(this.cwd, f.path)
+      cp.files.set(abs, tracked ? await gitShowHead(this.cwd, f.path) : null)
+    }
+  }
+
   // ---- checkpoints / undo ----
-  restoreCheckpoint(id: string): void {
+  /** Rewind to a checkpoint. `scope` selects what is restored, Claude-Code-style:
+   *  - "both"          → files + conversation (the default).
+   *  - "code"          → only revert the files; keep the chat as-is.
+   *  - "conversation"  → only truncate the chat back; leave the files on disk.
+   */
+  restoreCheckpoint(id: string, scope: "both" | "code" | "conversation" = "both"): void {
     if (this.busy) return
     const idx = this.checkpoints.findIndex((c) => c.id === id)
     if (idx < 0) return
     const cp = this.checkpoints[idx]!
     const tail = this.checkpoints.slice(idx)
 
+    // Always snapshot current state first so the rewind itself can be redone.
     const redoFiles = new Map<string, string | null>()
     for (const c of tail) for (const p of c.files.keys()) if (!redoFiles.has(p)) redoFiles.set(p, readOrNull(p))
     this.redoState = { files: redoFiles, messages: [...this.messages] }
 
-    const restore = new Map<string, string | null>()
-    for (const c of tail) for (const [p, prior] of c.files) if (!restore.has(p)) restore.set(p, prior)
-    applyFiles(restore)
+    if (scope !== "conversation") {
+      const restore = new Map<string, string | null>()
+      for (const c of tail) for (const [p, prior] of c.files) if (!restore.has(p)) restore.set(p, prior)
+      applyFiles(restore)
+    }
 
-    this.messages = this.messages.slice(0, cp.messageSeq)
-    this.seq = cp.messageSeq
-    this.host.store.truncateMessages(this.sessionId, cp.messageSeq)
-    this.checkpoints = this.checkpoints.slice(0, idx)
-    this.currentCheckpoint = undefined
-    // Drop any compaction summary — its throughIndex points into the now-truncated history and
-    // would otherwise make sendMessages() prepend a stale summary / slice the wrong range.
-    this.compaction = undefined
+    if (scope !== "code") {
+      this.messages = this.messages.slice(0, cp.messageSeq)
+      this.seq = cp.messageSeq
+      this.host.store.truncateMessages(this.sessionId, cp.messageSeq)
+      this.checkpoints = this.checkpoints.slice(0, idx)
+      this.currentCheckpoint = undefined
+      // Drop any compaction summary — its throughIndex points into the now-truncated history and
+      // would otherwise make sendMessages() prepend a stale summary / slice the wrong range.
+      this.compaction = undefined
+    }
 
-    this.emit({ type: "status", text: `rewound to “${cp.label}”` })
+    const what = scope === "code" ? "files" : scope === "conversation" ? "conversation" : `to “${cp.label}”`
+    this.emit({ type: "status", text: `rewound ${what}` })
     this.emit({ type: "session-loaded", sessionId: this.sessionId, title: this.title, cwd: this.cwd, roots: this.roots, messages: this.messages })
   }
 
@@ -966,6 +996,12 @@ export class SessionRunner {
           const p = (args as any)?.path
           if (typeof p === "string") snapshotFile(this.currentCheckpoint, path.resolve(this.cwd, p))
         }
+        // Bash can change files the checkpoint never saw (mv, codegen, npm writes). Record the set of
+        // already-changed paths so we can diff after the command and snapshot whatever bash touched.
+        let bashBefore: Set<string> | undefined
+        if (tool.permission === "bash" && this.currentCheckpoint) {
+          bashBefore = new Set((await gitStatus(this.cwd)).files.map((f) => f.path))
+        }
 
         let result: ToolResult
         try {
@@ -973,6 +1009,8 @@ export class SessionRunner {
         } catch (e: any) {
           result = { output: `Error: ${e?.message ?? e}`, isError: true }
         }
+
+        if (bashBefore) await this.snapshotBashChanges(bashBefore)
 
         // Ground edits in real compiler output: feed back LSP diagnostics for the changed file.
         if (tool.permission === "edit" && !result.isError && typeof (args as any)?.path === "string") {

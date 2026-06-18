@@ -218,3 +218,72 @@ test("reactive compaction: an overflow error triggers a compaction + retry, not 
   expect(events.some((e) => e.type === "text" && (e as any).delta === "ok")).toBe(true)
   fs.rmSync(dir, { recursive: true, force: true })
 })
+
+test("checkpoint captures bash-created files; rewind both removes them", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-test-"))
+  const git = (...a: string[]) => Bun.spawnSync(["git", ...a], { cwd: dir })
+  git("init")
+  git("config", "user.email", "t@t")
+  git("config", "user.name", "t")
+  fs.writeFileSync(path.join(dir, "seed.txt"), "seed\n")
+  git("add", "-A")
+  git("commit", "-m", "init")
+
+  const streamFn = makeStreamFn([
+    [
+      { type: "tool_start", index: 0, id: "b1", name: "bash" },
+      { type: "tool_delta", index: 0, argsDelta: JSON.stringify({ command: "printf hi > created.txt" }) },
+      { type: "tool_stop", index: 0 },
+      { type: "done", stopReason: "tool_use" },
+    ],
+    [
+      { type: "text", delta: "ok" },
+      { type: "done", stopReason: "stop" },
+    ],
+  ])
+  const engine = new Engine({ cwd: dir, streamFn })
+  engine.send({ type: "set-mode", mode: "yolo" })
+  engine.selectModel("mock", "mock-model")
+  collect(engine)
+  engine.send({ type: "prompt", text: "make a file" })
+  await Bun.sleep(600) // bash + several git subprocesses for the snapshot
+
+  expect(fs.existsSync(path.join(dir, "created.txt"))).toBe(true) // bash created it
+  const cps = engine.listCheckpoints()
+  expect(cps.length).toBeGreaterThan(0)
+  engine.restoreCheckpoint(cps[0]!.id, "both")
+  await Bun.sleep(30)
+  expect(fs.existsSync(path.join(dir, "created.txt"))).toBe(false) // rewind removed the bash-created file
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test("scoped rewind: code-only keeps the conversation, conversation-only keeps the files", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-test-"))
+  const streamFn = makeStreamFn([[{ type: "text", delta: "ok" }, { type: "done", stopReason: "stop" }]])
+  const engine = new Engine({ cwd: dir, streamFn })
+  engine.send({ type: "set-mode", mode: "yolo" })
+  engine.selectModel("mock", "mock-model")
+  const events = collect(engine)
+  for (let i = 0; i < 2; i++) {
+    engine.send({ type: "prompt", text: `turn ${i}` })
+    await Bun.sleep(40)
+  }
+  const beforeLen = (events.filter((e) => e.type === "session-loaded").pop() as any)?.messages?.length ?? 0
+  const fullLen = engine.listCheckpoints().length > 0 ? 4 : 4 // 2 turns × (user+assistant)
+
+  // code-only restore re-emits session-loaded with the SAME message count (conversation untouched).
+  events.length = 0
+  const cps = engine.listCheckpoints()
+  engine.restoreCheckpoint(cps[cps.length - 1]!.id, "code")
+  await Bun.sleep(20)
+  const codeLoaded = events.find((e) => e.type === "session-loaded") as any
+  expect(codeLoaded.messages.length).toBe(fullLen)
+
+  // conversation-only restore truncates the transcript back.
+  events.length = 0
+  engine.restoreCheckpoint(cps[cps.length - 1]!.id, "conversation")
+  await Bun.sleep(20)
+  const convoLoaded = events.find((e) => e.type === "session-loaded") as any
+  expect(convoLoaded.messages.length).toBeLessThan(fullLen)
+  fs.rmSync(dir, { recursive: true, force: true })
+})

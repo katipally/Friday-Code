@@ -820,11 +820,11 @@ export function createAppStore(engine: Engine) {
     engine.removeMcpServer(name)
     refreshMcp()
   }
-  function restoreCheckpoint(id: string) {
+  function restoreCheckpoint(id: string, scope: "both" | "code" | "conversation" = "both") {
     // The engine truncates messages and re-emits session-loaded; clear the seeded flag so the
     // transcript is actually rebuilt from the truncated messages (otherwise it stays stale).
     seeded.delete(activeSession())
-    engine.restoreCheckpoint(id)
+    engine.restoreCheckpoint(id, scope)
     setCheckpointsOpen(false)
     refreshSessions()
   }

@@ -24,10 +24,13 @@ export function CheckpointHistory() {
     if (key.name === "escape") return app.setCheckpointsOpen(false)
     if (key.name === "up") return setSel((s) => (s - 1 + Math.max(1, n)) % Math.max(1, n))
     if (key.name === "down") return setSel((s) => (s + 1) % Math.max(1, n))
-    if (key.name === "return" || key.name === "enter") {
-      const c = checkpoints()[sel()]
-      if (c) app.restoreCheckpoint(c.id)
+    const c = () => checkpoints()[sel()]
+    // Restore matrix: Enter/b = files + conversation, c = code only, m = conversation only.
+    if (key.name === "return" || key.name === "enter" || key.name === "b") {
+      if (c()) app.restoreCheckpoint(c()!.id, "both")
     }
+    if (key.name === "c" && c()) return app.restoreCheckpoint(c()!.id, "code")
+    if (key.name === "m" && c()) return app.restoreCheckpoint(c()!.id, "conversation")
     if (key.name === "r" && app.engine.hasRedo()) app.redoLast()
   })
 
@@ -48,7 +51,7 @@ export function CheckpointHistory() {
       >
         <box flexDirection="row" gap={1}>
           <text fg={accent()}>checkpoints</text>
-          <text fg={theme.textFaint}>· rewind files + conversation</text>
+          <text fg={theme.textFaint}>· rewind code, conversation, or both</text>
         </box>
         <Show
           when={checkpoints().length}
@@ -79,7 +82,7 @@ export function CheckpointHistory() {
           </scrollbox>
         </Show>
         <box flexDirection="row" gap={2}>
-          <text fg={theme.textFaint}>↑↓ move · ⏎ rewind · esc close</text>
+          <text fg={theme.textFaint}>↑↓ move · ⏎ both · c code · m conversation · esc close</text>
           <Show when={app.engine.hasRedo()}>
             <text fg={theme.info}>r redo</text>
           </Show>

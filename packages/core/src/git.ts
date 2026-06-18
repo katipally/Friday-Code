@@ -48,6 +48,18 @@ export async function gitStatus(cwd: string): Promise<GitStatus> {
   return { repo: true, branch, dirty: files.length > 0, files }
 }
 
+/** The committed (HEAD) contents of a tracked file, or null if it's not in HEAD. */
+export async function gitShowHead(cwd: string, relPath: string): Promise<string | null> {
+  const res = await run(cwd, ["show", `HEAD:${relPath}`])
+  return res.ok ? res.out : null
+}
+
+/** Whether git tracks `relPath` (vs. an untracked/new file). */
+export async function gitIsTracked(cwd: string, relPath: string): Promise<boolean> {
+  const res = await run(cwd, ["ls-files", "--error-unmatch", "--", relPath])
+  return res.ok
+}
+
 /** The working-tree diff (staged + unstaged), truncated for prompting. */
 export async function gitDiff(cwd: string, maxChars = 12_000): Promise<string> {
   const res = await run(cwd, ["diff", "HEAD"])

@@ -264,8 +264,8 @@ export class Engine {
   hasRedo(): boolean {
     return this.focused().hasRedo()
   }
-  restoreCheckpoint(id: string): void {
-    this.focused().restoreCheckpoint(id)
+  restoreCheckpoint(id: string, scope: "both" | "code" | "conversation" = "both"): void {
+    this.focused().restoreCheckpoint(id, scope)
   }
   redoLast(): void {
     this.focused().redoLast()
