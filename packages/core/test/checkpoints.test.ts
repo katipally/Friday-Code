@@ -16,6 +16,20 @@ function scripted(turns: ProviderEvent[][]): StreamFn {
   }
 }
 
+// Poll until the file reaches the expected content (or time out). The tool runs async after
+// send(); a fixed sleep under-waits on slower CI runners (notably Windows).
+async function waitForContent(file: string, expected: string, timeoutMs = 3000): Promise<void> {
+  const start = Bun.nanoseconds()
+  while ((Bun.nanoseconds() - start) / 1e6 < timeoutMs) {
+    try {
+      if (fs.readFileSync(file, "utf8") === expected) return
+    } catch {
+      /* not written yet */
+    }
+    await Bun.sleep(20)
+  }
+}
+
 function toolTurn(id: string, name: string, args: object): ProviderEvent[] {
   return [
     { type: "tool_start", index: 0, id, name },
@@ -49,11 +63,11 @@ test("undo rewinds files + conversation; redo re-applies", async () => {
   engine.selectModel("mock", "m")
 
   engine.send({ type: "prompt", text: "create foo" })
-  await Bun.sleep(40)
+  await waitForContent(file, "v1")
   expect(fs.readFileSync(file, "utf8")).toBe("v1")
 
   engine.send({ type: "prompt", text: "change foo to v2" })
-  await Bun.sleep(40)
+  await waitForContent(file, "v2")
   expect(fs.readFileSync(file, "utf8")).toBe("v2")
 
   const cps = engine.listCheckpoints()
