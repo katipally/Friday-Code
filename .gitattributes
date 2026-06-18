@@ -1,0 +1,13 @@
+# Normalize line endings: store text as LF in the repo and check it out as LF on every platform.
+# Without this, Windows runners (core.autocrlf=true) check files out as CRLF, which Biome's
+# `lineEnding: "lf"` formatter then flags as "File content differs from formatting output".
+* text=auto eol=lf
+
+# Binaries: never touch.
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
