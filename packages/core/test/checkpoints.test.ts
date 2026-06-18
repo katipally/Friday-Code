@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import type { ProviderEvent } from "@friday/shared"
+import type { EngineEvent, ProviderEvent } from "@friday/shared"
 import { Engine, SessionStore, type StreamFn } from "../src/index.ts"
 
 process.env.FRIDAY_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "friday-home-"))
@@ -16,18 +16,13 @@ function scripted(turns: ProviderEvent[][]): StreamFn {
   }
 }
 
-// Poll until the file reaches the expected content (or time out). The tool runs async after
-// send(); a fixed sleep under-waits on slower CI runners (notably Windows).
-async function waitForContent(file: string, expected: string, timeoutMs = 3000): Promise<void> {
-  const start = Bun.nanoseconds()
-  while ((Bun.nanoseconds() - start) / 1e6 < timeoutMs) {
-    try {
-      if (fs.readFileSync(file, "utf8") === expected) return
-    } catch {
-      /* not written yet */
-    }
-    await Bun.sleep(20)
-  }
+// Poll until cond() returns true or we time out. Used instead of fixed sleeps: the file is
+// written during the tool step but the engine stays busy through the subsequent text turn, so
+// a fixed sleep that just waits for file content under-waits on slower CI runners and lets the
+// next send() hit the `if (this.busy) return` guard and silently drop.
+async function waitFor(cond: () => boolean, timeoutMs = 5000, stepMs = 20): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!cond() && Date.now() < deadline) await Bun.sleep(stepMs)
 }
 
 function toolTurn(id: string, name: string, args: object): ProviderEvent[] {
@@ -62,12 +57,16 @@ test("undo rewinds files + conversation; redo re-applies", async () => {
   engine.send({ type: "set-mode", mode: "yolo" })
   engine.selectModel("mock", "m")
 
+  const events: EngineEvent[] = []
+  engine.subscribe((e) => events.push(e))
+
   engine.send({ type: "prompt", text: "create foo" })
-  await waitForContent(file, "v1")
+  await waitFor(() => events.some((e) => e.type === "turn-done"))
   expect(fs.readFileSync(file, "utf8")).toBe("v1")
 
+  events.length = 0 // reset for next turn
   engine.send({ type: "prompt", text: "change foo to v2" })
-  await waitForContent(file, "v2")
+  await waitFor(() => events.some((e) => e.type === "turn-done"))
   expect(fs.readFileSync(file, "utf8")).toBe("v2")
 
   const cps = engine.listCheckpoints()
