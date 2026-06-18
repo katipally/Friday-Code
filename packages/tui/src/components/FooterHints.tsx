@@ -3,12 +3,13 @@ import { theme } from "@friday/shared"
 import { useApp } from "../store.tsx"
 
 const HINTS: { keys: string; label: string }[] = [
-  { keys: "⏎", label: "send" },
-  { keys: "⇧⭾", label: "mode" },
-  { keys: "⌃k", label: "cmds" },
+  { keys: "enter", label: "send" },
+  { keys: "shift+tab", label: "mode" },
+  { keys: "ctrl+b", label: "panel" },
+  { keys: "ctrl+k", label: "cmds" },
   { keys: "/", label: "command" },
   { keys: "@", label: "file" },
-  { keys: "⌃c", label: "quit" },
+  { keys: "ctrl+c", label: "quit" },
 ]
 
 /** Contextual key hints. The "? keys" segment is clickable to open the full keymap overlay. */

@@ -188,6 +188,12 @@ function AppRoot() {
     if (key.ctrl && key.name === "k") return app.setPaletteOpen(true)
     if (key.ctrl && key.name === "y") return app.setHistoryOpen(true)
     if (key.name?.toLowerCase() === "f1" || (key.ctrl && key.name === "/")) return app.setOverlayOpen(true)
+    // `?` opens the keymap, but only when the composer is empty so it never eats a literal "?".
+    if ((key.name === "?" || (key.name === "/" && key.shift)) && app.composerEmpty()) {
+      app.setOverlayOpen(true)
+      queueMicrotask(() => app.clearComposer()) // wipe the stray "?" the textarea may have inserted
+      return
+    }
     if (key.name === "escape") {
       if (app.busy()) {
         // Double-Esc to stop: first Esc arms (shows a hint), a second within 1.5s aborts.

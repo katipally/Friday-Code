@@ -253,6 +253,17 @@ export function createAppStore(engine: Engine) {
     if (composerEl) composerEl.cursorOffset = text.length
     focusComposer()
   }
+  /** True when the composer is empty/whitespace — used to gate the `?` help shortcut so it never
+   * eats a literal "?" typed mid-sentence. */
+  function composerEmpty(): boolean {
+    const t = (composerEl as any)?.plainText
+    return !t || !String(t).trim()
+  }
+  /** Clear the composer WITHOUT focusing it (used to wipe a stray key after opening an overlay). */
+  function clearComposer() {
+    composerEl?.setText?.("")
+    if (composerEl) composerEl.cursorOffset = 0
+  }
 
   // True when a non-focused session has produced output since we last looked at it.
   const sessionActivity = (id: string) =>
@@ -911,6 +922,8 @@ export function createAppStore(engine: Engine) {
     registerComposer,
     focusComposer,
     setComposerText,
+    composerEmpty,
+    clearComposer,
     redoLast,
     quit,
     exitStats,

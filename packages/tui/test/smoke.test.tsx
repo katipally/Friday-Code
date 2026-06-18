@@ -63,5 +63,13 @@ test("Shift+Tab cycles modes, Ctrl+B toggles context panel, F1 overlay + mouse d
   await t.flush()
   expect(t.captureCharFrame()).not.toContain("esc or click to close")
 
+  // `?` opens the keymap too (composer is empty); dismiss via backdrop click.
+  t.mockInput.pressKey("?")
+  await t.flush()
+  expect(t.captureCharFrame()).toContain("keyboard")
+  await t.mockMouse.click(2, 2)
+  await t.flush()
+  expect(t.captureCharFrame()).not.toContain("esc or click to close")
+
   t.renderer.destroy()
 })
