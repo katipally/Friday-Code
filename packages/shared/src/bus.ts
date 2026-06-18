@@ -37,8 +37,22 @@ export type EngineEventBody =
   | { type: "notice"; text: string }
   | { type: "error"; message: string }
 
+/**
+ * One selectable choice in an ask_user question — a short label, an optional explanation, and an
+ * optional `preview`: a multi-line ASCII diagram / mockup / code snippet shown beside the options so
+ * the user can compare choices visually (e.g. layout sketches or config examples).
+ */
+export type AskOption = { label: string; description?: string; preview?: string }
+
 /** One question in an ask_user request. The agent may pose several at once. */
-export type AskQuestion = { id: string; question: string; options?: string[]; multi?: boolean }
+export type AskQuestion = {
+  id: string
+  question: string
+  /** very short tab/section label (e.g. "Auth method") — shown when several questions are posed. */
+  header?: string
+  options?: AskOption[]
+  multi?: boolean
+}
 
 /** A bus event, tagged with the session it originates from. */
 export type EngineEvent = EngineEventBody & { sessionId: string }

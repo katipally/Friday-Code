@@ -5,6 +5,7 @@ import { Reveal, shimmerAccent, useHover } from "../motion/index.ts"
 import { CloseButton } from "./PanelChrome.tsx"
 import { CollapseTab } from "./Divider.tsx"
 import { Pressable } from "./Pressable.tsx"
+import { G } from "../util/term.ts"
 
 function fmtTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
@@ -174,7 +175,7 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
                   {(t) => (
                     <box flexDirection="row" gap={1}>
                       <text fg={t.status === "done" ? theme.success : t.status === "active" ? accent() : theme.textFaint}>
-                        {t.status === "done" ? "☑" : t.status === "active" ? "▸" : "☐"}
+                        {t.status === "done" ? G.todoDone : t.status === "active" ? G.caret : G.todoOpen}
                       </text>
                       <text fg={t.status === "active" ? theme.text : theme.textMuted}>{t.text}</text>
                     </box>
@@ -196,8 +197,12 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
                       onMouseOut={() => setPlanHov(-1)}
                       onMouseDown={() => app.viewPlan(p)}
                     >
-                      <text fg={getMode("plan").accent}>◐</text>
-                      <text fg={planHov() === i() ? theme.text : theme.textMuted}>{truncate(p.title, innerW() - 3)}</text>
+                      <text fg={getMode("plan").accent}>{G.modePlan}</text>
+                      <text fg={planHov() === i() ? theme.text : theme.textMuted}>{truncate(p.title, innerW() - 9)}</text>
+                      <box flexGrow={1} />
+                      <Show when={planHov() === i()}>
+                        <text fg={theme.textFaint}>view</text>
+                      </Show>
                     </box>
                   )}
                 </For>

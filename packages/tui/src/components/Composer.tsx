@@ -4,6 +4,7 @@ import { theme, getMode } from "@friday/shared"
 import { useApp } from "../store.tsx"
 import { shimmerAccent } from "../motion/index.ts"
 import { listProjectFiles } from "../util/files.ts"
+import { modeGlyph } from "../util/term.ts"
 import { FileChip } from "./FileChip.tsx"
 import { parseMentions } from "../util/mentions.ts"
 
@@ -235,7 +236,7 @@ export function Composer() {
           />
         </box>
         <box flexDirection="row" gap={1} marginLeft={1} alignItems="center" flexShrink={0}>
-          <text fg={accentS()}>{mode().glyph}</text>
+          <text fg={accentS()}>{modeGlyph(app.mode())}</text>
           <text fg={theme.textFaint}>{mode().label}</text>
         </box>
       </box>

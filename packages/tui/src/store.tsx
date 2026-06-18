@@ -3,6 +3,7 @@ import { createStore, produce } from "solid-js/store"
 import {
   DEFAULT_MODE,
   cycleMode,
+  getMode,
   type AskQuestion,
   type EngineEvent,
   type Effort,
@@ -45,6 +46,8 @@ export type ViewItem =
     }
   | { kind: "error"; id: string; text: string }
   | { kind: "notice"; id: string; text: string }
+  /** a flow divider shown when a plan is accepted: "running · <mode>" tinted by the chosen mode. */
+  | { kind: "breaker"; id: string; mode: ModeId; label: string }
 
 export type PendingPermission = { requestId: string; tool: string; summary: string; detail?: string; risk?: string }
 export type PendingAsk = { requestId: string; questions: AskQuestion[] }
@@ -52,13 +55,20 @@ export type PlanEntry = { id: string; title: string; text: string }
 export type SessionItem = { id: string; title: string; cwd: string; roots: string[] }
 export type ChangedFile = { path: string; status: string; added: number; removed: number }
 
+/** Prefix of the synthetic prompt sent when a plan is accepted — recognized so history replay renders
+ * it as a flow breaker instead of a user bubble (keeps plan execution looking continuous). */
+const CARRY_OUT_PREFIX = "Carry out this plan, step by step:"
+
 /** Rebuild view items from stored messages (history replay on resume/switch). */
 function messagesToItems(messages: Message[]): ViewItem[] {
   const out: ViewItem[] = []
   let n = 0
   for (const m of messages) {
-    if (m.role === "user") out.push({ kind: "user", id: `h${n++}`, text: m.text })
-    else if (m.role === "assistant") {
+    if (m.role === "user") {
+      // A plan-execution carry-out replays as a breaker, matching how it rendered live.
+      if (m.text.startsWith(CARRY_OUT_PREFIX)) out.push({ kind: "breaker", id: `h${n++}`, mode: DEFAULT_MODE, label: "ran plan" })
+      else out.push({ kind: "user", id: `h${n++}`, text: m.text })
+    } else if (m.role === "assistant") {
       if (m.text || m.reasoning)
         out.push({
           kind: "assistant",
@@ -131,6 +141,8 @@ export function createAppStore(engine: Engine) {
   // Plans proposed this session (viewable any time) + the one currently awaiting an execute decision.
   const [sessionPlans, setSessionPlans] = createSignal<Record<string, PlanEntry[]>>({})
   const [sessionPlanPending, setSessionPlanPending] = createSignal<Record<string, PlanEntry | null>>({})
+  // True while the plan card is a READ-ONLY viewer (re-opened from the sidebar) vs the execute gate.
+  const [planReadOnly, setPlanReadOnly] = createSignal(false)
   const [sessionDiag, setSessionDiag] = createSignal<Record<string, { path: string; errors: number; warnings: number }[]>>({})
   const [sessionCost, setSessionCost] = createSignal<Record<string, number>>({})
   // Status / mascot / git are per-session too, so switching shows the focused
@@ -387,6 +399,7 @@ export function createAppStore(engine: Engine) {
             .slice(0, 60) ?? "plan"
         const entry: PlanEntry = { id: nextLocalId(), title, text: e.plan }
         setSessionPlans((m) => ({ ...m, [sid]: [...(m[sid] ?? []), entry] }))
+        setPlanReadOnly(false) // a fresh plan is the execute gate, not the read-only viewer
         setKey(setSessionPlanPending, sid, entry)
         setKey(setSessionNeeds, sid, true)
         if (!focused) pushToast(`◐ ${titleOf(sid)} has a plan ready`, "input")
@@ -603,6 +616,8 @@ export function createAppStore(engine: Engine) {
     engine.send({ type: "permission-reply", requestId: p.requestId, decision })
     delKey(setSessionPending, activeSession())
     delKey(setSessionNeeds, activeSession())
+    // The modal owned focus while open; hand it back so the composer is typeable immediately.
+    focusComposer()
   }
 
   function replyAsk(answers: Record<string, string>) {
@@ -614,23 +629,39 @@ export function createAppStore(engine: Engine) {
   }
 
   // ---- plan-mode gate ----
-  /** Close the plan card without acting (used by "keep planning" and "custom input"). */
+  /** Close the plan card without acting (used by "keep planning", "custom input", and the viewer). */
   function dismissPlan() {
     delKey(setSessionPlanPending, activeSession())
     delKey(setSessionNeeds, activeSession())
+    setPlanReadOnly(false)
   }
-  /** Switch to the chosen mode and tell the agent to carry out the plan it just proposed. */
-  function executePlan(targetMode: ModeId) {
+  /**
+   * Accept the pending plan: switch to the chosen mode and continue the SAME flow — instead of a fresh
+   * user prompt, we drop an inline "running · <mode>" breaker (tinted by the chosen mode) and let the
+   * agent carry on below it. The plan text is re-sent to the engine inline (so it survives compaction),
+   * but the UI shows the breaker rather than a user bubble. Only the execute gate calls this — the
+   * sidebar viewer is read-only.
+   */
+  function executePlan(targetMode: ModeId, entry?: PlanEntry) {
+    const plan = entry ?? planPending()
     dismissPlan()
     if (targetMode !== mode()) {
       setModeSig(targetMode)
       engine.setMode(targetMode)
       engine.send({ type: "set-mode", mode: targetMode })
     }
-    submitRaw("Carry out the plan you just proposed, step by step.")
+    const sid = activeSession()
+    appendItem(sid, { kind: "breaker", id: nextLocalId(), mode: targetMode, label: `running · ${getMode(targetMode).label}` })
+    setKey(setSessionBusy, sid, true)
+    setKey(setSessionStatus, sid, "sent…")
+    engine.send({
+      type: "prompt",
+      text: plan?.text ? `${CARRY_OUT_PREFIX}\n\n${plan.text}` : "Carry out the plan you just proposed, step by step.",
+    })
   }
-  /** Re-open a previously proposed plan in the plan card (read-only viewing, no needs flag). */
+  /** Re-open a previously proposed plan in the plan card as a READ-ONLY viewer (no execute options). */
   function viewPlan(entry: PlanEntry) {
+    setPlanReadOnly(true)
     setKey(setSessionPlanPending, activeSession(), entry)
   }
 
@@ -791,6 +822,7 @@ export function createAppStore(engine: Engine) {
     replyAsk,
     plans,
     planPending,
+    planReadOnly,
     dismissPlan,
     executePlan,
     viewPlan,

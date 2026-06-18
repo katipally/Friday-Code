@@ -133,7 +133,8 @@ test("ask_user pauses the loop and feeds the answer back", async () => {
 
   const ask = events.find((e) => e.type === "ask-user") as Extract<EngineEvent, { type: "ask-user" }>
   expect(ask).toBeTruthy()
-  expect(ask.questions[0]!.options).toEqual(["solid", "react"])
+  // Options are normalized to { label, description } objects (bare strings → just a label).
+  expect(ask.questions[0]!.options).toEqual([{ label: "solid" }, { label: "react" }])
 
   engine.send({ type: "ask-reply", requestId: ask.requestId, answers: { [ask.questions[0]!.id]: "solid" } })
   await Bun.sleep(20)

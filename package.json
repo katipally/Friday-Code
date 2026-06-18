@@ -11,9 +11,9 @@
     "typecheck": "for p in shared providers tools mcp lsp core tui cli; do tsc --noEmit -p packages/$p/tsconfig.json || exit 1; done"
   },
   "dependencies": {
-    "@opentui/core": "latest",
-    "@opentui/solid": "latest",
-    "solid-js": "latest"
+    "@opentui/core": "0.4.1",
+    "@opentui/solid": "0.4.1",
+    "solid-js": "1.9.13"
   },
   "devDependencies": {
     "@types/bun": "latest",

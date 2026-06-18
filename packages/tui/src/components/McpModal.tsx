@@ -4,6 +4,7 @@ import { theme, getMode } from "@friday/shared"
 import type { McpServerConfig } from "@friday/core"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
+import { G } from "../util/term.ts"
 
 type View = "list" | "add"
 
@@ -82,7 +83,7 @@ export function McpModal() {
                 {([name, cfg]) => (
                   <box flexDirection="row" gap={1}>
                     <text fg={connected().has(name) ? theme.success : theme.textFaint}>
-                      {connected().has(name) ? "⚡" : "○"}
+                      {connected().has(name) ? G.bolt : G.dotOff}
                     </text>
                     <box width={16}>
                       <text fg={theme.text}>{name}</text>

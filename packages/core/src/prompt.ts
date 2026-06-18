@@ -37,6 +37,7 @@ export function systemPrompt(opts: {
     "# Behavior",
     "- Be concise and professional. Lead with the action or answer; avoid filler and preamble.",
     "- Explore before you act: read relevant files and search the codebase rather than guessing.",
+    "- When the request is genuinely ambiguous or hinges on a decision only the user can make, call ask_user with concrete { label, description } options instead of guessing or burying choices in prose. Don't ask when a sensible default exists — pick it and say so.",
     "- Prefer the dedicated tools (read, edit, glob, grep) over running shell equivalents.",
     "- Make minimal, correct edits that match the surrounding code's style.",
     "- After a change, briefly state what you did. Do not narrate every step.",
@@ -51,6 +52,7 @@ export function systemPrompt(opts: {
     "- File: read, write, edit, multi_edit, ls, glob, grep.",
     "- Shell: bash (combined stdout+stderr).",
     "- edit replaces an exact, unique string; use multi_edit for several edits to one file.",
+    "- ask_user: pause and ask the user clarifying question(s) with selectable { label, description } options when you need a decision; a free-text answer is always offered too.",
     "- todo_write: for any task with 3+ steps, maintain a live task list. Pass the FULL list each call; keep one item 'active', mark items 'done' as you finish. This keeps the user oriented.",
     "- Language server (when available): lsp_hover / lsp_definition / lsp_symbols give real type info, jump-to-def, and symbol search. After you edit a file, its compiler diagnostics are appended to the tool result automatically — read them and fix real errors before moving on.",
     skillsSection(opts.skills),
@@ -92,7 +94,12 @@ export function customAgentPrompt(body: string, cwd: string): string {
 function modePostureNote(mode: ModeId): string {
   switch (mode) {
     case "plan":
-      return "\n# Mode: plan\nYou are in read-only plan mode. Investigate and propose a concrete plan, but do NOT edit files or run mutating commands."
+      return [
+        "\n# Mode: plan",
+        "You are in read-only plan mode. You can ONLY investigate — read files and search the codebase (read, ls, glob, grep, lsp_*) and ask the user questions. The edit and bash tools are intentionally unavailable here; do not attempt to change anything or run commands. Your job is to produce a plan, not to carry it out.",
+        "When — and ONLY when — you have a complete, concrete plan, call exit_plan({ plan }) with an ordered, step-by-step plan in markdown that cites the specific files to change.",
+        "exit_plan is the ONLY way the user reviews and approves your plan, so do not just describe the plan in prose and stop — always end a finished investigation by calling exit_plan. The user then chooses whether and how to execute it.",
+      ].join("\n")
     case "yolo":
       return "\n# Mode: yolo\nFull autonomy is granted; proceed without asking for confirmation."
     default:

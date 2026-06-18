@@ -181,18 +181,8 @@ function AppRoot() {
     if (app.forkOpen()) return // ForkPicker owns keys while open
     if (app.askPending()) return
     if (app.planPending()) return
+    if (app.pending()) return // PermissionCard owns keys while open (its own useKeyboard)
 
-    if (app.pending()) {
-      const decisions = ["allow-once", "allow-always", "deny"] as const
-      if (key.name === "a") return app.replyPermission("allow-once")
-      if (key.name === "s") return app.replyPermission("allow-always")
-      if (key.name === "d" || key.name === "escape") return app.replyPermission("deny")
-      if (key.name === "up" || key.name === "k") return app.setPermSel((s) => (s + 2) % 3)
-      if (key.name === "down" || key.name === "j" || (key.name === "tab" && !key.shift)) return app.setPermSel((s) => (s + 1) % 3)
-      if (key.name === "tab" && key.shift) return app.setPermSel((s) => (s + 2) % 3)
-      if (key.name === "return" || key.name === "enter") return app.replyPermission(decisions[app.permSel()]!)
-      return
-    }
     if (app.overlayOpen()) {
       if (key.name === "escape") app.setOverlayOpen(false)
       return

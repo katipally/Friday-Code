@@ -1,5 +1,6 @@
 import {
   getMode,
+  type AskOption,
   type AskQuestion,
   type EngineEventBody,
   type Effort,
@@ -14,6 +15,7 @@ import {
 import { getProviderKey } from "@friday/providers"
 import {
   ASK_USER,
+  EXIT_PLAN,
   SKILL_TOOL,
   TASK_TOOL,
   TODO_WRITE,
@@ -85,11 +87,36 @@ export function extractInlineOptions(raw: string): { question: string; options?:
   return { question: raw }
 }
 
-/** Build one AskQuestion, preferring explicit `options[]` but falling back to inline extraction. */
-function toAskQuestion(id: string, question: string, explicit: unknown, multi = false): AskQuestion {
-  if (Array.isArray(explicit) && explicit.length) return { id, question, options: explicit as string[], multi }
+/** Normalize a model-supplied option (a bare string or a { label, description } object) to an AskOption. */
+function toAskOption(o: unknown): AskOption | null {
+  if (typeof o === "string") return o.trim() ? { label: o.trim() } : null
+  if (o && typeof o === "object") {
+    const label = (o as any).label
+    if (typeof label === "string" && label.trim()) {
+      const description = (o as any).description
+      const preview = (o as any).preview
+      return {
+        label: label.trim(),
+        description: typeof description === "string" && description.trim() ? description.trim() : undefined,
+        preview: typeof preview === "string" && preview.trim() ? preview.replace(/\s+$/, "") : undefined,
+      }
+    }
+  }
+  return null
+}
+
+/**
+ * Build one AskQuestion, preferring explicit `options[]` (strings or { label, description } objects)
+ * but falling back to extracting choices the model wrote inline in the question text.
+ */
+function toAskQuestion(id: string, question: string, explicit: unknown, multi = false, header?: string): AskQuestion {
+  const hdr = typeof header === "string" && header.trim() ? header.trim() : undefined
+  if (Array.isArray(explicit) && explicit.length) {
+    const options = explicit.map(toAskOption).filter((o): o is AskOption => o !== null)
+    if (options.length) return { id, question, header: hdr, options, multi }
+  }
   const parsed = extractInlineOptions(question)
-  return { id, question: parsed.question, options: parsed.options, multi }
+  return { id, question: parsed.question, header: hdr, options: parsed.options?.map((label) => ({ label })), multi }
 }
 
 /** Render ask_user answers back to the model: a single answer verbatim, or labeled Q/A pairs. */
@@ -156,6 +183,8 @@ export class SessionRunner {
   busy = false
   /** id of the assistant message currently streaming — so we can always finalize it (even on abort/error). */
   private activeAssistantId?: string
+  /** set when the model explicitly presented a plan via exit_plan this turn — suppresses the fallback heuristic. */
+  private planEmitted = false
   /** set while a permission/ask card is awaiting the user for this session */
   needsInput = false
   private pending = new Map<string, Pending>()
@@ -381,6 +410,7 @@ export class SessionRunner {
     }
 
     this.busy = true
+    this.planEmitted = false
     this.abort = new AbortController()
     this.currentCheckpoint = {
       id: this.host.nextId(),
@@ -415,9 +445,10 @@ export class SessionRunner {
       }
       void this.hook("Stop")
       this.emitSessionFiles()
-      // In plan mode a completed turn yields a proposal — surface it so the UI can offer an
-      // execute/keep-planning gate. The plan is the last assistant message produced this turn.
-      if (!aborted && this.host.selection().mode === "plan") {
+      // Fallback: if the model finished a plan-mode turn WITHOUT calling exit_plan, still surface
+      // something so the gate isn't lost — the plan is the last assistant message produced this turn.
+      // The deterministic path (exit_plan) is preferred; this only runs when it wasn't used.
+      if (!aborted && !this.planEmitted && this.host.selection().mode === "plan") {
         const last = [...this.messages].reverse().find((m) => m.role === "assistant" && !!m.text)
         if (last && last.role === "assistant" && last.text && last.text.trim().length > 12) {
           this.emit({ type: "plan-ready", plan: last.text })
@@ -585,7 +616,17 @@ export class SessionRunner {
           } as Message,
           ...this.sendMessages(),
         ],
-        tools: registry.defs,
+        // Plan mode is STRICTLY read-only: only non-mutating tools (read/network/control + exit_plan)
+        // are offered, so the agent can investigate and propose but can NEVER edit files or run bash —
+        // it physically can't act, it can only plan. Every other mode hides exit_plan so the model can't
+        // "present a plan" mid-execution.
+        tools:
+          sel.mode === "plan"
+            ? registry.defs.filter((d) => {
+                const t = registry.get(d.name)
+                return !t || (t.permission !== "edit" && t.permission !== "bash")
+              })
+            : registry.defs.filter((d) => d.name !== EXIT_PLAN),
         effort: sel.reasoning ? sel.effort : undefined,
         maxTokens: 8192,
       }
@@ -652,6 +693,20 @@ export class SessionRunner {
         this.emit({ type: "mascot", state: "working" })
         this.emit({ type: "status", text: `running ${tc.name}…`, elapsedMs: now() - start })
 
+        if (tc.name === EXIT_PLAN) {
+          // The model has presented a finished plan. Emit it deterministically and LOCK the turn —
+          // returning from loop() ends the agentic loop the instant the plan is ready.
+          const a = safeParse(tc.arguments) as { plan?: string }
+          const plan = (a.plan ?? "").trim()
+          this.planEmitted = true
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: "Plan presented to the user for approval." })
+          this.emit({ type: "tool-result", callId: tc.id, ok: true, output: plan, title: "plan ready" })
+          this.emit({ type: "plan-ready", plan })
+          this.emit({ type: "turn-done", id })
+          this.activeAssistantId = undefined
+          return
+        }
+
         if (tc.name === SKILL_TOOL) {
           const a = safeParse(tc.arguments) as { name?: string }
           const skill = this.skills.find((s) => s.name === a.name)
@@ -675,12 +730,13 @@ export class SessionRunner {
         if (tc.name === ASK_USER) {
           const a = safeParse(tc.arguments) as {
             question?: string
+            header?: string
             options?: unknown
-            questions?: { question?: string; options?: unknown; multi?: boolean }[]
+            questions?: { question?: string; header?: string; options?: unknown; multi?: boolean }[]
           }
           const questions: AskQuestion[] = Array.isArray(a.questions) && a.questions.length
-            ? a.questions.map((q, i) => toAskQuestion(`q${i}`, q.question ?? "", q.options, q.multi === true))
-            : [toAskQuestion("q0", a.question ?? "", a.options)]
+            ? a.questions.map((q, i) => toAskQuestion(`q${i}`, q.question ?? "", q.options, q.multi === true, q.header))
+            : [toAskQuestion("q0", a.question ?? "", a.options, false, a.header)]
           const requestId = this.host.nextId()
           this.emit({ type: "ask-user", requestId, questions })
           this.emit({ type: "mascot", state: "idle" })

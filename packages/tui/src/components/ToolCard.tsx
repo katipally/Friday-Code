@@ -3,6 +3,7 @@ import { theme, getMode, GLYPH } from "@friday/shared"
 import { useApp, type ViewItem } from "../store.tsx"
 import { useSpinner } from "../util/useSpinner.ts"
 import { DiffCard } from "./DiffCard.tsx"
+import { G } from "../util/term.ts"
 
 const MAX_OUTPUT_LINES = 12
 
@@ -12,7 +13,7 @@ export function ToolCard(props: { item: Extract<ViewItem, { kind: "tool" }> }) {
   const spin = useSpinner()
   const accent = () => getMode(app.mode()).accent
 
-  const marker = () => (props.item.status === "running" ? spin() : "⏺")
+  const marker = () => (props.item.status === "running" ? spin() : G.marker)
   const markerColor = () =>
     props.item.status === "running" ? accent() : props.item.status === "error" ? theme.error : theme.success
 

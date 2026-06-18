@@ -8,6 +8,7 @@ import { Markdown } from "./Markdown.tsx"
 import { EmptyHome } from "./EmptyHome.tsx"
 import { Pressable } from "./Pressable.tsx"
 import { FileChip } from "./FileChip.tsx"
+import { G, modeGlyph } from "../util/term.ts"
 import { copyText } from "../util/clipboard.ts"
 import { parseMentions } from "../util/mentions.ts"
 import { Appear, shimmerAccent } from "../motion/index.ts"
@@ -101,7 +102,7 @@ function AssistantMessage(props: { item: Extract<ViewItem, { kind: "assistant" }
       <ThinkingCard item={props.item} />
       <Show when={props.item.text.length > 0}>
         <box flexDirection="row" gap={1}>
-          <text fg={accent()}>⏺</text>
+          <text fg={accent()}>{G.marker}</text>
           <box flexGrow={1} flexDirection="column">
             <Markdown content={props.item.text} streaming={!props.item.done} />
             <Show when={!props.item.done}>
@@ -136,10 +137,26 @@ function NoticeBubble(props: { item: Extract<ViewItem, { kind: "notice" }> }) {
   )
 }
 
+/**
+ * Flow divider shown when a plan is accepted — a rule with "▸ running · <mode>" tinted by the chosen
+ * mode's accent. It keeps plan execution reading as a continuation of the same response rather than a
+ * fresh user prompt.
+ */
+function BreakerRow(props: { item: Extract<ViewItem, { kind: "breaker" }> }) {
+  const tint = () => getMode(props.item.mode).accent
+  return (
+    <box flexDirection="row" justifyContent="center" marginTop={1} marginBottom={1}>
+      <text fg={tint()}>
+        {"─".repeat(8)} {modeGlyph(props.item.mode)} {props.item.label} {"─".repeat(8)}
+      </text>
+    </box>
+  )
+}
+
 function ErrorBubble(props: { item: Extract<ViewItem, { kind: "error" }> }) {
   return (
     <box flexDirection="row" gap={1} marginBottom={1}>
-      <text fg={theme.error}>⏺</text>
+      <text fg={theme.error}>{G.marker}</text>
       <text fg={theme.error} selectable>
         {props.item.text}
       </text>
@@ -202,6 +219,9 @@ export function Chat() {
                 </Match>
                 <Match when={item.kind === "notice"}>
                   <NoticeBubble item={item as any} />
+                </Match>
+                <Match when={item.kind === "breaker"}>
+                  <BreakerRow item={item as any} />
                 </Match>
               </Switch>
             </Appear>
