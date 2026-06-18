@@ -24,6 +24,11 @@ function collect(engine: Engine): EngineEvent[] {
   return events
 }
 
+async function waitFor(cond: () => boolean, timeoutMs = 5000, stepMs = 20): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!cond() && Date.now() < deadline) await Bun.sleep(stepMs)
+}
+
 test("agent loop: tool-call -> result -> continue -> done", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-test-"))
   fs.writeFileSync(path.join(dir, "hello.txt"), "first line\nsecond line\n")
@@ -53,9 +58,7 @@ test("agent loop: tool-call -> result -> continue -> done", async () => {
   const events = collect(engine)
   engine.send({ type: "prompt", text: "how many lines in hello.txt?" })
 
-  // wait for the turn to finish
-  await Bun.sleep(50)
-
+  await waitFor(() => events.some((e) => e.type === "turn-done"))
   const types = events.map((e) => e.type)
   expect(types).toContain("tool-call")
   const toolResult = events.find((e) => e.type === "tool-result") as Extract<EngineEvent, { type: "tool-result" }>
@@ -99,7 +102,7 @@ test("permission gate: default mode asks before an edit, deny is honored", async
 
   const events = collect(engine)
   engine.send({ type: "prompt", text: "create new.txt" })
-  await Bun.sleep(30)
+  await waitFor(() => events.some((e) => e.type === "permission-request"))
 
   const req = events.find((e) => e.type === "permission-request") as Extract<
     EngineEvent,
@@ -110,7 +113,7 @@ test("permission gate: default mode asks before an edit, deny is honored", async
 
   // deny it
   engine.send({ type: "permission-reply", requestId: req.requestId, decision: "deny" })
-  await Bun.sleep(30)
+  await waitFor(() => events.some((e) => e.type === "turn-done"))
 
   expect(fs.existsSync(path.join(dir, "new.txt"))).toBe(false)
   const toolResult = events.find((e) => e.type === "tool-result") as Extract<EngineEvent, { type: "tool-result" }>
@@ -142,7 +145,7 @@ test("ask_user pauses the loop and feeds the answer back", async () => {
   engine.selectModel("mock", "mock-model")
   const events = collect(engine)
   engine.send({ type: "prompt", text: "pick a framework" })
-  await Bun.sleep(20)
+  await waitFor(() => events.some((e) => e.type === "ask-user"))
 
   const ask = events.find((e) => e.type === "ask-user") as Extract<EngineEvent, { type: "ask-user" }>
   expect(ask).toBeTruthy()
@@ -150,7 +153,7 @@ test("ask_user pauses the loop and feeds the answer back", async () => {
   expect(ask.questions[0]!.options).toEqual([{ label: "solid" }, { label: "react" }])
 
   engine.send({ type: "ask-reply", requestId: ask.requestId, answers: { [ask.questions[0]!.id]: "solid" } })
-  await Bun.sleep(20)
+  await waitFor(() => events.some((e) => e.type === "tool-result"))
 
   const result = events.find((e) => e.type === "tool-result") as Extract<EngineEvent, { type: "tool-result" }>
   expect(result.output).toBe("solid")
@@ -181,7 +184,7 @@ test("network tools are gated: default mode asks before webfetch, deny avoids th
   engine.selectModel("mock", "mock-model")
   const events = collect(engine)
   engine.send({ type: "prompt", text: "fetch example.com" })
-  await Bun.sleep(20)
+  await waitFor(() => events.some((e) => e.type === "permission-request"))
 
   const req = events.find((e) => e.type === "permission-request") as Extract<
     EngineEvent,
@@ -189,7 +192,7 @@ test("network tools are gated: default mode asks before webfetch, deny avoids th
   >
   expect(req.tool).toBe("webfetch")
   engine.send({ type: "permission-reply", requestId: req.requestId, decision: "deny" })
-  await Bun.sleep(20)
+  await waitFor(() => events.some((e) => e.type === "tool-result"))
   const result = events.find((e) => e.type === "tool-result") as Extract<EngineEvent, { type: "tool-result" }>
   expect(result.ok).toBe(false)
   fs.rmSync(dir, { recursive: true, force: true })
