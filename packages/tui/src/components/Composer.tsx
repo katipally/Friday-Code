@@ -192,6 +192,22 @@ export function Composer() {
         </box>
       </Show>
 
+      {/* Prompts staged while the agent is busy — drained one at a time at each turn boundary.
+          Click a row to drop it from the queue. */}
+      <Show when={app.queued().length > 0}>
+        <box flexDirection="column" marginBottom={1} flexShrink={0}>
+          <For each={app.queued()}>
+            {(q, i) => (
+              <box flexDirection="row" gap={1} onMouseDown={() => app.unqueue(i())}>
+                <text fg={theme.warning}>⏳ queued</text>
+                <text fg={theme.textMuted}>{truncate(q, 52)}</text>
+                <text fg={theme.textFaint}>✕</text>
+              </box>
+            )}
+          </For>
+        </box>
+      </Show>
+
       <Show when={chips().length > 0}>
         <box flexDirection="row" gap={1} marginBottom={1} flexShrink={0} flexWrap="wrap">
           <For each={chips()}>{(chip) => <FileChip chip={chip} accent={mode().accent} max={24} onOpen={() => app.openPath(chip.rel)} />}</For>

@@ -158,6 +158,8 @@ export function createAppStore(engine: Engine) {
   const [sessionCompactPct, setSessionCompactPct] = createSignal<Record<string, { before: number; after: number }>>({})
   const [sessionSummary, setSessionSummary] = createSignal<Record<string, string>>({})
   const [sessionCanUndoCompact, setSessionCanUndoCompact] = createSignal<Record<string, boolean>>({})
+  // Prompts typed while a turn is running — drained one at a time at each turn boundary.
+  const [sessionQueue, setSessionQueue] = createSignal<Record<string, string[]>>({})
   // The read-only "compaction summary" viewer (a string when open, null when closed) — global modal.
   const [compactionView, setCompactionView] = createSignal<string | null>(null)
   // Per-session unread marker: the item count last seen while focused on a session.
@@ -222,6 +224,7 @@ export function createAppStore(engine: Engine) {
   const compactPct = () => sessionCompactPct()[activeSession()] ?? { before: 0, after: 0 }
   const lastSummary = () => sessionSummary()[activeSession()] ?? null
   const canUndoCompact = () => !!sessionCanUndoCompact()[activeSession()]
+  const queued = (): string[] => sessionQueue()[activeSession()] ?? (EMPTY as string[])
 
   // Single source of truth: is ANY blocking overlay / modal / HITL prompt on screen?
   // Used to blur the composer, gate global keys, and freeze chat scroll so keystrokes never
@@ -460,6 +463,11 @@ export function createAppStore(engine: Engine) {
           }
         })
         lastUsage.delete(sid)
+        // Defer to a macrotask: turn-done fires from inside the loop while the runner is still busy
+        // (its finally — which flips runner.busy false — runs a microtask later). A setTimeout(0) lets
+        // that finally and the trailing "ready" complete first, so the next prompt isn't dropped by
+        // runPrompt's own busy guard.
+        setTimeout(() => drainQueue(sid), 0)
         break
       }
       case "message-stop":
@@ -645,12 +653,33 @@ export function createAppStore(engine: Engine) {
 
   function submitRaw(text: string) {
     const sid = activeSession()
+    // If a turn is already running, queue the prompt instead of racing the engine — it drains at the
+    // next turn boundary (see drainQueue). Lets the user stage follow-ups / course-correct mid-run.
+    if (sessionBusy()[sid]) {
+      setSessionQueue((m) => ({ ...m, [sid]: [...(m[sid] ?? []), text] }))
+      return
+    }
     appendItem(sid, { kind: "user", id: nextLocalId(), text, mode: mode() })
     // Optimistically flip to busy so the status strip + timer appear the instant Enter is pressed,
     // before the engine's first message-start arrives (closes the perceived "nothing happening" gap).
     setKey(setSessionBusy, sid, true)
     setKey(setSessionStatus, sid, "sent…")
     engine.send({ type: "prompt", text })
+  }
+
+  /** Send the next queued prompt for a session once it goes idle (called at turn boundaries). */
+  function drainQueue(sid: string) {
+    if (sessionBusy()[sid]) return
+    const q = sessionQueue()[sid]
+    if (!q || !q.length) return
+    const [next, ...rest] = q
+    setSessionQueue((m) => ({ ...m, [sid]: rest }))
+    if (sid === activeSession()) submitRaw(next!)
+  }
+  /** Drop a staged prompt by index (clicking its chip's ✕). */
+  function unqueue(i: number) {
+    const sid = activeSession()
+    setSessionQueue((m) => ({ ...m, [sid]: (m[sid] ?? []).filter((_, k) => k !== i) }))
   }
 
   function submit(text: string) {
@@ -672,6 +701,8 @@ export function createAppStore(engine: Engine) {
     // Optimistic "stopping…" so the strip reflects the interrupt instantly; the engine
     // follows with "stopped" + a turn-done that clears busy and freezes the timer.
     setKey(setSessionStatus, activeSession(), "stopping…")
+    // Interrupting means "stop" — discard staged prompts rather than firing them after the abort.
+    setSessionQueue((m) => ({ ...m, [activeSession()]: [] }))
     engine.send({ type: "abort" })
   }
 
@@ -930,6 +961,8 @@ export function createAppStore(engine: Engine) {
     stopCompact,
     undoCompact,
     viewCompaction,
+    queued,
+    unqueue,
     items,
     sessions,
     activeSession,

@@ -63,3 +63,62 @@ test("switching mid-stream keeps each session's own transcript + status", async 
   })
   fs.rmSync(dir, { recursive: true, force: true })
 })
+
+test("a prompt submitted mid-turn is queued, then drained at the turn boundary", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-test-"))
+  await createRoot(async (dispose) => {
+    const engine = new Engine({ cwd: dir, streamFn: gatedStream })
+    engine.send({ type: "set-mode", mode: "yolo" })
+    engine.selectModel("mock", "mock-model")
+    const app = createAppStore(engine)
+    engine.ready()
+
+    app.submit("first")
+    await Bun.sleep(20)
+    expect(app.busy()).toBe(true)
+
+    // Submitting while busy queues instead of racing the engine.
+    app.submit("second")
+    await Bun.sleep(10)
+    expect(app.queued()).toEqual(["second"])
+    expect(app.items().filter((i) => i.kind === "user").length).toBe(1) // not appended yet
+
+    // Finish the first turn → the queue drains and "second" starts.
+    release?.()
+    await Bun.sleep(30)
+    expect(app.queued()).toEqual([])
+    expect(app.items().filter((i) => i.kind === "user").length).toBe(2)
+    expect(app.busy()).toBe(true)
+
+    release?.()
+    await Bun.sleep(20)
+    dispose()
+  })
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test("aborting discards queued prompts", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-test-"))
+  await createRoot(async (dispose) => {
+    const engine = new Engine({ cwd: dir, streamFn: gatedStream })
+    engine.send({ type: "set-mode", mode: "yolo" })
+    engine.selectModel("mock", "mock-model")
+    const app = createAppStore(engine)
+    engine.ready()
+
+    app.submit("first")
+    await Bun.sleep(20)
+    app.submit("queued one")
+    app.submit("queued two")
+    await Bun.sleep(10)
+    expect(app.queued().length).toBe(2)
+
+    app.abort()
+    await Bun.sleep(10)
+    expect(app.queued()).toEqual([]) // interrupting clears the queue
+    release?.()
+    await Bun.sleep(20)
+    dispose()
+  })
+  fs.rmSync(dir, { recursive: true, force: true })
+})
