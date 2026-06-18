@@ -3,10 +3,13 @@ name: Release
 # Pushing a version tag triggers the full pipeline automatically:
 #   git tag v2.0.1 && git push origin v2.0.1
 #
-# The workflow builds binaries on native runners, creates a GitHub Release,
-# then publishes all npm packages. The publish step is idempotent — if a
-# platform package is already on npm at that version it is skipped rather
-# than failing, so reruns and retries always complete successfully.
+# Stable targets (darwin-arm64, darwin-x64, linux-x64, linux-arm64, win32-x64) must
+# all succeed for the GitHub Release and npm publish to proceed.
+# Experimental targets (linux musl, win32-arm64) run in parallel but do not block
+# the release — their packages are published if the builds succeed.
+#
+# The publish step is fully idempotent: if a package@version is already on npm it is
+# skipped rather than failing, so reruns and retries always complete successfully.
 #
 # Use workflow_dispatch to rerun a specific tag (e.g. after a flaky runner).
 
@@ -27,6 +30,7 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+# ── Stable targets ─────────────────────────────────────────────────────────────
 jobs:
   build:
     name: build ${{ matrix.target }}
@@ -45,56 +49,20 @@ jobs:
             runner: ubuntu-24.04-arm
           - target: win32-x64
             runner: windows-latest
-          - target: win32-arm64
-            runner: windows-11-arm
-          - target: linux-x64-musl
-            runner: ubuntu-latest
-          - target: linux-arm64-musl
-            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
           persist-credentials: false
 
-      # Musl targets build inside an Alpine container so Bun links against musl libc.
-      - name: Set up Alpine container (musl targets only)
-        if: contains(matrix.target, 'musl')
-        uses: jirutka/setup-alpine@v1
-        with:
-          branch: v3.21
-          packages: curl bash
-
-      - name: Install Bun (musl/Alpine)
-        if: contains(matrix.target, 'musl')
-        shell: alpine.sh {0}
-        run: |
-          curl -fsSL https://bun.sh/install | bash -s -- bun-v1.3.11
-          echo "/root/.bun/bin" >> $GITHUB_PATH
-
       - uses: oven-sh/setup-bun@v2
-        if: "!contains(matrix.target, 'musl')"
         with:
           bun-version: "1.3.11"
 
-      - name: Install dependencies (musl/Alpine)
-        if: contains(matrix.target, 'musl')
-        shell: alpine.sh {0}
-        run: /root/.bun/bin/bun install --frozen-lockfile
-
       - name: Install dependencies
-        if: "!contains(matrix.target, 'musl')"
         run: bun install --frozen-lockfile
 
-      - name: Build ${{ matrix.target }} (musl/Alpine)
-        if: contains(matrix.target, 'musl')
-        shell: alpine.sh {0}
-        run: /root/.bun/bin/bun run scripts/build.ts --target=${{ matrix.target }}
-        env:
-          FRIDAY_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-
       - name: Build ${{ matrix.target }}
-        if: "!contains(matrix.target, 'musl')"
         shell: bash
         run: bun run scripts/build.ts --target=${{ matrix.target }}
         env:
@@ -129,9 +97,107 @@ jobs:
           name: npm-launcher
           path: dist/npm/friday-code
 
+# ── Musl targets (Alpine/Docker) ───────────────────────────────────────────────
+  build-musl:
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64-musl
+            runner: ubuntu-latest
+          - target: linux-arm64-musl
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          persist-credentials: false
+
+      - name: Build ${{ matrix.target }} (musl via Docker)
+        run: |
+          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace \
+            -e FRIDAY_VERSION="$TAG" \
+            oven/bun:1.3.11-alpine \
+            sh -c "bun install --frozen-lockfile && bun run scripts/build.ts --target=${{ matrix.target }}"
+          sudo chown -R $USER:$USER dist/
+
+      - name: Smoke test the binary
+        run: |
+          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          EXPECTED="${TAG#v}"
+          BIN=$(ls dist/bin/friday-${{ matrix.target }})
+          OUT=$("$BIN" --version)
+          echo "version: $OUT"
+          test "$OUT" = "$EXPECTED"
+
+      - name: Upload raw binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: bin-${{ matrix.target }}
+          path: dist/bin/*
+
+      - name: Upload platform npm package
+        uses: actions/upload-artifact@v7
+        with:
+          name: npm-${{ matrix.target }}
+          path: dist/npm/friday-code-${{ matrix.target }}
+
+# ── Windows ARM64 ──────────────────────────────────────────────────────────────
+  build-win-arm64:
+    name: build win32-arm64
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.11"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build win32-arm64
+        shell: bash
+        run: bun run scripts/build.ts --target=win32-arm64
+        env:
+          FRIDAY_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+      - name: Smoke test the binary
+        shell: bash
+        run: |
+          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          EXPECTED="${TAG#v}"
+          BIN=$(ls dist/bin/friday-win32-arm64*)
+          OUT=$("$BIN" --version)
+          echo "version: $OUT"
+          test "$OUT" = "$EXPECTED"
+
+      - name: Upload raw binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: bin-win32-arm64
+          path: dist/bin/*
+
+      - name: Upload platform npm package
+        uses: actions/upload-artifact@v7
+        with:
+          name: npm-win32-arm64
+          path: dist/npm/friday-code-win32-arm64
+
+# ── GitHub Release ─────────────────────────────────────────────────────────────
   github-release:
     name: GitHub Release
-    needs: build
+    # Experimental builds (musl, win-arm64) do not block the release.
+    needs: [build, build-musl, build-win-arm64]
+    if: always() && needs.build.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -157,6 +223,7 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: true
 
+# ── npm publish ────────────────────────────────────────────────────────────────
   npm-publish:
     name: npm publish
     needs: github-release
@@ -176,26 +243,34 @@ jobs:
           pattern: npm-*
           path: npm
 
-      - name: Verify npm artifacts
+      - name: Verify required npm artifacts
         shell: bash
         run: |
           set -euo pipefail
-          for target in darwin-arm64 darwin-x64 linux-x64 linux-arm64 win32-x64 win32-arm64 linux-x64-musl linux-arm64-musl; do
-            test -f "./npm/npm-$target/package.json" || { echo "Missing artifact for $target"; exit 1; }
+          # Stable packages must always be present.
+          for target in darwin-arm64 darwin-x64 linux-x64 linux-arm64 win32-x64; do
+            test -f "./npm/npm-$target/package.json" || { echo "Missing required artifact: $target"; exit 1; }
           done
           test -f "./npm/npm-launcher/package.json"
+          # Log optional experimental packages (do not fail if missing).
+          for target in win32-arm64 linux-x64-musl linux-arm64-musl; do
+            if test -f "./npm/npm-$target/package.json"; then
+              echo "found experimental: $target"
+            else
+              echo "missing experimental (ok): $target"
+            fi
+          done
 
-      - name: Publish platform packages (idempotent), then the launcher
+      - name: Publish all packages (idempotent), then the launcher
         shell: bash
         run: |
           set -euo pipefail
 
           publish_idempotent() {
             local dir="$1"
-            local pkg version
+            local pkg version already
             pkg=$(node -p "require('$dir/package.json').name")
             version=$(node -p "require('$dir/package.json').version")
-            local already
             already=$(npm view "${pkg}@${version}" version 2>/dev/null || true)
             if [ "$already" = "$version" ]; then
               echo "skip  $pkg@$version (already published)"
@@ -205,11 +280,19 @@ jobs:
             npm publish "$dir" --provenance --access public
           }
 
-          for target in darwin-arm64 darwin-x64 linux-x64 linux-arm64 win32-x64 win32-arm64 linux-x64-musl linux-arm64-musl; do
+          # Stable packages (always present).
+          for target in darwin-arm64 darwin-x64 linux-x64 linux-arm64 win32-x64; do
             publish_idempotent "./npm/npm-$target"
           done
 
-          echo "publishing launcher"
-          npm publish ./npm/npm-launcher --provenance --access public
+          # Experimental packages (publish if artifact was uploaded, skip if not).
+          for target in win32-arm64 linux-x64-musl linux-arm64-musl; do
+            if [ -d "./npm/npm-$target" ]; then
+              publish_idempotent "./npm/npm-$target"
+            fi
+          done
+
+          # Launcher is always last and always required.
+          publish_idempotent "./npm/npm-launcher"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
