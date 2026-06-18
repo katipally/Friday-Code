@@ -37,7 +37,7 @@ test("App mounts, splash, then the shell; first-run shows onboarding", async () 
   t.renderer.destroy()
 })
 
-test("Shift+Tab cycles modes, Ctrl+G toggles context panel, F1 overlay + mouse dismiss", async () => {
+test("Shift+Tab cycles modes, Ctrl+B toggles context panel, F1 overlay + mouse dismiss", async () => {
   const t = await testRender(() => <App engine={newEngine()} />, { width: 120, height: 36 })
   await t.renderOnce()
   t.mockInput.pressEnter()
@@ -49,11 +49,11 @@ test("Shift+Tab cycles modes, Ctrl+G toggles context panel, F1 overlay + mouse d
   await t.flush()
   expect(t.captureCharFrame()).toContain("plan")
 
-  t.mockInput.pressKey("g", { ctrl: true })
+  t.mockInput.pressKey("b", { ctrl: true })
   await t.flush()
   expect(t.captureCharFrame()).not.toContain("stats")
 
-  t.mockInput.pressKey("g", { ctrl: true })
+  t.mockInput.pressKey("b", { ctrl: true })
   await t.flush()
 
   t.mockInput.pressKey("F1")

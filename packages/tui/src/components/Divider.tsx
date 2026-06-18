@@ -38,10 +38,10 @@ export function GripDivider(props: {
 }
 
 /**
- * A thin clickable/draggable strip that appears when the right panel is collapsed.
- * Click or drag it to reopen the panel. It sits flush with the right edge.
+ * A thin clickable/draggable strip that appears when the side panel is collapsed.
+ * Click or drag it to reopen the panel. It sits flush with its edge; the chevron points inward.
  */
-export function CollapseTab(props: { side: "right"; onOpen: () => void }) {
+export function CollapseTab(props: { side: "left" | "right"; onOpen: () => void }) {
   const h = useHover({ base: theme.bgPanel })
   return (
     <box

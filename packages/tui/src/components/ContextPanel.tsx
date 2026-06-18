@@ -121,7 +121,7 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
   return (
     <Show
       when={app.rightOpen()}
-      fallback={<CollapseTab side="right" onOpen={() => app.setRightOpen(true)} />}
+      fallback={<CollapseTab side="left" onOpen={() => app.setRightOpen(true)} />}
     >
       <box
         width={props.fullscreen ? "100%" : (props.widthOverride ?? app.rightWidth())}
@@ -131,7 +131,7 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
         paddingTop={1}
       >
         <box flexDirection="row" paddingRight={1} alignItems="center">
-          <CloseButton hint="⌃G" onClose={() => app.setRightOpen(false)} />
+          <CloseButton hint="ctrl+b" onClose={() => app.setRightOpen(false)} />
           <box flexGrow={1} />
           <text fg={theme.textMuted}>stats</text>
         </box>
@@ -171,22 +171,6 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
 
             <text fg={theme.borderMuted}>{"─".repeat(innerW())}</text>
 
-            {/* Todos — auto-reveals when the agent rewrites the task list. */}
-            <Section label="todos" count={app.todos().length} open={todosOpen()} fresh={todosNew()} onToggle={toggleTodos}>
-              <Show when={app.todos().length} fallback={<text fg={theme.textFaint}>none yet</text>}>
-                <For each={app.todos()}>
-                  {(t) => (
-                    <box flexDirection="row" gap={1}>
-                      <text fg={t.status === "done" ? theme.success : t.status === "active" ? accent() : theme.textFaint}>
-                        {t.status === "done" ? G.todoDone : t.status === "active" ? G.caret : G.todoOpen}
-                      </text>
-                      <text fg={t.status === "active" ? theme.text : theme.textMuted}>{t.text}</text>
-                    </box>
-                  )}
-                </For>
-              </Show>
-            </Section>
-
             {/* Plans proposed this session — click one to re-open the full plan + execute gate. */}
             <Section label="plans" count={app.plans().length} open={plansOpen()} fresh={plansNew()} onToggle={togglePlans}>
               <Show when={app.plans().length} fallback={<text fg={theme.textFaint}>none yet</text>}>
@@ -206,6 +190,22 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
                       <Show when={planHov() === i()}>
                         <text fg={theme.textFaint}>view</text>
                       </Show>
+                    </box>
+                  )}
+                </For>
+              </Show>
+            </Section>
+
+            {/* Todos — auto-reveals when the agent rewrites the task list. */}
+            <Section label="todos" count={app.todos().length} open={todosOpen()} fresh={todosNew()} onToggle={toggleTodos}>
+              <Show when={app.todos().length} fallback={<text fg={theme.textFaint}>none yet</text>}>
+                <For each={app.todos()}>
+                  {(t) => (
+                    <box flexDirection="row" gap={1}>
+                      <text fg={t.status === "done" ? theme.success : t.status === "active" ? accent() : theme.textFaint}>
+                        {t.status === "done" ? G.todoDone : t.status === "active" ? G.caret : G.todoOpen}
+                      </text>
+                      <text fg={t.status === "active" ? theme.text : theme.textMuted}>{t.text}</text>
                     </box>
                   )}
                 </For>

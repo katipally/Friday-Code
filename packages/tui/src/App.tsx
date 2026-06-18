@@ -48,7 +48,8 @@ function Shell() {
   }
   function onDrag(e: any) {
     if (!dragging() || typeof e?.x !== "number") return
-    const delta = startX - e.x
+    // Panel sits on the LEFT, so dragging the grip rightward grows it.
+    const delta = e.x - startX
     const target = startW + delta
     // Dragging the grip past the minimum collapses the panel — the CollapseTab then
     // drags it back open. We keep rightWidth at its last valid size so reopening restores it.
@@ -84,9 +85,17 @@ function Shell() {
     <box width="100%" height="100%" backgroundColor={theme.bg}>
       {/* The single outermost frame stays subtle; mode accent lives on badges, focus rings, active divider. */}
       <box flexGrow={1} flexDirection="column" border borderStyle="rounded" borderColor={theme.frame} backgroundColor={theme.bg}>
-        {/* The right panel is a full-height sidebar that PUSHES the main column (it never hovers).
+        {/* The side panel is a full-height LEFT sidebar that PUSHES the main column (it never hovers).
             Drag is handled at the row so resize keeps tracking once the cursor leaves the grip. */}
         <box flexDirection="row" flexGrow={1} minHeight={0} onMouseDrag={onDrag} onMouseUp={endDrag} onMouseDragEnd={endDrag}>
+          {/* Full-height left sidebar with a draggable grip; a collapse tab shows when closed. */}
+          <Show when={!narrow()} fallback={<CollapseTab side="left" onOpen={() => app.setRightOpen(true)} />}>
+            <Show when={app.rightOpen()} fallback={<CollapseTab side="left" onOpen={() => app.setRightOpen(true)} />}>
+              <ContextPanel widthOverride={app.rightWidth()} />
+              <GripDivider active={dragging()} onGrab={grab} onDrag={onDrag} onEnd={endDrag} />
+            </Show>
+          </Show>
+
           {/* Main column — top bar, chat, status, composer, footer. Everything centers over the
               chat area, which narrows as the sidebar opens, keeping the UI balanced. */}
           <box flexGrow={1} minHeight={0} flexDirection="column">
@@ -98,14 +107,6 @@ function Shell() {
             <Composer />
             <FooterHints />
           </box>
-
-          {/* Full-height right sidebar with a draggable grip; a collapse tab shows when closed. */}
-          <Show when={!narrow()} fallback={<CollapseTab side="right" onOpen={() => app.setRightOpen(true)} />}>
-            <Show when={app.rightOpen()} fallback={<CollapseTab side="right" onOpen={() => app.setRightOpen(true)} />}>
-              <GripDivider active={dragging()} onGrab={grab} onDrag={onDrag} onEnd={endDrag} />
-              <ContextPanel widthOverride={app.rightWidth()} />
-            </Show>
-          </Show>
         </box>
       </box>
 
@@ -179,7 +180,7 @@ function AppRoot() {
     // them. anyModalOpen() is the single source of truth (store), so nothing can be forgotten here.
     if (app.anyModalOpen()) return
     if (key.shift && key.name === "tab") return app.toggleMode(1)
-    if (key.ctrl && key.name === "g") {
+    if (key.ctrl && key.name === "b") {
       app.setRightOpen(!app.rightOpen())
       return
     }
