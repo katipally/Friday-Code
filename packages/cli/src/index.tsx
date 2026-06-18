@@ -2,12 +2,39 @@
 import { Engine } from "@friday/core"
 import { start } from "@friday/tui"
 
+// Stamped at compile time by scripts/build.ts via --define; "dev" when run from source.
+// `typeof` guards the reference so an undefined global never throws at runtime.
+declare const __FRIDAY_VERSION__: string
+const VERSION = typeof __FRIDAY_VERSION__ === "string" ? __FRIDAY_VERSION__ : "dev"
+
+const HELP = `friday — a terminal AI coding agent
+
+Usage:
+  friday                      Launch the interactive TUI
+  friday -c, --continue       Resume the most recent session
+  friday -s, --session <id>   Resume a specific session by id
+  friday run "<prompt>"       Run one turn headless and print the result
+  friday run "<prompt>" --json  Headless, emit JSON ({ "text": ... })
+
+Options:
+  -v, --version               Print the version and exit
+  -h, --help                  Show this help and exit
+
+On first launch, onboarding walks you through connecting a provider via /model.
+Docs: https://github.com/katipally/friday-code`
+
 // Tiny arg parser: `-s/--session <id>` resumes a session, `-c/--continue` resumes the latest.
 // Headless: `friday run "<prompt>" [--json]` runs one turn to completion, prints the result, and exits
 // (auto-approves tools, for CI/scripting) — no TUI.
 const argv = process.argv.slice(2)
 
-if (argv[0] === "run") {
+if (argv[0] === "-v" || argv[0] === "--version") {
+  process.stdout.write(`${VERSION}\n`)
+  process.exit(0)
+} else if (argv[0] === "-h" || argv[0] === "--help") {
+  process.stdout.write(`${HELP}\n`)
+  process.exit(0)
+} else if (argv[0] === "run") {
   await runHeadless(argv.slice(1))
 } else {
   let resumeId: string | undefined

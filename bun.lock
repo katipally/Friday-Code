@@ -11,13 +11,13 @@
       },
       "devDependencies": {
         "@biomejs/biome": "2.5.0",
-        "@types/bun": "latest",
-        "typescript": "latest",
+        "@types/bun": "1.3.14",
+        "typescript": "6.0.3",
       },
     },
     "packages/cli": {
       "name": "@friday/cli",
-      "version": "0.0.0",
+      "version": "2.0.0",
       "bin": {
         "friday": "src/index.tsx",
       },
@@ -28,7 +28,7 @@
     },
     "packages/core": {
       "name": "@friday/core",
-      "version": "0.0.0",
+      "version": "2.0.0",
       "dependencies": {
         "@friday/lsp": "workspace:*",
         "@friday/mcp": "workspace:*",
@@ -39,14 +39,14 @@
     },
     "packages/lsp": {
       "name": "@friday/lsp",
-      "version": "0.0.0",
+      "version": "2.0.0",
       "dependencies": {
         "@friday/shared": "workspace:*",
       },
     },
     "packages/mcp": {
       "name": "@friday/mcp",
-      "version": "0.0.0",
+      "version": "2.0.0",
       "dependencies": {
         "@friday/shared": "workspace:*",
         "@friday/tools": "workspace:*",
@@ -54,25 +54,25 @@
     },
     "packages/providers": {
       "name": "@friday/providers",
-      "version": "0.0.0",
+      "version": "2.0.0",
       "dependencies": {
         "@friday/shared": "workspace:*",
       },
     },
     "packages/shared": {
       "name": "@friday/shared",
-      "version": "0.0.0",
+      "version": "2.0.0",
     },
     "packages/tools": {
       "name": "@friday/tools",
-      "version": "0.0.0",
+      "version": "2.0.0",
       "dependencies": {
         "@friday/shared": "workspace:*",
       },
     },
     "packages/tui": {
       "name": "@friday/tui",
-      "version": "0.0.0",
+      "version": "2.0.0",
       "dependencies": {
         "@friday/core": "workspace:*",
         "@friday/shared": "workspace:*",
