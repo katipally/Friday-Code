@@ -132,14 +132,15 @@ function toAskOption(o: unknown): AskOption | null {
  * Build one AskQuestion, preferring explicit `options[]` (strings or { label, description } objects)
  * but falling back to extracting choices the model wrote inline in the question text.
  */
-function toAskQuestion(id: string, question: string, explicit: unknown, multi = false, header?: string): AskQuestion {
+function toAskQuestion(id: string, question: string, explicit: unknown, multi = false, header?: string, art?: string): AskQuestion {
   const hdr = typeof header === "string" && header.trim() ? header.trim() : undefined
+  const banner = typeof art === "string" && art.trim() ? art.replace(/\s+$/, "") : undefined
   if (Array.isArray(explicit) && explicit.length) {
     const options = explicit.map(toAskOption).filter((o): o is AskOption => o !== null)
-    if (options.length) return { id, question, header: hdr, options, multi }
+    if (options.length) return { id, question, header: hdr, art: banner, options, multi }
   }
   const parsed = extractInlineOptions(question)
-  return { id, question: parsed.question, header: hdr, options: parsed.options?.map((label) => ({ label })), multi }
+  return { id, question: parsed.question, header: hdr, art: banner, options: parsed.options?.map((label) => ({ label })), multi }
 }
 
 /** Render ask_user answers back to the model: a single answer verbatim, or labeled Q/A pairs. */
@@ -788,12 +789,13 @@ export class SessionRunner {
           const a = safeParse(tc.arguments) as {
             question?: string
             header?: string
+            art?: string
             options?: unknown
-            questions?: { question?: string; header?: string; options?: unknown; multi?: boolean }[]
+            questions?: { question?: string; header?: string; art?: string; options?: unknown; multi?: boolean }[]
           }
           const questions: AskQuestion[] = Array.isArray(a.questions) && a.questions.length
-            ? a.questions.map((q, i) => toAskQuestion(`q${i}`, q.question ?? "", q.options, q.multi === true, q.header))
-            : [toAskQuestion("q0", a.question ?? "", a.options, false, a.header)]
+            ? a.questions.map((q, i) => toAskQuestion(`q${i}`, q.question ?? "", q.options, q.multi === true, q.header, q.art))
+            : [toAskQuestion("q0", a.question ?? "", a.options, false, a.header, a.art)]
           const requestId = this.host.nextId()
           this.emit({ type: "ask-user", requestId, questions })
           this.emit({ type: "mascot", state: "idle" })

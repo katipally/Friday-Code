@@ -23,12 +23,14 @@ export const askUserTool: Tool = {
     "Ask the user one or more clarifying questions and wait for their answers. Use this when the request is ambiguous or there is a real decision only the user can make — do NOT guess, and do NOT ask in plain prose.\n" +
     "Provide either a single `question` (with `options`), or `questions` to ask several at once (the user switches between them and confirms together).\n" +
     "ALWAYS supply concrete `options` as { label, description } objects — `label` is the short choice, `description` explains the trade-off. The UI renders them as a selectable menu and ALWAYS adds a free-text 'type your own answer' field automatically, so never add an 'Other' / catch-all option and never list choices inside the question text.\n" +
-    "If you recommend an option, put it FIRST and append ' (recommended)' to its label. Set `multi: true` to let the user pick several. Give each question a short `header` (≤30 chars) so multi-question prompts are easy to scan.",
+    "If you recommend an option, put it FIRST and append ' (recommended)' to its label. Set `multi: true` to let the user pick several. Give each question a short `header` (≤30 chars) so multi-question prompts are easy to scan.\n" +
+    "Whenever a small ASCII diagram would help the user grasp the question at a glance (a flow, a layout, a before/after, a tree), set `art` to a compact multi-line ASCII banner (≤ 60 chars wide, a few lines). Prefer adding it; skip only when the question is purely textual and art would add nothing.",
   permission: "read",
   parameters: obj(
     {
       question: { type: "string", description: "the question to ask (for a single question) — just the question, no inline choices" },
       header: { type: "string", description: "a very short label for the question, e.g. \"Auth method\" (≤30 chars)" },
+      art: { type: "string", description: "(optional) a compact multi-line ASCII diagram for the whole question, shown above the question text. ≤ 60 chars wide, a few lines. Add it whenever a picture clarifies the question." },
       options: { type: "array", items: optionSchema, description: "the choices, as { label, description } objects — put choices HERE, not in the question text" },
       multi: { type: "boolean", description: "(optional) allow selecting multiple options for the single question" },
       questions: {
@@ -38,6 +40,7 @@ export const askUserTool: Tool = {
           {
             question: { type: "string", description: "the question text — just the question, no inline choices" },
             header: { type: "string", description: "a very short label for this question (≤30 chars)" },
+            art: { type: "string", description: "(optional) a compact multi-line ASCII diagram for this question (≤ 60 chars wide)" },
             options: { type: "array", items: optionSchema, description: "the choices, as { label, description } objects" },
             multi: { type: "boolean", description: "(optional) allow selecting multiple options" },
           },

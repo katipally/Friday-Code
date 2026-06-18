@@ -64,11 +64,18 @@ export function AskCard() {
   const anyPreview = () => opts().some((o) => !!o.preview)
   const focusedPreview = () => (isCustomRow() ? undefined : opts()[selIdx()]?.preview)
 
-  // Adaptive sizing — grow with the terminal, but stay bounded and leave room for the chrome.
+  // Adaptive sizing — fill up to ~70% of the terminal, then the option list scrolls.
   const previewW = () => (anyPreview() ? Math.min(58, Math.max(28, Math.floor((dims().width - 12) * 0.45))) : 0)
-  const totalW = () => Math.min(dims().width - 6, anyPreview() ? 116 : 76)
-  const optsMaxH = () => Math.max(3, Math.min(rowCount() * 2, dims().height - 16))
-  const sideMaxH = () => Math.max(6, dims().height - 12)
+  const totalW = () => {
+    const base = Math.max(60, Math.round(dims().width * 0.7))
+    return Math.min(dims().width - 4, anyPreview() ? base + previewW() : base)
+  }
+  // Inner content width (minus border + horizontal padding) — drives the full-width dividers.
+  const innerW = () => Math.max(8, totalW() - 4)
+  const optsMaxH = () => Math.max(3, Math.min(rowCount() * 3, Math.round(dims().height * 0.7) - 12))
+  const sideMaxH = () => Math.max(6, Math.round(dims().height * 0.7) - 8)
+  // Extra breathing room between options when the list is short enough to afford it.
+  const optGap = () => (opts().length <= 5 ? 1 : 0)
 
   // Reset transient state whenever a fresh ask arrives or the question changes.
   createEffect(() => {
@@ -231,7 +238,17 @@ export function AskCard() {
               </box>
             </Show>
 
+            {/* Optional ASCII banner the agent supplied for this question. */}
+            <Show when={q()?.art}>
+              <box border borderStyle="rounded" borderColor={theme.borderMuted} paddingLeft={1} paddingRight={1}>
+                <text fg={theme.textMuted}>{q()!.art}</text>
+              </box>
+            </Show>
+
             <text fg={theme.text}>{q()?.question}</text>
+
+            {/* divider — separates the question/banner zone from the choices */}
+            <text fg={theme.borderMuted}>{"─".repeat(innerW())}</text>
 
             {/* Body: option list on the left, the focused option's ASCII preview on the right. */}
             <box flexDirection="row" gap={2}>
@@ -248,6 +265,7 @@ export function AskCard() {
                           flexDirection="column"
                           paddingLeft={1}
                           paddingRight={1}
+                          marginBottom={optGap()}
                           backgroundColor={active() ? theme.bgHover : "transparent"}
                           onMouseOver={() => setSelIdx(i())}
                           onMouseDown={() => chooseOption(i())}
@@ -273,12 +291,16 @@ export function AskCard() {
                     }}
                   </For>
 
+                  {/* divider — fences the free-text row off from the concrete choices */}
+                  <text fg={theme.borderMuted}>{"╌".repeat(Math.max(8, innerW() - previewW() - 4))}</text>
+
                   {/* Always-present "type your own answer" row — selecting it opens the textarea. */}
                   <box
                     flexDirection="row"
                     gap={1}
                     paddingLeft={1}
                     paddingRight={1}
+                    marginTop={optGap()}
                     backgroundColor={isCustomRow() ? theme.bgHover : "transparent"}
                     onMouseOver={() => setSelIdx(opts().length)}
                     onMouseDown={() => setTyping(true)}
@@ -330,6 +352,9 @@ export function AskCard() {
               </Show>
             </box>
 
+            {/* divider — fences the confirm/footer zone from the choices */}
+            <text fg={theme.borderMuted}>{"─".repeat(innerW())}</text>
+
             <box flexDirection="row" gap={1} alignItems="center">
               <box
                 paddingLeft={1}
@@ -344,7 +369,7 @@ export function AskCard() {
               <box flexGrow={1} />
               <text fg={theme.textFaint}>
                 {(a().questions.length > 1 ? "↑↓ pick · 1-9 · tab switch · c confirm" : "↑↓ pick · 1-9 · i type") +
-                  (anyPreview() ? " · ⇞⇟ scroll preview · esc skip" : " · esc skip")}
+                  (anyPreview() ? " · pgup/pgdn scroll · esc skip" : " · esc skip")}
               </text>
             </box>
           </box>

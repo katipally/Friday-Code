@@ -53,6 +53,8 @@ export type AskQuestion = {
   question: string
   /** very short tab/section label (e.g. "Auth method") — shown when several questions are posed. */
   header?: string
+  /** optional small ASCII banner/diagram for the whole question, rendered above the question text. */
+  art?: string
   options?: AskOption[]
   multi?: boolean
 }
