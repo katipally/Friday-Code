@@ -1,6 +1,6 @@
-import { test, expect } from "bun:test"
+import { expect, test } from "bun:test"
 import type { Message } from "@friday/shared"
-import { estimateTokens, safeCutIndex, renderTranscript } from "../src/compaction.ts"
+import { collapseToolOutputs, estimateTokens, renderTranscript, safeCutIndex } from "../src/compaction.ts"
 
 const convo: Message[] = [
   { role: "user", text: "first request" },
@@ -18,11 +18,15 @@ test("estimateTokens scales with content", () => {
   expect(big).toBeGreaterThanOrEqual(900) // ~4000 chars / 4
 })
 
-test("safeCutIndex lands on a user-message boundary, never splitting a tool pair", () => {
-  // target index 3 is a tool/assistant region; the safe cut must fall back to the user turn at 4 or 0.
+test("safeCutIndex returns a safe boundary that never splits a tool pair", () => {
+  // No user turn exists in (0, 3], so it falls back to a clean assistant boundary (one not preceded
+  // by a tool result) — here index 1, which keeps the assistant tool_use + its tool_result together.
   const cut = safeCutIndex(convo, 3)
-  expect(convo[cut]?.role === "user" || cut === 0).toBe(true)
-  // With target at the later user turn, it should pick index 4.
+  expect(convo[cut]?.role).not.toBe("tool") // never start the kept slice on an orphan tool_result
+  const safe =
+    cut === 0 || convo[cut]?.role === "user" || (convo[cut]?.role === "assistant" && convo[cut - 1]?.role !== "tool")
+  expect(safe).toBe(true)
+  // A user boundary is always preferred when one is in range: target at the later user turn → 4.
   expect(safeCutIndex(convo, 5)).toBe(4)
 })
 
@@ -36,4 +40,23 @@ test("renderTranscript captures roles, tool calls, and results", () => {
   expect(t).toContain("USER: first request")
   expect(t).toContain("called read")
   expect(t).toContain("TOOL read → file contents here")
+})
+
+test("collapseToolOutputs shrinks old large tool results but keeps the recent hot tail", () => {
+  const big = "x".repeat(5000)
+  const small = "y".repeat(100)
+  const msgs: Message[] = [
+    { role: "user", text: "start" },
+    { role: "tool", callId: "c1", name: "read", result: big }, // old + large → collapsed
+    { role: "tool", callId: "c2", name: "read", result: small }, // old + small → kept
+    ...Array.from({ length: 16 }, (_, i) => ({ role: "user", text: `m${i}` }) as Message),
+    { role: "tool", callId: "c3", name: "read", result: big }, // recent → kept verbatim
+  ]
+  const out = collapseToolOutputs(msgs)
+  expect((out[1] as any).result).toContain("omitted")
+  expect((out[2] as any).result).toBe(small) // small ones aren't worth collapsing
+  expect((out[out.length - 1] as any).result).toBe(big) // hot tail preserved
+  // Non-destructive + idempotent: input untouched; re-running changes nothing further.
+  expect((msgs[1] as any).result).toBe(big)
+  expect(collapseToolOutputs(out)).toBe(out)
 })

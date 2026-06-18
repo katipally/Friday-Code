@@ -1,5 +1,5 @@
-import fs from "node:fs"
 import { Database } from "bun:sqlite"
+import fs from "node:fs"
 import { fridayDir, sessionsDb } from "@friday/providers"
 import type { Message } from "@friday/shared"
 
@@ -95,7 +95,9 @@ export class SessionStore {
   }
 
   appendMessage(sessionId: string, seq: number, msg: Message): void {
-    this.db.query("INSERT INTO messages (session_id, seq, json) VALUES (?, ?, ?)").run(sessionId, seq, JSON.stringify(msg))
+    this.db
+      .query("INSERT INTO messages (session_id, seq, json) VALUES (?, ?, ?)")
+      .run(sessionId, seq, JSON.stringify(msg))
   }
 
   /** Drop messages at or after `seq` (used by undo/rewind). */

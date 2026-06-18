@@ -1,6 +1,6 @@
-import { test, expect } from "bun:test"
-import os from "node:os"
+import { expect, test } from "bun:test"
 import fs from "node:fs"
+import os from "node:os"
 import path from "node:path"
 import { runHooks } from "../src/hooks.ts"
 
@@ -8,7 +8,12 @@ const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "friday-hooks-"))
 const payload = { event: "PreToolUse" as const, session_id: "s1", cwd, tool_name: "bash" }
 
 test("a PreToolUse hook can block a tool via JSON decision", async () => {
-  const r = await runHooks("PreToolUse", { PreToolUse: [{ command: `echo '{"decision":"block","reason":"nope"}'` }] }, payload, "bash")
+  const r = await runHooks(
+    "PreToolUse",
+    { PreToolUse: [{ command: `echo '{"decision":"block","reason":"nope"}'` }] },
+    payload,
+    "bash",
+  )
   expect(r.block).toBe(true)
   expect(r.reason).toBe("nope")
 })

@@ -1,8 +1,9 @@
-import { createSignal, For, Show } from "solid-js"
-import { useKeyboard } from "@opentui/solid"
-import { theme, getMode } from "@friday/shared"
 import type { McpServerConfig } from "@friday/core"
+import { getMode, theme } from "@friday/shared"
+import { useKeyboard } from "@opentui/solid"
+import { createSignal, For, Show } from "solid-js"
 import { useApp } from "../store.tsx"
+import { G } from "../util/term.ts"
 import { Scrim } from "./Scrim.tsx"
 
 type View = "list" | "add"
@@ -16,6 +17,7 @@ export function McpModal() {
   const [error, setError] = createSignal("")
   let nameInput: any
   let valueInput: any
+  let tokenInput: any
 
   const config = () => app.mcpConfig()
   const connected = () => new Set(app.mcpServers())
@@ -32,8 +34,11 @@ export function McpModal() {
       setError("name and command/url are required")
       return
     }
+    const token = (tokenInput?.value ?? "").trim()
     const server: McpServerConfig =
-      kind() === "stdio" ? { type: "stdio", command: value.split(/\s+/) } : { type: "http", url: value }
+      kind() === "stdio"
+        ? { type: "stdio", command: value.split(/\s+/) }
+        : { type: "http", url: value, ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}) }
     setError("connecting…")
     const ok = await app.addMcpServer(name, server)
     if (ok) {
@@ -82,7 +87,7 @@ export function McpModal() {
                 {([name, cfg]) => (
                   <box flexDirection="row" gap={1}>
                     <text fg={connected().has(name) ? theme.success : theme.textFaint}>
-                      {connected().has(name) ? "⚡" : "○"}
+                      {connected().has(name) ? G.bolt : G.dotOff}
                     </text>
                     <box width={16}>
                       <text fg={theme.text}>{name}</text>
@@ -91,7 +96,12 @@ export function McpModal() {
                       {(cfg as any).type === "stdio" ? (cfg as any).command?.join(" ") : (cfg as any).url}
                     </text>
                     <box flexGrow={1} />
-                    <box onMouseDown={() => { app.removeMcpServer(name); refresh() }}>
+                    <box
+                      onMouseDown={() => {
+                        app.removeMcpServer(name)
+                        refresh()
+                      }}
+                    >
                       <text fg={theme.error}>✗</text>
                     </box>
                   </box>
@@ -99,7 +109,12 @@ export function McpModal() {
               </For>
             </Show>
             <box height={1} />
-            <box onMouseDown={() => { setError(""); setView("add") }}>
+            <box
+              onMouseDown={() => {
+                setError("")
+                setView("add")
+              }}
+            >
               <text fg={accent()}>+ add a server</text>
             </box>
           </box>
@@ -110,7 +125,9 @@ export function McpModal() {
           <box flexDirection="column" gap={1}>
             <box flexDirection="row" gap={2}>
               <box onMouseDown={() => setKind("stdio")}>
-                <text fg={kind() === "stdio" ? accent() : theme.textFaint}>{kind() === "stdio" ? "● " : "○ "}stdio</text>
+                <text fg={kind() === "stdio" ? accent() : theme.textFaint}>
+                  {kind() === "stdio" ? "● " : "○ "}stdio
+                </text>
               </box>
               <box onMouseDown={() => setKind("http")}>
                 <text fg={kind() === "http" ? accent() : theme.textFaint}>{kind() === "http" ? "● " : "○ "}http</text>
@@ -120,7 +137,12 @@ export function McpModal() {
             <box flexDirection="column">
               <text fg={theme.textFaint}>name</text>
               <box border borderStyle="rounded" borderColor={theme.border} paddingLeft={1} paddingRight={1}>
-                <input ref={(r: any) => (nameInput = r)} focused placeholder="my-server" placeholderColor={theme.textFaint} />
+                <input
+                  ref={(r: any) => (nameInput = r)}
+                  focused
+                  placeholder="my-server"
+                  placeholderColor={theme.textFaint}
+                />
               </box>
             </box>
             <box flexDirection="column">
@@ -134,14 +156,42 @@ export function McpModal() {
                 />
               </box>
             </box>
+            {/* Remote servers often need a bearer token / API key — sent as an Authorization header. */}
+            <Show when={kind() === "http"}>
+              <box flexDirection="column">
+                <text fg={theme.textFaint}>auth token (optional)</text>
+                <box border borderStyle="rounded" borderColor={theme.border} paddingLeft={1} paddingRight={1}>
+                  <input
+                    ref={(r: any) => (tokenInput = r)}
+                    onSubmit={add}
+                    placeholder="bearer token / api key"
+                    placeholderColor={theme.textFaint}
+                  />
+                </box>
+              </box>
+            </Show>
             <Show when={error()}>
               <text fg={error() === "connecting…" ? theme.textMuted : theme.error}>{error()}</text>
             </Show>
             <box flexDirection="row" gap={2}>
-              <box border borderStyle="rounded" borderColor={theme.success} paddingLeft={1} paddingRight={1} onMouseDown={add}>
+              <box
+                border
+                borderStyle="rounded"
+                borderColor={theme.success}
+                paddingLeft={1}
+                paddingRight={1}
+                onMouseDown={add}
+              >
                 <text fg={theme.success}>connect</text>
               </box>
-              <box border borderStyle="rounded" borderColor={theme.border} paddingLeft={1} paddingRight={1} onMouseDown={() => setView("list")}>
+              <box
+                border
+                borderStyle="rounded"
+                borderColor={theme.border}
+                paddingLeft={1}
+                paddingRight={1}
+                onMouseDown={() => setView("list")}
+              >
                 <text fg={theme.textMuted}>back esc</text>
               </box>
             </box>

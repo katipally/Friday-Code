@@ -1,9 +1,9 @@
 import type { Tool } from "@friday/tools"
 import { MCPClient } from "./client.ts"
-import { makeTransport, type McpServerConfig } from "./transport.ts"
+import { type McpServerConfig, makeTransport } from "./transport.ts"
 
-export * from "./transport.ts"
 export { MCPClient, type McpToolSpec } from "./client.ts"
+export * from "./transport.ts"
 
 export interface McpConnection {
   tools: Tool[]
@@ -49,5 +49,12 @@ export async function connectServers(servers: Record<string, McpServerConfig>): 
     }
   }
 
-  return { tools, servers: connected, close: () => clients.forEach((c) => c.close()) }
+  return {
+    tools,
+    servers: connected,
+    close: () =>
+      clients.forEach((c) => {
+        c.close()
+      }),
+  }
 }

@@ -1,6 +1,8 @@
 {
   "name": "@friday/tui",
-  "version": "0.0.0",
+  "version": "2.0.0",
+  "private": true,
+  "license": "MIT",
   "type": "module",
   "main": "src/index.tsx",
   "exports": {
@@ -9,8 +11,8 @@
   "dependencies": {
     "@friday/shared": "workspace:*",
     "@friday/core": "workspace:*",
-    "@opentui/core": "latest",
-    "@opentui/solid": "latest",
-    "solid-js": "latest"
+    "@opentui/core": "0.4.1",
+    "@opentui/solid": "0.4.1",
+    "solid-js": "1.9.13"
   }
 }

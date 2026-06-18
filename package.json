@@ -1,22 +1,43 @@
 {
-  "name": "friday-code",
-  "version": "0.0.0",
+  "name": "friday-code-workspace",
+  "version": "2.0.0",
   "private": true,
+  "description": "Monorepo workspace for Friday Code — a terminal AI coding agent. The published artifact is the `friday-code` package built from this workspace.",
+  "license": "MIT",
+  "author": "Yashwanth Reddy Katipally",
+  "homepage": "https://github.com/katipally/friday-code#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/katipally/friday-code.git"
+  },
+  "bugs": {
+    "url": "https://github.com/katipally/friday-code/issues"
+  },
   "type": "module",
   "workspaces": ["packages/*"],
+  "engines": {
+    "bun": ">=1.3.0"
+  },
+  "packageManager": "bun@1.3.11",
   "scripts": {
     "friday": "bun run packages/cli/src/index.tsx",
     "dev": "bun --watch run packages/cli/src/index.tsx",
     "test": "bun test",
-    "typecheck": "for p in shared providers tools mcp lsp core tui cli; do tsc --noEmit -p packages/$p/tsconfig.json || exit 1; done"
+    "typecheck": "for p in shared providers tools mcp lsp core tui cli; do tsc --noEmit -p packages/$p/tsconfig.json || exit 1; done",
+    "lint": "biome lint packages",
+    "format": "biome format --write packages",
+    "check": "biome check packages",
+    "ci": "biome ci packages && bun run typecheck && bun test",
+    "build": "bun run scripts/build.ts"
   },
   "dependencies": {
-    "@opentui/core": "latest",
-    "@opentui/solid": "latest",
-    "solid-js": "latest"
+    "@opentui/core": "0.4.1",
+    "@opentui/solid": "0.4.1",
+    "solid-js": "1.9.13"
   },
   "devDependencies": {
-    "@types/bun": "latest",
-    "typescript": "latest"
+    "@biomejs/biome": "2.5.0",
+    "@types/bun": "1.3.14",
+    "typescript": "6.0.3"
   }
 }

@@ -1,6 +1,6 @@
 import { createSignal } from "solid-js"
-import { motion } from "./config.ts"
 import { lighten } from "../util/colors.ts"
+import { motion } from "./config.ts"
 
 /**
  * One shared shimmer clock for the whole app. Every accent that pulses reads from this

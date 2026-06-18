@@ -8,24 +8,52 @@ function send(obj: unknown): void {
 }
 
 function handle(msg: any): void {
-  if (msg.method === "initialize") return send({ jsonrpc: "2.0", id: msg.id, result: { capabilities: { hoverProvider: true } } })
+  if (msg.method === "initialize") {
+    send({ jsonrpc: "2.0", id: msg.id, result: { capabilities: { hoverProvider: true } } })
+    return
+  }
   if (msg.method === "textDocument/didOpen") {
     const uri = msg.params.textDocument.uri
-    return send({
+    send({
       jsonrpc: "2.0",
       method: "textDocument/publishDiagnostics",
-      params: { uri, diagnostics: [{ range: { start: { line: 2, character: 4 }, end: { line: 2, character: 9 } }, severity: 1, message: "Type error: not assignable" }] },
+      params: {
+        uri,
+        diagnostics: [
+          {
+            range: { start: { line: 2, character: 4 }, end: { line: 2, character: 9 } },
+            severity: 1,
+            message: "Type error: not assignable",
+          },
+        ],
+      },
     })
+    return
   }
   if (msg.method === "textDocument/didChange") {
     const uri = msg.params.textDocument.uri
-    return send({ jsonrpc: "2.0", method: "textDocument/publishDiagnostics", params: { uri, diagnostics: [] } })
+    send({ jsonrpc: "2.0", method: "textDocument/publishDiagnostics", params: { uri, diagnostics: [] } })
+    return
   }
-  if (msg.method === "workspace/symbol")
-    return send({ jsonrpc: "2.0", id: msg.id, result: [{ name: "Widget", kind: 5, location: { uri: "file:///proj/widget.ts", range: { start: { line: 9, character: 0 } } } }] })
-  if (msg.method === "textDocument/hover")
-    return send({ jsonrpc: "2.0", id: msg.id, result: { contents: { kind: "plaintext", value: "const x: number" } } })
-  if (msg.id != null) return send({ jsonrpc: "2.0", id: msg.id, result: null })
+  if (msg.method === "workspace/symbol") {
+    send({
+      jsonrpc: "2.0",
+      id: msg.id,
+      result: [
+        {
+          name: "Widget",
+          kind: 5,
+          location: { uri: "file:///proj/widget.ts", range: { start: { line: 9, character: 0 } } },
+        },
+      ],
+    })
+    return
+  }
+  if (msg.method === "textDocument/hover") {
+    send({ jsonrpc: "2.0", id: msg.id, result: { contents: { kind: "plaintext", value: "const x: number" } } })
+    return
+  }
+  if (msg.id != null) send({ jsonrpc: "2.0", id: msg.id, result: null })
 }
 
 function drain(): void {

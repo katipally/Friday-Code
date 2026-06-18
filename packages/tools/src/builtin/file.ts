@@ -1,7 +1,8 @@
 import fs from "node:fs/promises"
 import path from "node:path"
-import { obj, type Tool, type ToolContext, type ToolResult } from "../tool.ts"
 import { diffStats, unifiedDiff } from "../diff.ts"
+import { obj, type Tool, type ToolContext, type ToolResult } from "../tool.ts"
+import { replaceInContent } from "./editStrategies.ts"
 
 function resolve(ctx: ToolContext, p: string): string {
   return path.isAbsolute(p) ? p : path.join(ctx.cwd, p)
@@ -82,23 +83,16 @@ export const writeTool: Tool = {
   },
 }
 
+/** Replace via the multi-strategy matcher: exact first, then whitespace/indent-tolerant fallbacks so
+ * a slightly-drifted old_string still applies instead of hard-failing. */
 function applyEdit(content: string, oldStr: string, newStr: string, replaceAll: boolean): string {
-  if (oldStr === "") return content + newStr
-  if (!content.includes(oldStr)) throw new Error("old_string not found")
-  if (!replaceAll) {
-    const first = content.indexOf(oldStr)
-    if (content.indexOf(oldStr, first + oldStr.length) !== -1) {
-      throw new Error("old_string is not unique; pass replace_all or add more context")
-    }
-    return content.slice(0, first) + newStr + content.slice(first + oldStr.length)
-  }
-  return content.split(oldStr).join(newStr)
+  return replaceInContent(content, oldStr, newStr, replaceAll)
 }
 
 export const editTool: Tool = {
   name: "edit",
   description:
-    "Replace an exact string in a file. old_string must match exactly and be unique unless replace_all is true.",
+    "Replace a string in a file. old_string should match exactly and be unique unless replace_all is true; minor whitespace/indentation drift is tolerated automatically.",
   permission: "edit",
   parameters: obj(
     {
@@ -122,7 +116,11 @@ export const editTool: Tool = {
     await fs.writeFile(full, next, "utf8")
     const diff = unifiedDiff(old, next)
     const { added, removed } = diffStats(diff)
-    return { output: `Edited ${rel(ctx, full)} (+${added} -${removed})`, title: `edit ${rel(ctx, full)} (+${added} -${removed})`, diff }
+    return {
+      output: `Edited ${rel(ctx, full)} (+${added} -${removed})`,
+      title: `edit ${rel(ctx, full)} (+${added} -${removed})`,
+      diff,
+    }
   },
 }
 
@@ -181,7 +179,7 @@ export const lsTool: Tool = {
     } catch (e: any) {
       return { output: `Error: ${e.message}`, isError: true }
     }
-    const dirs = entries.filter((e) => e.isDirectory()).map((e) => e.name + "/")
+    const dirs = entries.filter((e) => e.isDirectory()).map((e) => `${e.name}/`)
     const files = entries.filter((e) => !e.isDirectory()).map((e) => e.name)
     dirs.sort()
     files.sort()

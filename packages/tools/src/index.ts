@@ -1,24 +1,47 @@
 import type { ToolDef } from "@friday/shared"
-import { toToolDef, type Tool } from "./tool.ts"
-import { editTool, lsTool, multiEditTool, readTool, writeTool } from "./builtin/file.ts"
-import { globTool, grepTool } from "./builtin/search.ts"
-import { bashTool } from "./builtin/bash.ts"
-import { webfetchTool, websearchTool } from "./builtin/web.ts"
-import { askUserTool } from "./builtin/ask.ts"
 import { skillTool, taskTool, todoWriteTool } from "./builtin/agent.ts"
-import { lspHoverTool, lspDefinitionTool, lspSymbolsTool } from "./builtin/lsp.ts"
+import { askUserTool } from "./builtin/ask.ts"
+import { bashTool } from "./builtin/bash.ts"
+import { editTool, lsTool, multiEditTool, readTool, writeTool } from "./builtin/file.ts"
+import { lspDefinitionTool, lspHoverTool, lspSymbolsTool } from "./builtin/lsp.ts"
+import { memoryTool } from "./builtin/memory.ts"
+import { notebookEditTool } from "./builtin/notebook.ts"
+import { applyPatchTool } from "./builtin/patch.ts"
+import { exitPlanTool } from "./builtin/plan.ts"
+import { globTool, grepTool } from "./builtin/search.ts"
+import { TASK_BG_TOOL_LIST } from "./builtin/tasks.ts"
+import { toolSearchTool } from "./builtin/toolsearch.ts"
+import { webfetchTool, websearchTool } from "./builtin/web.ts"
+import { WORKTREE_TOOL_LIST } from "./builtin/worktree.ts"
+import { type Tool, toToolDef } from "./tool.ts"
 
-export * from "./tool.ts"
-export * from "./diff.ts"
-export { ASK_USER } from "./builtin/ask.ts"
 export { SKILL_TOOL, TASK_TOOL, TODO_WRITE } from "./builtin/agent.ts"
-export { LSP_HOVER, LSP_DEFINITION, LSP_SYMBOLS, LSP_TOOLS } from "./builtin/lsp.ts"
+export { ASK_USER } from "./builtin/ask.ts"
+export { LSP_DEFINITION, LSP_HOVER, LSP_SYMBOLS, LSP_TOOLS } from "./builtin/lsp.ts"
+export { MEMORY_TOOL } from "./builtin/memory.ts"
+export { EXIT_PLAN } from "./builtin/plan.ts"
+export {
+  CRON_CREATE,
+  CRON_DELETE,
+  CRON_LIST,
+  CRON_TOOLS,
+  TASK_BG_TOOLS,
+  TASK_CREATE,
+  TASK_LIST,
+  TASK_STATUS,
+  TASK_STOP,
+} from "./builtin/tasks.ts"
+export { searchTools, TOOL_SEARCH } from "./builtin/toolsearch.ts"
+export { ENTER_WORKTREE, EXIT_WORKTREE, WORKTREE_LIST, WORKTREE_TOOLS } from "./builtin/worktree.ts"
+export * from "./diff.ts"
+export * from "./tool.ts"
 
 export const BUILTIN_TOOLS: Tool[] = [
   readTool,
   writeTool,
   editTool,
   multiEditTool,
+  applyPatchTool,
   lsTool,
   globTool,
   grepTool,
@@ -29,9 +52,15 @@ export const BUILTIN_TOOLS: Tool[] = [
   skillTool,
   taskTool,
   todoWriteTool,
+  exitPlanTool,
   lspHoverTool,
   lspDefinitionTool,
   lspSymbolsTool,
+  toolSearchTool,
+  ...TASK_BG_TOOL_LIST,
+  ...WORKTREE_TOOL_LIST,
+  memoryTool,
+  notebookEditTool,
 ]
 
 export function buildRegistry(tools: Tool[] = BUILTIN_TOOLS): {

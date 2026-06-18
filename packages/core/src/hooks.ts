@@ -51,6 +51,9 @@ export interface HookOutcome {
   input?: unknown
 }
 
+/** Hooks run synchronously in the turn, so a hung command would block the whole turn. Cap each. */
+const HOOK_TIMEOUT_MS = 10_000
+
 function matches(spec: HookSpec, key?: string): boolean {
   if (!spec.matcher || spec.matcher === "*") return true
   if (key == null) return false
@@ -62,15 +65,44 @@ function matches(spec: HookSpec, key?: string): boolean {
 }
 
 /** Run all hooks registered for `event` (filtered by `matchKey`) and aggregate their outcome. */
-export async function runHooks(event: HookEvent, hooks: HooksConfig | undefined, payload: HookPayload, matchKey?: string): Promise<HookOutcome> {
+export async function runHooks(
+  event: HookEvent,
+  hooks: HooksConfig | undefined,
+  payload: HookPayload,
+  matchKey?: string,
+): Promise<HookOutcome> {
   const specs = (hooks?.[event] ?? []).filter((h) => matches(h, matchKey))
   const out: HookOutcome = { block: false, context: "" }
   for (const spec of specs) {
     try {
-      const proc = Bun.spawn(["sh", "-c", spec.command], { cwd: payload.cwd, stdin: "pipe", stdout: "pipe", stderr: "pipe" })
+      const proc = Bun.spawn(["sh", "-c", spec.command], {
+        cwd: payload.cwd,
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+      })
       proc.stdin.write(JSON.stringify(payload))
       proc.stdin.end()
-      const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited])
+      // Bound the hook so a hung command can't freeze the turn. On timeout, kill and skip it
+      // (non-blocking) rather than waiting forever.
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const timeout = new Promise<"timeout">((resolve) => {
+        timer = setTimeout(() => {
+          try {
+            proc.kill()
+          } catch {
+            /* already exited */
+          }
+          resolve("timeout")
+        }, HOOK_TIMEOUT_MS)
+      })
+      const race = await Promise.race([
+        Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]),
+        timeout,
+      ])
+      clearTimeout(timer)
+      if (race === "timeout") continue
+      const [stdout, stderr, code] = race
       let json: any
       try {
         json = stdout.trim() ? JSON.parse(stdout) : undefined

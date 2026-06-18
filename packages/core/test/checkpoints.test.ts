@@ -1,6 +1,6 @@
-import { test, expect } from "bun:test"
-import os from "node:os"
+import { expect, test } from "bun:test"
 import fs from "node:fs"
+import os from "node:os"
 import path from "node:path"
 import type { ProviderEvent } from "@friday/shared"
 import { Engine, SessionStore, type StreamFn } from "../src/index.ts"
@@ -34,9 +34,15 @@ test("undo rewinds files + conversation; redo re-applies", async () => {
     store,
     streamFn: scripted([
       toolTurn("w", "write", { path: "foo.txt", content: "v1" }), // turn A
-      [{ type: "text", delta: "made v1" }, { type: "done", stopReason: "stop" }],
+      [
+        { type: "text", delta: "made v1" },
+        { type: "done", stopReason: "stop" },
+      ],
       toolTurn("e", "edit", { path: "foo.txt", old_string: "v1", new_string: "v2" }), // turn B
-      [{ type: "text", delta: "made v2" }, { type: "done", stopReason: "stop" }],
+      [
+        { type: "text", delta: "made v2" },
+        { type: "done", stopReason: "stop" },
+      ],
     ]),
   })
   engine.send({ type: "set-mode", mode: "yolo" })
@@ -57,7 +63,9 @@ test("undo rewinds files + conversation; redo re-applies", async () => {
   // Rewind the second turn: file back to v1, conversation drops turn B.
   engine.restoreCheckpoint(cps[0]!.id)
   expect(fs.readFileSync(file, "utf8")).toBe("v1")
-  expect(store.loadMessages(engine.currentSessionId()).some((m) => m.role === "user" && m.text.includes("change foo"))).toBe(false)
+  expect(
+    store.loadMessages(engine.currentSessionId()).some((m) => m.role === "user" && m.text.includes("change foo")),
+  ).toBe(false)
   expect(engine.hasRedo()).toBe(true)
 
   // Redo: file back to v2.

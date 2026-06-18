@@ -1,6 +1,6 @@
-import { createMemo, createSignal, onMount } from "solid-js"
+import { getMode, theme } from "@friday/shared"
 import { useKeyboard } from "@opentui/solid"
-import { theme, getMode } from "@friday/shared"
+import { createMemo, createSignal, onMount } from "solid-js"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
 import { SelectList } from "./SelectList.tsx"
@@ -59,7 +59,14 @@ export function CommandPalette() {
         <box flexDirection="row" gap={1} alignItems="center">
           <text fg={accent()}>⌘</text>
           <box flexGrow={1} border borderStyle="rounded" borderColor={theme.border} paddingLeft={1} paddingRight={1}>
-            <textarea ref={(r: any) => (input = r)} focused minHeight={1} maxHeight={1} placeholder="run a command…" placeholderColor={theme.textFaint} />
+            <textarea
+              ref={(r: any) => (input = r)}
+              focused
+              minHeight={1}
+              maxHeight={1}
+              placeholder="run a command…"
+              placeholderColor={theme.textFaint}
+            />
           </box>
         </box>
         <box flexDirection="column" maxHeight={12}>

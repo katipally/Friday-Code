@@ -14,7 +14,11 @@ function parse(raw: string, fallbackName: string): Omit<Skill, "source"> {
   const m = raw.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/)
   if (!m) return { name: fallbackName, description: "", content: raw.trim() }
   const meta = m[1]!
-  const field = (k: string) => meta.match(new RegExp(`^${k}:\\s*(.+)$`, "m"))?.[1]?.trim().replace(/^["']|["']$/g, "")
+  const field = (k: string) =>
+    meta
+      .match(new RegExp(`^${k}:\\s*(.+)$`, "m"))?.[1]
+      ?.trim()
+      .replace(/^["']|["']$/g, "")
   return {
     name: field("name") || fallbackName,
     description: field("description") || "",

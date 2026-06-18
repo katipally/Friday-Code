@@ -1,7 +1,7 @@
-import { test, expect } from "bun:test"
+import { expect, test } from "bun:test"
 import path from "node:path"
+import { formatDiagnostics, LspManager, pathToUri } from "../src/manager.ts"
 import { LspConnection } from "../src/protocol.ts"
-import { LspManager, formatDiagnostics, pathToUri } from "../src/manager.ts"
 import { languageForFile } from "../src/servers.ts"
 
 const MOCK = path.join(import.meta.dir, "fixtures", "mock-lsp.ts")
@@ -15,7 +15,9 @@ test("LSP client framing: initialize, diagnostics notification, and requests rou
   conn.notify("initialized", {})
 
   const uri = "file:///proj/a.ts"
-  conn.notify("textDocument/didOpen", { textDocument: { uri, languageId: "typescript", version: 1, text: "const x: number = 'no'" } })
+  conn.notify("textDocument/didOpen", {
+    textDocument: { uri, languageId: "typescript", version: 1, text: "const x: number = 'no'" },
+  })
   const diags = await conn.waitForDiagnostics(uri, 1500)
   expect(diags.length).toBe(1)
   expect(diags[0]!.severity).toBe(1)

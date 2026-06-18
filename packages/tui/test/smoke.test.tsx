@@ -1,9 +1,9 @@
-import { test, expect } from "bun:test"
-import os from "node:os"
+import { expect, test } from "bun:test"
 import fs from "node:fs"
+import os from "node:os"
 import path from "node:path"
-import { testRender } from "@opentui/solid"
 import { Engine } from "@friday/core"
+import { testRender } from "@opentui/solid"
 import { App } from "../src/App.tsx"
 
 process.env.FRIDAY_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "friday-home-"))
@@ -31,13 +31,13 @@ test("App mounts, splash, then the shell; first-run shows onboarding", async () 
   await t.mockMouse.click(2, 2)
   await t.flush()
   const bare = t.captureCharFrame()
-  expect(bare).toContain("sessions")
   expect(bare).toContain("stats")
+  expect(bare).not.toContain("sessions")
 
   t.renderer.destroy()
 })
 
-test("Shift+Tab cycles modes, Ctrl+B toggles sessions panel, F1 overlay + mouse dismiss", async () => {
+test("Shift+Tab cycles modes, Ctrl+B toggles context panel, F1 overlay + mouse dismiss", async () => {
   const t = await testRender(() => <App engine={newEngine()} />, { width: 120, height: 36 })
   await t.renderOnce()
   t.mockInput.pressEnter()
@@ -51,12 +51,20 @@ test("Shift+Tab cycles modes, Ctrl+B toggles sessions panel, F1 overlay + mouse 
 
   t.mockInput.pressKey("b", { ctrl: true })
   await t.flush()
-  expect(t.captureCharFrame()).not.toContain("session")
+  expect(t.captureCharFrame()).not.toContain("stats")
 
   t.mockInput.pressKey("b", { ctrl: true })
   await t.flush()
 
   t.mockInput.pressKey("F1")
+  await t.flush()
+  expect(t.captureCharFrame()).toContain("keyboard")
+  await t.mockMouse.click(2, 2)
+  await t.flush()
+  expect(t.captureCharFrame()).not.toContain("esc or click to close")
+
+  // `?` opens the keymap too (composer is empty); dismiss via backdrop click.
+  t.mockInput.pressKey("?")
   await t.flush()
   expect(t.captureCharFrame()).toContain("keyboard")
   await t.mockMouse.click(2, 2)

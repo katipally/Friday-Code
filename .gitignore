@@ -1,10 +1,13 @@
 node_modules/
 .claude/
+.opencode/
 skills-lock.json
 dist/
 *.log
 .DS_Store
 *.db
 *.db-*
-.friday/cache/
+.env
+.env.*
+.friday/
 coverage/

@@ -1,7 +1,7 @@
-import { For, Show } from "solid-js"
 import { theme } from "@friday/shared"
-import { useApp } from "../store.tsx"
+import { For, Show } from "solid-js"
 import { Appear } from "../motion/index.ts"
+import { useApp } from "../store.tsx"
 
 /** Transient notifications, stacked at the bottom-right — e.g. a background session finished. */
 export function Toasts() {
@@ -13,7 +13,14 @@ export function Toasts() {
         <For each={app.toasts()}>
           {(t) => (
             <Appear distance={1} duration={160}>
-              <box border borderStyle="rounded" borderColor={color(t.kind)} backgroundColor={theme.bgElevated} paddingLeft={1} paddingRight={1}>
+              <box
+                border
+                borderStyle="rounded"
+                borderColor={color(t.kind)}
+                backgroundColor={theme.bgElevated}
+                paddingLeft={1}
+                paddingRight={1}
+              >
                 <text fg={color(t.kind)}>{t.text}</text>
               </box>
             </Appear>

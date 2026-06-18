@@ -10,7 +10,7 @@ export function unifiedDiff(oldText: string, newText: string): string {
 
   // Guard against pathologically large O(n*m) diffs.
   if (n * m > 4_000_000) {
-    return [`@@ file replaced (${n} → ${m} lines) @@`, ...b.slice(0, 200).map((l) => "+" + l)].join("\n")
+    return [`@@ file replaced (${n} → ${m} lines) @@`, ...b.slice(0, 200).map((l) => `+${l}`)].join("\n")
   }
 
   const dp: Int32Array[] = Array.from({ length: n + 1 }, () => new Int32Array(m + 1))
@@ -25,17 +25,17 @@ export function unifiedDiff(oldText: string, newText: string): string {
   let j = 0
   while (i < n && j < m) {
     if (a[i] === b[j]) {
-      raw.push(" " + a[i])
+      raw.push(` ${a[i]}`)
       i++
       j++
     } else if (dp[i + 1]![j]! >= dp[i]![j + 1]!) {
-      raw.push("-" + a[i++])
+      raw.push(`-${a[i++]}`)
     } else {
-      raw.push("+" + b[j++])
+      raw.push(`+${b[j++]}`)
     }
   }
-  while (i < n) raw.push("-" + a[i++])
-  while (j < m) raw.push("+" + b[j++])
+  while (i < n) raw.push(`-${a[i++]}`)
+  while (j < m) raw.push(`+${b[j++]}`)
 
   return collapseContext(raw, 3)
 }

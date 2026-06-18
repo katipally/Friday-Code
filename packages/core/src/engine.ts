@@ -1,27 +1,37 @@
+import fs from "node:fs"
+import path from "node:path"
+import { connectServers, type McpServerConfig } from "@friday/mcp"
+import {
+  BUILTIN_PROVIDERS,
+  fetchModels,
+  getProviderKey,
+  loadAuth,
+  setProviderKey,
+  streamProvider,
+  validateKey,
+} from "@friday/providers"
 import {
   DEFAULT_MODE,
+  type Effort,
   type EngineEvent,
   type EngineEventBody,
-  type Effort,
   type ModeId,
   type ModelInfo,
   type ProviderInfo,
   type UICommand,
 } from "@friday/shared"
-import { BUILTIN_PROVIDERS, fetchModels, getProviderKey, loadAuth, setProviderKey, streamProvider } from "@friday/providers"
 import { BUILTIN_TOOLS, buildRegistry, type Tool } from "@friday/tools"
-import { connectServers, type McpServerConfig } from "@friday/mcp"
+import { type CustomCommand, loadCommands } from "./commands.ts"
 import { loadConfig, saveConfig } from "./config.ts"
-import { SessionStore } from "./sessions.ts"
-import { loadCommands, type CustomCommand } from "./commands.ts"
-import { SessionRunner, type RunnerHost, type SessionStats } from "./runner.ts"
-import type { StreamFn } from "./stream.ts"
+import { type CronJob, loadCron, parseInterval, saveCron } from "./cron.ts"
 import { notify } from "./notify.ts"
-import fs from "node:fs"
-import path from "node:path"
+import { persistPermission, projectPermissions, revokeProjectPermissions } from "./permissions.ts"
+import { type RunnerHost, SessionRunner, type SessionStats } from "./runner.ts"
+import { SessionStore } from "./sessions.ts"
+import type { StreamFn } from "./stream.ts"
 
-export type { StreamFn } from "./stream.ts"
 export type { SessionStats } from "./runner.ts"
+export type { StreamFn } from "./stream.ts"
 
 const now = () => Date.now()
 
@@ -60,6 +70,8 @@ export class Engine {
   private modelCost?: { input: number; output: number }
 
   private runners = new Map<string, SessionRunner>()
+  /** sessionIds that are agent-spawned background tasks (vs user sessions), with their description. */
+  private taskMeta = new Map<string, { description: string; createdAt: number }>()
   private focusedId!: string
 
   private host: RunnerHost = {
@@ -80,6 +92,14 @@ export class Engine {
     emit: (sessionId, body) => this.dispatch(sessionId, body),
     hooks: () => loadConfig().hooks,
     bashPolicy: () => loadConfig().bash,
+    projectPermissions: (root) => projectPermissions(root),
+    persistPermission: (root, rule) => persistPermission(root, rule),
+    spawnTask: (prompt, description, worktree) => this.spawnTask(prompt, description, worktree),
+    taskList: () => this.taskList(),
+    stopTask: (id) => this.stopTask(id),
+    cronCreate: (description, prompt, every) => this.cronCreate(description, prompt, every),
+    cronList: () => this.cronList(),
+    cronDelete: (id) => this.cronDelete(id),
   }
 
   constructor(opts: EngineOptions) {
@@ -98,7 +118,11 @@ export class Engine {
     this.contextWindow = cfg.contextWindow ?? 0
     this.modelCost = cfg.cost
 
-    const resumed = opts.resumeId ? this.store.get(opts.resumeId) : opts.continueLast ? this.store.latest(this.cwd) : undefined
+    const resumed = opts.resumeId
+      ? this.store.get(opts.resumeId)
+      : opts.continueLast
+        ? this.store.latest(this.cwd)
+        : undefined
     const row = resumed ?? this.store.create([this.cwd], crypto.randomUUID(), now())
     const runner = this.makeRunner(row)
     this.focusedId = runner.sessionId
@@ -117,9 +141,90 @@ export class Engine {
       const r = this.runners.get(sessionId)
       const label = r?.currentTitle() ?? "a session"
       if (body.type === "turn-done") notify("Friday", `“${label}” finished`)
-      else if (body.type === "permission-request" || body.type === "ask-user") notify("Friday", `“${label}” needs your input`)
+      else if (body.type === "permission-request" || body.type === "ask-user")
+        notify("Friday", `“${label}” needs your input`)
     }
     this.emit({ ...body, sessionId } as EngineEvent)
+    // When a background task finishes (or errors), refresh the Tasks panel once `busy` has settled.
+    if (this.taskMeta.has(sessionId) && (body.type === "turn-done" || body.type === "error")) {
+      setTimeout(() => this.emitTasks(), 0)
+    }
+  }
+
+  // ---- background tasks (agent-spawned async sessions) ----
+  /** Spawn a detached background session that runs `prompt` to completion; returns its id. When
+   * `worktree` is set, the task first enters an isolated git worktree of that name (parallel writable
+   * work that won't collide with the main checkout or other tasks). */
+  spawnTask(prompt: string, description: string, worktree?: string): string {
+    const roots = this.focused().currentRoots()
+    const title = (description || "task").slice(0, 60)
+    const runner = this.makeRunner(this.store.create(roots, crypto.randomUUID(), now(), title))
+    this.taskMeta.set(runner.sessionId, { description, createdAt: now() })
+    void (async () => {
+      if (worktree) await runner.enterWorktree(worktree)
+      await runner.runPrompt(prompt)
+    })()
+    this.emitTasks()
+    return runner.sessionId
+  }
+  taskList(): { id: string; title: string; description: string; status: "running" | "done"; summary?: string }[] {
+    return [...this.taskMeta.entries()].map(([id, meta]) => {
+      const r = this.runners.get(id)
+      const msgs = r?.snapshotMessages() ?? []
+      const last = [...msgs].reverse().find((m) => m.role === "assistant" && "text" in m && m.text) as
+        | { text?: string }
+        | undefined
+      return {
+        id,
+        title: r?.currentTitle() ?? meta.description,
+        description: meta.description,
+        status: r?.busy ? ("running" as const) : ("done" as const),
+        summary: last?.text?.slice(0, 240),
+      }
+    })
+  }
+  stopTask(id: string): void {
+    this.runners.get(id)?.abortRun()
+    this.emitTasks()
+  }
+  private emitTasks(): void {
+    this.dispatch(this.focusedId, { type: "tasks", items: this.taskList() })
+  }
+
+  // ---- cron (recurring background tasks) ----
+  private cronTimer: ReturnType<typeof setInterval> | null = null
+  cronCreate(description: string, prompt: string, every: string): { ok: boolean; id?: string; error?: string } {
+    const everyMs = parseInterval(every)
+    if (everyMs == null) return { ok: false, error: `unrecognized interval "${every}" (use 30s/5m/2h/1d/hourly/daily)` }
+    const job: CronJob = { id: crypto.randomUUID().slice(0, 8), description, prompt, everyMs, nextRun: now() + everyMs }
+    saveCron([...loadCron(), job])
+    this.startScheduler()
+    return { ok: true, id: job.id }
+  }
+  cronList(): CronJob[] {
+    return loadCron()
+  }
+  cronDelete(id: string): void {
+    saveCron(loadCron().filter((j) => j.id !== id))
+  }
+  /** Start the in-process cron ticker (idempotent, unref'd so it never keeps the process alive). */
+  startScheduler(): void {
+    if (this.cronTimer) return
+    this.cronTimer = setInterval(() => this.cronTick(), 30_000)
+    this.cronTimer.unref?.()
+  }
+  private cronTick(): void {
+    const t = now()
+    const jobs = loadCron()
+    let changed = false
+    for (const job of jobs) {
+      if (job.nextRun <= t) {
+        this.spawnTask(job.prompt, `cron: ${job.description}`)
+        job.nextRun = t + job.everyMs
+        changed = true
+      }
+    }
+    if (changed) saveCron(jobs)
   }
   private makeRunner(row: { id: string; title: string; roots: string[] }): SessionRunner {
     const r = new SessionRunner(this.host, row, this.cwd)
@@ -146,6 +251,7 @@ export class Engine {
   async init(): Promise<void> {
     const cfg = loadConfig()
     for (const [name, server] of Object.entries(cfg.mcp ?? {})) await this.connectMcp(name, server)
+    if (loadCron().length) this.startScheduler() // resume schedules from a prior run
   }
   private async connectMcp(name: string, server: McpServerConfig): Promise<boolean> {
     try {
@@ -165,6 +271,22 @@ export class Engine {
   }
   mcpConfig(): Record<string, McpServerConfig> {
     return loadConfig().mcp ?? {}
+  }
+  /** Read the user config (for the UI: theme, budget, etc.). */
+  userConfig(): import("./config.ts").FridayConfig {
+    return loadConfig()
+  }
+  /** Persist a config patch (theme, budget, …). */
+  setUserConfig(patch: Partial<import("./config.ts").FridayConfig>): void {
+    saveConfig(patch)
+  }
+  /** "Always allow" rules remembered for the focused session's project (for the /permissions view). */
+  projectPermissions(): { bash?: string[]; categories?: string[] } {
+    return projectPermissions(this.currentRoots()[0] ?? this.cwd)
+  }
+  /** Forget all remembered "always allow" rules for the focused session's project. */
+  clearProjectPermissions(): void {
+    revokeProjectPermissions(this.currentRoots()[0] ?? this.cwd)
   }
   async addMcpServer(name: string, server: McpServerConfig): Promise<boolean> {
     saveConfig({ mcp: { ...(loadConfig().mcp ?? {}), [name]: server } })
@@ -225,7 +347,9 @@ export class Engine {
     this.store.delete(id)
   }
   listAllSessions(): { id: string; title: string; cwd: string; roots: string[]; updatedAt: number }[] {
-    return this.store.list().map((s) => ({ id: s.id, title: s.title, cwd: s.cwd, roots: s.roots, updatedAt: s.updatedAt }))
+    return this.store
+      .list()
+      .map((s) => ({ id: s.id, title: s.title, cwd: s.cwd, roots: s.roots, updatedAt: s.updatedAt }))
   }
   /** Session ids with a currently-running agent loop (for the RUNNING panel). */
   runningSessions(): string[] {
@@ -264,8 +388,8 @@ export class Engine {
   hasRedo(): boolean {
     return this.focused().hasRedo()
   }
-  restoreCheckpoint(id: string): void {
-    this.focused().restoreCheckpoint(id)
+  restoreCheckpoint(id: string, scope: "both" | "code" | "conversation" = "both"): void {
+    this.focused().restoreCheckpoint(id, scope)
   }
   redoLast(): void {
     this.focused().redoLast()
@@ -280,6 +404,31 @@ export class Engine {
       return
     }
     const runner = this.makeRunner(this.store.create(focused.currentRoots(), crypto.randomUUID(), now()))
+    this.focusedId = runner.sessionId
+    runner.emitState(true)
+  }
+  /** The user turns of the focused session — the points a fork can branch from. */
+  forkPoints(): { index: number; text: string }[] {
+    return this.focused().forkPoints()
+  }
+  /** Branch a new session from the focused conversation, copying messages up to and including
+   * the turn at `upto` (a message index). Omit `upto` to fork the whole conversation. Focuses it. */
+  forkSession(upto?: number): void {
+    const focused = this.focused()
+    const msgs = focused.snapshotMessages()
+    const cut = upto == null ? msgs.length : Math.max(0, Math.min(upto + 1, msgs.length))
+    const slice = msgs.slice(0, cut)
+    if (!slice.length) return
+    const row = this.store.create(
+      focused.currentRoots(),
+      crypto.randomUUID(),
+      now(),
+      `fork · ${focused.currentTitle()}`,
+    )
+    slice.forEach((m, i) => {
+      this.store.appendMessage(row.id, i, m)
+    })
+    const runner = this.makeRunner(row)
     this.focusedId = runner.sessionId
     runner.emitState(true)
   }
@@ -347,7 +496,13 @@ export class Engine {
     return out
   }
   selection(): { providerId?: string; model?: string; effort: Effort; mode: ModeId; reasoning: boolean } {
-    return { providerId: this.providerId, model: this.model, effort: this.effort, mode: this.mode, reasoning: this.modelReasoning }
+    return {
+      providerId: this.providerId,
+      model: this.model,
+      effort: this.effort,
+      mode: this.mode,
+      reasoning: this.modelReasoning,
+    }
   }
   private resolveProvider(): ProviderInfo {
     const found = this.listProviders().find((p) => p.id === this.providerId)
@@ -360,14 +515,60 @@ export class Engine {
   connectProvider(providerId: string, apiKey: string, baseURL?: string): void {
     setProviderKey(providerId, apiKey, baseURL)
   }
-  selectModel(providerId: string, model: string, reasoning = false, contextWindow?: number, cost?: { input: number; output: number }): void {
+  /** What credentials a provider already has — so the connect UI can offer to reuse or override. */
+  providerKeyInfo(id: string): { stored?: string; envVar?: string; baseURL?: string } {
+    const auth = loadAuth()
+    const p = this.listProviders().find((x) => x.id === id)
+    const envVar = (p?.envKeys ?? []).find((k) => !!process.env[k])
+    return { stored: auth.providers[id]?.apiKey, envVar, baseURL: auth.providers[id]?.baseURL }
+  }
+  /**
+   * Validate a provider key against its live endpoint, persisting it only on success. Pass an empty
+   * apiKey to validate the existing stored/env key (e.g. when the user keeps their current key).
+   * Returns `{ ok: true }` when models can be listed, or an error message for the UI to show.
+   */
+  async connectAndValidate(
+    providerId: string,
+    apiKey?: string,
+    baseURL?: string,
+  ): Promise<{ ok: boolean; error?: string }> {
+    const provider = this.listProviders().find((x) => x.id === providerId)
+    if (!provider) return { ok: false, error: "unknown provider" }
+    const storedBase = loadAuth().providers[providerId]?.baseURL
+    const effBase = baseURL || storedBase || provider.baseURL
+    const probe = { ...provider, baseURL: effBase }
+    const typed = apiKey?.trim()
+    const key = typed || getProviderKey(providerId)
+    if (!key && !provider.keyless) return { ok: false, error: "enter an API key to connect" }
+    const v = await validateKey(probe, key)
+    if (!v.ok) return v
+    // Persist only after a successful probe so a bad key never overwrites a working one.
+    const baseOverride = baseURL && baseURL !== provider.baseURL ? baseURL : undefined
+    if (typed) setProviderKey(providerId, typed, baseOverride)
+    else if (baseOverride && getProviderKey(providerId))
+      setProviderKey(providerId, getProviderKey(providerId)!, baseOverride)
+    return { ok: true }
+  }
+  selectModel(
+    providerId: string,
+    model: string,
+    reasoning = false,
+    contextWindow?: number,
+    cost?: { input: number; output: number },
+  ): void {
     this.providerId = providerId
     this.model = model
     this.modelReasoning = reasoning
     if (contextWindow && contextWindow > 0) this.contextWindow = contextWindow
     this.modelCost = cost ?? this.modelCost
     saveConfig({ providerId, model, reasoning, contextWindow: this.contextWindow || undefined, cost: this.modelCost })
-    this.dispatch(this.focusedId, { type: "model-changed", model, provider: providerId, reasoning, contextWindow: this.contextWindow })
+    this.dispatch(this.focusedId, {
+      type: "model-changed",
+      model,
+      provider: providerId,
+      reasoning,
+      contextWindow: this.contextWindow,
+    })
   }
   setMode(m: ModeId): void {
     this.mode = m
@@ -394,6 +595,12 @@ export class Engine {
         break
       case "run-command":
         this.runEngineCommand(cmd.command)
+        break
+      case "stop-compaction":
+        this.focused().stopCompaction()
+        break
+      case "undo-compaction":
+        this.focused().undoCompaction()
         break
       case "permission-reply":
         for (const r of this.runners.values()) if (r.handlePermissionReply(cmd.requestId, cmd.decision)) break

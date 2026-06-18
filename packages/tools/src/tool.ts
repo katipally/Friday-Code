@@ -22,6 +22,9 @@ export interface Tool {
   description: string
   parameters: Record<string, unknown>
   permission: PermissionCategory
+  /** Long-tail tool: its schema is NOT advertised every turn. The model discovers it via `tool_search`,
+   * which activates it for the rest of the session. Keeps the always-on tool list lean as tools grow. */
+  deferred?: boolean
   execute(input: any, ctx: ToolContext): Promise<ToolResult>
 }
 
@@ -30,9 +33,6 @@ export function toToolDef(t: Tool): ToolDef {
 }
 
 /** JSON-Schema object helper. */
-export function obj(
-  properties: Record<string, unknown>,
-  required: string[] = [],
-): Record<string, unknown> {
+export function obj(properties: Record<string, unknown>, required: string[] = []): Record<string, unknown> {
   return { type: "object", properties, required, additionalProperties: false }
 }

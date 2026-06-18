@@ -1,6 +1,6 @@
 import fs from "node:fs"
-import { configPath, fridayDir } from "@friday/providers"
 import type { McpServerConfig } from "@friday/mcp"
+import { configPath, fridayDir } from "@friday/providers"
 import type { Effort, ModeId } from "@friday/shared"
 import type { HooksConfig } from "./hooks.ts"
 
@@ -20,6 +20,10 @@ export interface FridayConfig {
   hooks?: HooksConfig
   /** bash command allow/deny lists (prefix or `*` glob) */
   bash?: { allow?: string[]; deny?: string[] }
+  /** named UI theme (see @friday/shared THEMES); applied at startup */
+  theme?: string
+  /** optional per-session budget; the context panel warns when usage exceeds it */
+  budget?: { tokens?: number; usd?: number }
 }
 
 export function loadConfig(): FridayConfig {

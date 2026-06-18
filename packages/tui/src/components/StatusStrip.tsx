@@ -1,22 +1,33 @@
-import { createEffect, createSignal, onCleanup, Show, untrack } from "solid-js"
-import { theme, getMode } from "@friday/shared"
+import { getMode, MASCOT, type MascotState, theme } from "@friday/shared"
+import { createEffect, createSignal, onCleanup, Show } from "solid-js"
+import { useBreathe } from "../motion/index.ts"
 import { useApp } from "../store.tsx"
 import { useMascotFrame } from "../util/useMascot.ts"
-import { useBreathe } from "../motion/index.ts"
-
-function fmtTokens(n: number): string {
-  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
-}
+import { Pressable } from "./Pressable.tsx"
 
 /**
- * Strip directly above the composer: the animated mascot + live status on the left,
- * a live elapsed/token meter in the middle, and the active model pinned to the far right.
+ * Strip directly above the composer: the animated mascot + live status on the left, an elapsed
+ * timer and a Stop control in the middle, and the active model pinned to the far right.
+ * (Token usage + cost live in the context side panel, not here.)
  */
 export function StatusStrip() {
   const app = useApp()
-  const accent = () => getMode(app.mode()).accent
-  const frame = useMascotFrame(app.mascot)
-  const glow = useBreathe(accent, app.busy)
+  // Effective mascot state: a pending permission/question makes Friday "wait" regardless of the
+  // engine's last mascot event, so the face reads the moment-to-moment situation.
+  const mstate = (): MascotState => (app.pending() || app.askPending() ? "waiting" : app.mascot())
+  // Mood tint: error→red, done→green, waiting→amber, otherwise the current mode's accent.
+  const moodAccent = () => {
+    const s = mstate()
+    if (s === "error") return theme.error
+    if (s === "done") return theme.success
+    if (s === "waiting") return theme.warning
+    return getMode(app.mode()).accent
+  }
+  const frame = useMascotFrame(mstate)
+  const glow = useBreathe(moodAccent, () => app.busy() || mstate() === "waiting")
+  // Always-on personality line — shown when idle/done/waiting/error; the factual engine status
+  // takes over while busy (so tool names etc. stay visible).
+  const mascotLine = () => MASCOT[mstate()].line ?? "ready"
 
   // Tick a clock while busy so the elapsed timer + tokens/sec update live. We `untrack`
   // tokens inside the effect so it depends ONLY on busy — otherwise the effect re-ran on
@@ -24,7 +35,6 @@ export function StatusStrip() {
   const [tick, setTick] = createSignal(0)
   const [frozen, setFrozen] = createSignal<number | null>(null)
   let startedAt = 0
-  let tokensAtStart = 0
   createEffect(() => {
     if (!app.busy()) {
       // Capture the final elapsed once when the turn settles, so a stopped/done run shows a
@@ -36,49 +46,53 @@ export function StatusStrip() {
       return
     }
     startedAt = Date.now()
-    tokensAtStart = untrack(() => app.tokens())
     setFrozen(null)
     const iv = setInterval(() => setTick((t) => t + 1), 250)
     onCleanup(() => clearInterval(iv))
   })
-  const elapsedS = () => (app.busy() ? (tick(), (Date.now() - startedAt) / 1000) : 0)
-  const rate = () => {
-    const s = elapsedS()
-    return s > 0.5 ? Math.round((app.tokens() - tokensAtStart) / s) : 0
+  const elapsedS = () => {
+    if (!app.busy()) return 0
+    tick() // subscribe to the ticker so elapsed time re-computes each interval
+    return (Date.now() - startedAt) / 1000
   }
   const stopped = () => !app.busy() && app.status() === "stopped" && frozen() != null
 
   return (
     <box flexDirection="row" height={1} paddingLeft={1} paddingRight={1} gap={1} alignItems="center">
       <text fg={glow()}>{frame()}</text>
-      <Show when={stopped()} fallback={<text fg={app.busy() ? theme.text : theme.textMuted}>{app.status()}</text>}>
-        <text fg={theme.textFaint}>⏹ stopped</text>
+      <Show
+        when={stopped()}
+        fallback={
+          <text fg={app.busy() ? theme.text : theme.textMuted}>{app.busy() ? app.status() : mascotLine()}</text>
+        }
+      >
+        <text fg={theme.textFaint}>stopped</text>
       </Show>
+      {/* elapsed — plain text (no emoji glyph, which renders double-width and overlaps the digits). */}
       <Show when={app.busy() && elapsedS() > 0}>
-        <text fg={theme.textFaint}>⏱{elapsedS().toFixed(1)}s</text>
+        <text fg={theme.textFaint}>{elapsedS().toFixed(1)}s</text>
       </Show>
       <Show when={stopped()}>
-        <text fg={theme.textFaint}>⏱{frozen()!.toFixed(1)}s</text>
+        <text fg={theme.textFaint}>{frozen()!.toFixed(1)}s</text>
       </Show>
-      <Show when={app.tokens() > 0}>
-        <text fg={theme.textFaint}>· {fmtTokens(app.tokens())} tok</text>
-      </Show>
-      <Show when={app.busy() && rate() > 0}>
-        <text fg={theme.textFaint}>· {rate()}/s</text>
-      </Show>
-      <Show when={app.cost() > 0}>
-        <text fg={theme.textFaint}>· ${app.cost() < 0.01 ? app.cost().toFixed(4) : app.cost().toFixed(2)}</text>
-      </Show>
+      {/* A clickable Stop button — a reliable way to abort when a fast stream makes the keyboard
+          feel unresponsive. Clicking aborts immediately; Esc still works as the keyboard path. */}
       <Show when={app.busy()}>
-        <Show when={app.stopArmed()} fallback={<text fg={theme.textFaint}>· esc to stop</text>}>
-          <text fg={theme.warning}>· ⚠ press esc again to stop</text>
-        </Show>
+        <box
+          onMouseDown={() => app.abort()}
+          backgroundColor={app.stopArmed() ? theme.warning : theme.bgElevated}
+          paddingLeft={1}
+          paddingRight={1}
+        >
+          <text fg={app.stopArmed() ? theme.bg : theme.error}>■ stop{app.stopArmed() ? " · esc again" : " · esc"}</text>
+        </box>
       </Show>
       <box flexGrow={1} />
-      <box flexDirection="row" gap={1} alignItems="center" onMouseDown={() => app.setModelModalOpen(true)}>
-        <text fg={theme.textMuted}>{app.model()}</text>
+      {/* Cost + token usage live in the side panel (stats); the rail stays a calm status line. */}
+      <box flexDirection="row" alignItems="center">
+        <Pressable label={app.model()} fg={theme.textMuted} onClick={() => app.setModelModalOpen(true)} />
         <Show when={app.reasoningModel()}>
-          <text fg={theme.textFaint}>◇ {app.effort()}</text>
+          <Pressable label={`◇ ${app.effort()}`} onClick={() => app.setEffortOpen(true)} />
         </Show>
       </box>
     </box>

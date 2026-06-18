@@ -25,9 +25,15 @@ export function matchesList(command: string, patterns?: string[]): boolean {
   for (const p of patterns) {
     if (p === "*") return true
     if (p.includes("*")) {
-      const re = new RegExp("^" + p.split("*").map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*"))
+      const re = new RegExp(
+        "^" +
+          p
+            .split("*")
+            .map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+            .join(".*"),
+      )
       if (re.test(cmd)) return true
-    } else if (cmd === p || cmd.startsWith(p + " ") || cmd.startsWith(p)) {
+    } else if (cmd === p || cmd.startsWith(`${p} `) || cmd.startsWith(p)) {
       return true
     }
   }

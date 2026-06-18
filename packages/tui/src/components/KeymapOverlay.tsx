@@ -1,5 +1,5 @@
+import { getMode, MODES, theme } from "@friday/shared"
 import { For } from "solid-js"
-import { theme, getMode, MODES } from "@friday/shared"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
 
@@ -7,13 +7,13 @@ const KEYS: { keys: string; label: string }[] = [
   { keys: "Enter", label: "send message" },
   { keys: "Shift+Enter", label: "new line in composer" },
   { keys: "Shift+Tab", label: "cycle mode (plan → default → accept → yolo)" },
-  { keys: "Ctrl+B", label: "toggle sessions panel" },
-  { keys: "Ctrl+G", label: "toggle context panel" },
+  { keys: "Ctrl+B", label: "toggle context panel" },
   { keys: "Ctrl+K", label: "command palette" },
+  { keys: "/effort", label: "reasoning-effort slider (←/→ · click · enter)" },
   { keys: "Ctrl+Y", label: "session history (all directories)" },
   { keys: "Ctrl+1-9", label: "switch working session" },
   { keys: "/ · @", label: "slash command · file mention" },
-  { keys: "F1 / Ctrl+/", label: "this keymap (or click ? keys)" },
+  { keys: "? · F1", label: "this keymap (or click ? keys)" },
   { keys: "Esc", label: "close overlay / cancel" },
   { keys: "Ctrl+C", label: "quit" },
 ]

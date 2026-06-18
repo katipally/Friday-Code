@@ -1,7 +1,7 @@
-import { onCleanup, onMount, Show } from "solid-js"
-import { useKeyboard, useRenderer } from "@opentui/solid"
-import { theme, getMode, MASCOT } from "@friday/shared"
 import type { SessionStats } from "@friday/core"
+import { getMode, MASCOT, theme } from "@friday/shared"
+import { useKeyboard, useRenderer } from "@opentui/solid"
+import { onCleanup, onMount, Show } from "solid-js"
 import { useApp } from "../store.tsx"
 import { Logo } from "./Logo.tsx"
 

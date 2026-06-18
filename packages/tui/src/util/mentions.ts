@@ -63,7 +63,7 @@ export function parseMentions(text: string, roots: string[]): Chip[] {
   const bare = /(?:^|\s)(~?\/[^\s@]+)/g
   while ((m = bare.exec(text))) {
     const rel = m[1]!
-    if (seen.has(rel) || seen.has("@" + rel)) continue
+    if (seen.has(rel) || seen.has(`@${rel}`)) continue
     if (resolve(rel, roots)) push(rel) // only existing paths become chips
   }
   return out

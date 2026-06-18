@@ -1,9 +1,9 @@
-import { test, expect, afterEach } from "bun:test"
+import { afterEach, expect, test } from "bun:test"
 import type { ProviderEvent } from "@friday/shared"
-import { streamOpenAI } from "../src/openai.ts"
-import { streamOpenAIResponses } from "../src/openai-responses.ts"
 import { streamAnthropic } from "../src/anthropic.ts"
 import { streamGoogle } from "../src/google.ts"
+import { streamOpenAI } from "../src/openai.ts"
+import { streamOpenAIResponses } from "../src/openai-responses.ts"
 
 const realFetch = globalThis.fetch
 afterEach(() => {
@@ -34,11 +34,17 @@ test("openai SSE normalization: text + tool call + usage", async () => {
     ].join("\n\n"),
   )
   const events = await drain(streamOpenAI({ baseURL: "https://x", req, signal: new AbortController().signal }))
-  const text = events.filter((e) => e.type === "text").map((e: any) => e.delta).join("")
+  const text = events
+    .filter((e) => e.type === "text")
+    .map((e: any) => e.delta)
+    .join("")
   expect(text).toBe("Hello")
   const start = events.find((e) => e.type === "tool_start") as any
   expect(start.name).toBe("read")
-  const args = events.filter((e) => e.type === "tool_delta").map((e: any) => e.argsDelta).join("")
+  const args = events
+    .filter((e) => e.type === "tool_delta")
+    .map((e: any) => e.argsDelta)
+    .join("")
   expect(args).toBe('{"path":"a.txt"}')
   const usage = events.find((e) => e.type === "usage") as any
   expect(usage.input).toBe(5)
@@ -58,12 +64,27 @@ test("openai Responses SSE normalization: text + reasoning + function call + usa
     ].join("\n\n"),
   )
   const events = await drain(streamOpenAIResponses({ baseURL: "https://x", req, signal: new AbortController().signal }))
-  expect(events.filter((e) => e.type === "text").map((e: any) => e.delta).join("")).toBe("Hello")
-  expect(events.filter((e) => e.type === "reasoning").map((e: any) => e.delta).join("")).toBe("thinking…")
+  expect(
+    events
+      .filter((e) => e.type === "text")
+      .map((e: any) => e.delta)
+      .join(""),
+  ).toBe("Hello")
+  expect(
+    events
+      .filter((e) => e.type === "reasoning")
+      .map((e: any) => e.delta)
+      .join(""),
+  ).toBe("thinking…")
   const start = events.find((e) => e.type === "tool_start") as any
   expect(start.name).toBe("read")
   expect(start.id).toBe("call_1")
-  expect(events.filter((e) => e.type === "tool_delta").map((e: any) => e.argsDelta).join("")).toBe('{"path":"a"}')
+  expect(
+    events
+      .filter((e) => e.type === "tool_delta")
+      .map((e: any) => e.argsDelta)
+      .join(""),
+  ).toBe('{"path":"a"}')
   expect(events.some((e) => e.type === "usage")).toBe(true)
   expect(events.some((e) => e.type === "done")).toBe(true)
 })
@@ -81,12 +102,18 @@ test("anthropic SSE normalization: text + tool_use + usage", async () => {
     ].join("\n\n"),
   )
   const events = await drain(streamAnthropic({ baseURL: "https://x", req, signal: new AbortController().signal }))
-  const text = events.filter((e) => e.type === "text").map((e: any) => e.delta).join("")
+  const text = events
+    .filter((e) => e.type === "text")
+    .map((e: any) => e.delta)
+    .join("")
   expect(text).toBe("Hi")
   const start = events.find((e) => e.type === "tool_start") as any
   expect(start.name).toBe("read")
   expect(start.id).toBe("tu_1")
-  const args = events.filter((e) => e.type === "tool_delta").map((e: any) => e.argsDelta).join("")
+  const args = events
+    .filter((e) => e.type === "tool_delta")
+    .map((e: any) => e.argsDelta)
+    .join("")
   expect(args).toBe('{"path":"a"}')
   expect(events.some((e) => e.type === "usage")).toBe(true)
   expect(events.some((e) => e.type === "done")).toBe(true)
@@ -98,7 +125,9 @@ test("anthropic enables extended thinking when an effort is set", async () => {
     body = JSON.parse(init.body)
     return new Response(`data: {"type":"message_stop"}`, { status: 200 })
   }) as any
-  await drain(streamAnthropic({ baseURL: "https://x", req: { ...req, effort: "high" }, signal: new AbortController().signal }))
+  await drain(
+    streamAnthropic({ baseURL: "https://x", req: { ...req, effort: "high" }, signal: new AbortController().signal }),
+  )
   expect(body.thinking).toEqual({ type: "enabled", budget_tokens: 8192 })
   expect(body.max_tokens).toBeGreaterThan(8192)
 })
@@ -114,7 +143,12 @@ test("anthropic emits reasoning + signature from a thinking block, and replays t
     ].join("\n\n"),
   )
   const events = await drain(streamAnthropic({ baseURL: "https://x", req, signal: new AbortController().signal }))
-  expect(events.filter((e) => e.type === "reasoning").map((e: any) => e.delta).join("")).toBe("pondering")
+  expect(
+    events
+      .filter((e) => e.type === "reasoning")
+      .map((e: any) => e.delta)
+      .join(""),
+  ).toBe("pondering")
   expect((events.find((e) => e.type === "reasoning_signature") as any).signature).toBe("sig-abc")
 
   // replay
@@ -155,8 +189,18 @@ test("google sends thinkingConfig and parses thought parts as reasoning", async 
     streamGoogle({ baseURL: "https://x", req: { ...req, effort: "medium" }, signal: new AbortController().signal }),
   )
   expect(body.generationConfig.thinkingConfig.includeThoughts).toBe(true)
-  expect(events.filter((e) => e.type === "reasoning").map((e: any) => e.delta).join("")).toBe("pondering")
-  expect(events.filter((e) => e.type === "text").map((e: any) => e.delta).join("")).toBe("Answer")
+  expect(
+    events
+      .filter((e) => e.type === "reasoning")
+      .map((e: any) => e.delta)
+      .join(""),
+  ).toBe("pondering")
+  expect(
+    events
+      .filter((e) => e.type === "text")
+      .map((e: any) => e.delta)
+      .join(""),
+  ).toBe("Answer")
 })
 
 test("google SSE normalization: text + functionCall + usage", async () => {
@@ -167,11 +211,17 @@ test("google SSE normalization: text + functionCall + usage", async () => {
     ].join("\n\n"),
   )
   const events = await drain(streamGoogle({ baseURL: "https://x", req, signal: new AbortController().signal }))
-  const text = events.filter((e) => e.type === "text").map((e: any) => e.delta).join("")
+  const text = events
+    .filter((e) => e.type === "text")
+    .map((e: any) => e.delta)
+    .join("")
   expect(text).toBe("Hi")
   const start = events.find((e) => e.type === "tool_start") as any
   expect(start.name).toBe("read")
-  const args = events.filter((e) => e.type === "tool_delta").map((e: any) => e.argsDelta).join("")
+  const args = events
+    .filter((e) => e.type === "tool_delta")
+    .map((e: any) => e.argsDelta)
+    .join("")
   expect(args).toBe('{"path":"a"}')
   expect(events.some((e) => e.type === "usage")).toBe(true)
   expect(events.some((e) => e.type === "done")).toBe(true)

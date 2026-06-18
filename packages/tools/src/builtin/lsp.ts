@@ -27,7 +27,8 @@ export const lspHoverTool: Tool = {
 
 export const lspDefinitionTool: Tool = {
   name: LSP_DEFINITION,
-  description: "Jump to the definition of the symbol at a position via the language server. Line and character are 1-based.",
+  description:
+    "Jump to the definition of the symbol at a position via the language server. Line and character are 1-based.",
   permission: "read",
   parameters: obj(
     {

@@ -27,10 +27,7 @@ export const bashTool: Tool = {
     let stdout = ""
     let stderr = ""
     try {
-      ;[stdout, stderr] = await Promise.all([
-        new Response(proc.stdout).text(),
-        new Response(proc.stderr).text(),
-      ])
+      ;[stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()])
       await proc.exited
     } catch (e: any) {
       return { output: `Error: ${e.message}`, isError: true, title: `bash` }
@@ -40,8 +37,8 @@ export const bashTool: Tool = {
 
     const code = proc.exitCode ?? 0
     let combined = [stdout, stderr].filter(Boolean).join("\n").trim()
-    if (combined.length > MAX_OUTPUT) combined = combined.slice(0, MAX_OUTPUT) + "\n… (truncated)"
-    const head = input.command.length > 40 ? input.command.slice(0, 40) + "…" : input.command
+    if (combined.length > MAX_OUTPUT) combined = `${combined.slice(0, MAX_OUTPUT)}\n… (truncated)`
+    const head = input.command.length > 40 ? `${input.command.slice(0, 40)}…` : input.command
     return {
       output: combined || `(no output, exit ${code})`,
       isError: code !== 0,

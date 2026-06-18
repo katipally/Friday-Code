@@ -1,9 +1,9 @@
-import { For } from "solid-js"
 import { getMode } from "@friday/shared"
-import { useApp } from "../store.tsx"
-import { lighten } from "../util/colors.ts"
+import { For } from "solid-js"
 import { motion } from "../motion/config.ts"
 import { shimmerPhase } from "../motion/index.ts"
+import { useApp } from "../store.tsx"
+import { lighten } from "../util/colors.ts"
 
 /**
  * The `friday` wordmark, hand-built from half-block subpixels (▀ ▄ █) like opencode's logo.
@@ -25,7 +25,11 @@ const GLYPHS: Record<string, string[]> = {
 
 const WORD = "FRIDAY"
 // Three full-width rows; letters joined by a single-column gap.
-const ROWS: string[] = [0, 1, 2].map((r) => WORD.split("").map((c) => GLYPHS[c]![r]!).join(" "))
+const ROWS: string[] = [0, 1, 2].map((r) =>
+  WORD.split("")
+    .map((c) => GLYPHS[c]![r]!)
+    .join(" "),
+)
 const WIDTH = ROWS[0]!.length
 
 // Sweep tuning (lively): a soft gaussian highlight travels across the mark each cycle.

@@ -1,6 +1,6 @@
-import { test, expect, afterEach } from "bun:test"
-import os from "node:os"
+import { afterEach, expect, test } from "bun:test"
 import fs from "node:fs"
+import os from "node:os"
 import path from "node:path"
 import type { ProviderInfo } from "@friday/shared"
 import { fetchModels } from "../src/models.ts"
@@ -35,7 +35,12 @@ test("openai-compat live models: filtered to chat, reasoning inferred, live flag
 
 test("anthropic live models map display_name", async () => {
   stub(() => ({ data: [{ id: "claude-test-1", display_name: "Claude Test One" }] }))
-  const provider: ProviderInfo = { id: "anthropic", name: "Anthropic", protocol: "anthropic", baseURL: "https://api.anthropic.com/v1" }
+  const provider: ProviderInfo = {
+    id: "anthropic",
+    name: "Anthropic",
+    protocol: "anthropic",
+    baseURL: "https://api.anthropic.com/v1",
+  }
   const models = await fetchModels(provider, "sk-ant")
   expect(models[0]?.id).toBe("claude-test-1")
   expect(models[0]?.name).toBe("Claude Test One")
@@ -45,7 +50,13 @@ test("falls back to the offline snapshot when the live endpoint fails", async ()
   globalThis.fetch = (async () => {
     throw new Error("offline")
   }) as any
-  const provider: ProviderInfo = { id: "ollama", name: "Ollama", protocol: "openai", baseURL: "http://localhost:11434/v1", keyless: true }
+  const provider: ProviderInfo = {
+    id: "ollama",
+    name: "Ollama",
+    protocol: "openai",
+    baseURL: "http://localhost:11434/v1",
+    keyless: true,
+  }
   const models = await fetchModels(provider)
   expect(models.map((m) => m.id)).toContain("qwen2.5-coder:7b")
 })

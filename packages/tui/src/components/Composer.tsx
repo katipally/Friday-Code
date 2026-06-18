@@ -1,17 +1,22 @@
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
+import { getMode, theme } from "@friday/shared"
+import { decodePasteBytes } from "@opentui/core"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
-import { theme, getMode } from "@friday/shared"
-import { useApp } from "../store.tsx"
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 import { shimmerAccent } from "../motion/index.ts"
+import { useApp } from "../store.tsx"
+import { expandTokens, isBigPaste, makePasteToken } from "../util/attachments.ts"
 import { listProjectFiles } from "../util/files.ts"
-import { parseMentions, chipIcon } from "../util/mentions.ts"
+import { modeGlyph } from "../util/term.ts"
 
-type Suggestion = { label: string; hint: string; apply: () => void }
+type Suggestion = { label: string; hint: string; apply: () => void; run?: () => void }
 
-const MAX_SUGGESTIONS = 6
+// Keep enough matches that every command is reachable; the dropdown scrolls to reveal them all
+// instead of cycling within a handful.
+const MAX_SUGGESTIONS = 50
+const VISIBLE_SUGGESTIONS = 8
 
 function truncate(s: string, n: number): string {
-  return s.length > n ? s.slice(0, n - 1) + "…" : s
+  return s.length > n ? `${s.slice(0, n - 1)}…` : s
 }
 
 /**
@@ -24,18 +29,9 @@ export function Composer() {
   const dims = useTerminalDimensions()
   const mode = () => getMode(app.mode())
   const accentS = () => shimmerAccent(mode().accent)
-  const focused = () =>
-    app.view() === "shell" &&
-    !app.overlayOpen() &&
-    !app.onboardingOpen() &&
-    !app.modelModalOpen() &&
-    !app.paletteOpen() &&
-    !app.historyOpen() &&
-    !app.dirModalOpen() &&
-    !app.mcpModalOpen() &&
-    !app.checkpointsOpen() &&
-    !app.pending() &&
-    !app.askPending()
+  // Blur whenever ANY modal/overlay/HITL prompt owns the keyboard — single source of truth in
+  // the store, so a new overlay can never leak keystrokes into the composer by being forgotten here.
+  const focused = () => app.view() === "shell" && !app.anyModalOpen()
   const maxHeight = () => Math.max(4, Math.floor(dims().height / 3))
 
   let ta: any
@@ -47,6 +43,40 @@ export function Composer() {
   createEffect(() => {
     listProjectFiles(app.roots()).then(setFiles)
   })
+
+  // Re-assert focus whenever the app returns to the editable shell state (e.g. a modal closes),
+  // since OpenTUI only re-applies the `focused` prop when its *value* changes.
+  createEffect(() => {
+    const f = focused()
+    // BLUR immediately when a modal opens — it must win the same tick so keys can't reach the composer.
+    if (!f) {
+      try {
+        ta?.blur?.()
+      } catch {}
+      return
+    }
+    // FOCUS only on the next microtask, never synchronously. A modal is usually dismissed by a
+    // keypress (e.g. `a` to allow, ⏎ to confirm); refocusing the composer synchronously inside that
+    // same dispatch makes the dismiss key leak into the composer. Deferring lets the key finish first,
+    // and the microtask still lands before the user's next keystroke.
+    queueMicrotask(() => {
+      try {
+        if (focused()) ta?.focus?.()
+      } catch {}
+    })
+  })
+
+  // OpenTUI's autoFocus blurs the textarea when another focusable element (the chat scrollbox,
+  // a list, …) is clicked. While we're still in the editable state, grab focus straight back so
+  // the user can keep typing without having to click into the composer again.
+  const onBlur = () => {
+    if (focused())
+      queueMicrotask(() => {
+        try {
+          ta?.focus?.()
+        } catch {}
+      })
+  }
 
   function refresh() {
     queueMicrotask(() => setText(ta?.plainText ?? ""))
@@ -70,7 +100,17 @@ export function Composer() {
         .listCommands()
         .filter((c) => c.name.toLowerCase().includes(token))
         .slice(0, MAX_SUGGESTIONS)
-        .map((c) => ({ label: `/${c.name}`, hint: c.description, apply: () => setComposer(`/${c.name} `) }))
+        .map((c) => ({
+          label: `/${c.name}`,
+          hint: c.description,
+          // Tab completes to "/name " (so you can add args); Enter runs it straight away.
+          apply: () => setComposer(`/${c.name} `),
+          run: () => {
+            ta?.clear?.()
+            setText("")
+            app.runCommand(c.name)
+          },
+        }))
     }
 
     const at = t.match(/(^|\s)@(\S*)$/)
@@ -80,7 +120,7 @@ export function Composer() {
       return files()
         .filter((f) => f.toLowerCase().includes(token))
         .slice(0, MAX_SUGGESTIONS)
-        .map((f) => ({ label: truncate(f, 40), hint: "file", apply: () => setComposer(t.slice(0, start) + f + " ") }))
+        .map((f) => ({ label: truncate(f, 40), hint: "file", apply: () => setComposer(`${t.slice(0, start) + f} `) }))
     }
     return []
   })
@@ -90,15 +130,53 @@ export function Composer() {
     setSel(0)
   })
 
-  // File/folder/image references in the prompt, shown as compact chips above the input.
-  // Images become vision input on submit; all chips are click-to-open.
-  const chips = createMemo(() => parseMentions(text(), app.roots()))
+  // Keep the highlighted suggestion in view as the user arrows through a scrolling list.
+  let sgScroll: any
+  createEffect(() => {
+    const i = sel()
+    suggestions().length
+    queueMicrotask(() => sgScroll?.scrollChildIntoView?.(`sg-${i}`))
+  })
+
+  // Inline paste tokens: a big/multi-line paste collapses to a placeholder at the cursor (kept here,
+  // not in a floating row) and is expanded back to full content on submit. File @mentions stay inline
+  // as `@path` text — that's already where they're typed, so no separate chip row is needed.
+  const pastes = new Map<string, string>()
+  let pasteN = 0
+  const onPaste = (event: any) => {
+    try {
+      const raw = decodePasteBytes(event?.bytes) ?? ""
+      // Strip simple ANSI SGR sequences a terminal may include in the paste.
+      const txt = raw.replace(/\x1b\[[0-9;]*m/g, "")
+      if (!isBigPaste(txt)) return // let small/single-line pastes flow in as normal text
+      event?.preventDefault?.()
+      const token = makePasteToken(++pasteN, txt.length)
+      pastes.set(token, txt)
+      ta?.insertText?.(token)
+      refresh()
+    } catch {
+      /* fall through to default paste */
+    }
+  }
 
   function submit() {
-    const value: string = ta?.plainText ?? ""
-    if (value.trim()) app.submit(value)
+    // If an autocomplete suggestion is highlighted, Enter applies it (completes the /command or
+    // @file) rather than submitting the whole composer — you then press Enter again to send.
+    const items = suggestions()
+    if (items.length) {
+      const it = items[sel()]
+      // Enter runs a highlighted slash command immediately; for @file it inserts the path.
+      if (it?.run) return it.run()
+      it?.apply()
+      return
+    }
+    const display: string = ta?.plainText ?? ""
+    const value = expandTokens(display, pastes) // paste tokens → full content for the model
+    if (value.trim()) app.submit(value, display !== value ? display : undefined)
     ta?.clear?.()
     setText("")
+    pastes.clear()
+    pasteN = 0
   }
 
   useKeyboard((key) => {
@@ -126,34 +204,37 @@ export function Composer() {
           paddingRight={1}
           marginBottom={1}
         >
-          <For each={suggestions()}>
-            {(s, i) => (
-              <box flexDirection="row" gap={2} backgroundColor={sel() === i() ? theme.bgHover : "transparent"}>
-                <text fg={sel() === i() ? mode().accent : theme.text}>{s.label}</text>
-                <box flexGrow={1} />
-                <text fg={theme.textFaint}>{truncate(s.hint, 28)}</text>
-              </box>
-            )}
-          </For>
-          <text fg={theme.textFaint}>↑↓ move · ⭾ complete</text>
+          <scrollbox ref={(r: any) => (sgScroll = r)} maxHeight={VISIBLE_SUGGESTIONS}>
+            <For each={suggestions()}>
+              {(s, i) => (
+                <box
+                  id={`sg-${i()}`}
+                  flexDirection="row"
+                  gap={1}
+                  backgroundColor={sel() === i() ? theme.bgHover : "transparent"}
+                >
+                  <box width={18} flexShrink={0}>
+                    <text fg={sel() === i() ? mode().accent : theme.text}>{truncate(s.label, 18)}</text>
+                  </box>
+                  <text fg={theme.textFaint}>{truncate(s.hint, 36)}</text>
+                </box>
+              )}
+            </For>
+          </scrollbox>
+          <text fg={theme.textFaint}>↑↓ move · ⏎ run · ⭾ complete · {suggestions().length}</text>
         </box>
       </Show>
 
-      <Show when={chips().length > 0}>
-        <box flexDirection="row" gap={1} marginBottom={1} flexShrink={0} flexWrap="wrap">
-          <For each={chips()}>
-            {(chip) => (
-              <box
-                border
-                borderStyle="rounded"
-                borderColor={chip.abs ? mode().accent : theme.border}
-                paddingLeft={1}
-                paddingRight={1}
-                onMouseDown={() => app.openPath(chip.rel)}
-              >
-                <text fg={chip.abs ? theme.text : theme.textFaint}>
-                  {chipIcon(chip.kind)} {truncate(chip.rel.split("/").pop() || chip.rel, 24)}
-                </text>
+      {/* Prompts staged while the agent is busy — drained one at a time at each turn boundary.
+          Click a row to drop it from the queue. */}
+      <Show when={app.queued().length > 0}>
+        <box flexDirection="column" marginBottom={1} flexShrink={0}>
+          <For each={app.queued()}>
+            {(q, i) => (
+              <box flexDirection="row" gap={1} onMouseDown={() => app.unqueue(i())}>
+                <text fg={theme.warning}>⏳ queued</text>
+                <text fg={theme.textMuted}>{truncate(q, 52)}</text>
+                <text fg={theme.textFaint}>✕</text>
               </box>
             )}
           </For>
@@ -173,13 +254,17 @@ export function Composer() {
       >
         <box flexGrow={1}>
           <textarea
-            ref={(r: any) => (ta = r)}
+            ref={(r: any) => {
+              ta = r
+              app.registerComposer(r)
+              r?.on?.("blurred", onBlur)
+              if (r) r.onPaste = onPaste
+            }}
             onSubmit={submit}
             keyBindings={[
               { name: "return", action: "submit" },
               { name: "return", shift: true, action: "newline" },
             ]}
-            focused={focused()}
             placeholder="ask anything…   /command · @file · ⇧⏎ newline"
             placeholderColor={theme.textFaint}
             textColor={theme.text}
@@ -189,7 +274,7 @@ export function Composer() {
           />
         </box>
         <box flexDirection="row" gap={1} marginLeft={1} alignItems="center" flexShrink={0}>
-          <text fg={accentS()}>{mode().glyph}</text>
+          <text fg={accentS()}>{modeGlyph(app.mode())}</text>
           <text fg={theme.textFaint}>{mode().label}</text>
         </box>
       </box>

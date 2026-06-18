@@ -1,9 +1,9 @@
-import { test, expect } from "bun:test"
-import os from "node:os"
+import { expect, test } from "bun:test"
 import fs from "node:fs"
+import os from "node:os"
 import path from "node:path"
-import { createRoot } from "solid-js"
 import { Engine, type StreamFn } from "@friday/core"
+import { createRoot } from "solid-js"
 import { createAppStore } from "../src/store.tsx"
 
 process.env.FRIDAY_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "friday-home-"))
@@ -33,8 +33,8 @@ test("switching mid-stream keeps each session's own transcript + status", async 
     await Bun.sleep(20)
     expect(app.busy()).toBe(true)
     expect(app.items().some((i) => i.kind === "assistant" && i.text.includes("task A"))).toBe(true)
-    // Once text starts flowing the status is "streaming…" (phase labels: sent→connecting→thinking→streaming).
-    expect(app.status()).toContain("streaming")
+    // Once text starts flowing the status is "Responding…" (phase labels: sent→Connecting→Thinking→Responding).
+    expect(app.status()).toContain("Responding")
 
     // Open a fresh session — it must NOT inherit s1's "thinking" status or transcript.
     engine.send({ type: "new-session" })
@@ -59,6 +59,65 @@ test("switching mid-stream keeps each session's own transcript + status", async 
     expect(app.busy()).toBe(false)
     expect(app.items().some((i) => i.kind === "assistant" && i.done)).toBe(true)
 
+    dispose()
+  })
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test("a prompt submitted mid-turn is queued, then drained at the turn boundary", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-test-"))
+  await createRoot(async (dispose) => {
+    const engine = new Engine({ cwd: dir, streamFn: gatedStream })
+    engine.send({ type: "set-mode", mode: "yolo" })
+    engine.selectModel("mock", "mock-model")
+    const app = createAppStore(engine)
+    engine.ready()
+
+    app.submit("first")
+    await Bun.sleep(20)
+    expect(app.busy()).toBe(true)
+
+    // Submitting while busy queues instead of racing the engine.
+    app.submit("second")
+    await Bun.sleep(10)
+    expect(app.queued()).toEqual(["second"])
+    expect(app.items().filter((i) => i.kind === "user").length).toBe(1) // not appended yet
+
+    // Finish the first turn → the queue drains and "second" starts.
+    release?.()
+    await Bun.sleep(30)
+    expect(app.queued()).toEqual([])
+    expect(app.items().filter((i) => i.kind === "user").length).toBe(2)
+    expect(app.busy()).toBe(true)
+
+    release?.()
+    await Bun.sleep(20)
+    dispose()
+  })
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test("aborting discards queued prompts", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-test-"))
+  await createRoot(async (dispose) => {
+    const engine = new Engine({ cwd: dir, streamFn: gatedStream })
+    engine.send({ type: "set-mode", mode: "yolo" })
+    engine.selectModel("mock", "mock-model")
+    const app = createAppStore(engine)
+    engine.ready()
+
+    app.submit("first")
+    await Bun.sleep(20)
+    app.submit("queued one")
+    app.submit("queued two")
+    await Bun.sleep(10)
+    expect(app.queued().length).toBe(2)
+
+    app.abort()
+    await Bun.sleep(10)
+    expect(app.queued()).toEqual([]) // interrupting clears the queue
+    release?.()
+    await Bun.sleep(20)
     dispose()
   })
   fs.rmSync(dir, { recursive: true, force: true })

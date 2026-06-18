@@ -1,6 +1,7 @@
 import type { ChatRequest, Message, ProviderEvent, ToolDef } from "@friday/shared"
-import { safeJsonParse, sseLines } from "./sse.ts"
 import { thinkingBudget } from "./effort.ts"
+import { fetchWithRetry } from "./retry.ts"
+import { safeJsonParse, sseLines } from "./sse.ts"
 
 function toAnthropic(messages: Message[]): { system?: string; messages: unknown[] } {
   let system: string | undefined
@@ -25,13 +26,26 @@ function toAnthropic(messages: Message[]): { system?: string; messages: unknown[
       for (const tc of m.toolCalls ?? []) {
         content.push({ type: "tool_use", id: tc.id, name: tc.name, input: safeJsonParse(tc.arguments || "{}") })
       }
-      out.push({ role: "assistant", content: content.length ? content : [{ type: "text", text: "" }] })
+      // Skip assistant turns with no content at all rather than emitting an empty text block
+      // (some providers reject `{type:"text",text:""}`).
+      if (content.length) out.push({ role: "assistant", content })
     } else if (m.role === "tool") {
       out.push({
         role: "user",
         content: [{ type: "tool_result", tool_use_id: m.callId, content: m.result, is_error: m.isError ?? false }],
       })
     }
+  }
+  // Rolling conversation-cache breakpoint: mark the last content block of the most recent message so
+  // the whole message prefix is cached and re-read at ~10% price on the next turn (Anthropic caches
+  // the longest matching prefix). Without this, the growing `messages` array is re-billed at full
+  // input price every turn — the single biggest cost/latency lever in a long agentic loop. The
+  // system block + last tool def carry their own breakpoints, so this is the 3rd of Anthropic's 4.
+  const last = out[out.length - 1]
+  const content = last?.content
+  if (Array.isArray(content) && content.length) {
+    const block = content[content.length - 1] as Record<string, unknown>
+    block.cache_control = { type: "ephemeral" }
   }
   return { system, messages: out }
 }
@@ -71,17 +85,21 @@ export async function* streamAnthropic(opts: {
     body.max_tokens = Math.min(budget + (req.maxTokens ?? 8192), 32000) // must exceed the budget, capped for safety
   }
 
-  const res = await fetch(`${baseURL.replace(/\/$/, "")}/messages`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "anthropic-version": "2023-06-01",
-      ...(apiKey ? { "x-api-key": apiKey } : {}),
-      ...opts.headers,
+  const res = await fetchWithRetry(
+    `${baseURL.replace(/\/$/, "")}/messages`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "anthropic-version": "2023-06-01",
+        ...(apiKey ? { "x-api-key": apiKey } : {}),
+        ...opts.headers,
+      },
+      body: JSON.stringify(body),
+      signal,
     },
-    body: JSON.stringify(body),
     signal,
-  })
+  )
 
   if (!res.ok || !res.body) {
     const text = await res.text().catch(() => "")
@@ -100,8 +118,10 @@ export async function* streamAnthropic(opts: {
       case "message_start": {
         const u = json.message?.usage
         if (u) {
+          // Include cache read/creation so a fully-cached turn (input_tokens===0) still reports a
+          // real context size — needed for the token bar and compaction trigger.
           const input = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
-          if (input) yield { type: "usage", input, output: 0 }
+          yield { type: "usage", input, output: 0 }
         }
         break
       }
@@ -117,7 +137,8 @@ export async function* streamAnthropic(opts: {
         if (d?.type === "text_delta") yield { type: "text", delta: d.text }
         else if (d?.type === "thinking_delta") yield { type: "reasoning", delta: d.thinking }
         else if (d?.type === "signature_delta") yield { type: "reasoning_signature", signature: d.signature }
-        else if (d?.type === "input_json_delta") yield { type: "tool_delta", index: json.index, argsDelta: d.partial_json }
+        else if (d?.type === "input_json_delta")
+          yield { type: "tool_delta", index: json.index, argsDelta: d.partial_json }
         break
       }
       case "content_block_stop":
