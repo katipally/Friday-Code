@@ -94,7 +94,7 @@ jobs:
           cat SHASUMS256.txt
 
       - name: Create release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: bins/*
           generate_release_notes: true
