@@ -55,20 +55,20 @@ jobs:
           test -n "$OUT"
 
       - name: Upload raw binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bin-${{ matrix.target }}
           path: dist/bin/*
 
       - name: Upload platform npm package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: npm-${{ matrix.target }}
           path: dist/npm/friday-code-${{ matrix.target }}
 
       - name: Upload launcher npm package
         if: matrix.target == 'linux-x64'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: npm-launcher
           path: dist/npm/friday-code
