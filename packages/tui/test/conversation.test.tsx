@@ -6,6 +6,7 @@ import { Engine, type StreamFn } from "@friday/core"
 import type { ProviderEvent } from "@friday/shared"
 import { testRender } from "@opentui/solid"
 import { App } from "../src/App.tsx"
+import { waitForFrame } from "./helpers.ts"
 
 process.env.FRIDAY_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "friday-home-"))
 
@@ -45,10 +46,9 @@ test("full render path: prompt -> tool card + diff -> assistant text", async () 
   await t.mockInput.typeText("create foo.txt")
   await t.flush()
   t.mockInput.pressEnter() // submit
-  await Bun.sleep(80)
-  await t.flush()
-
-  const frame = t.captureCharFrame()
+  // Two model turns run here (tool_use -> auto-continue -> assistant text); wait for the final
+  // assistant text rather than a fixed sleep, which under-waits on slower CI runners.
+  const frame = await waitForFrame(t, ["create foo.txt", "write foo.txt", "Created foo.txt"])
   expect(frame).toContain("create foo.txt") // user bubble
   expect(frame).toContain("write foo.txt") // tool card title
   // Tool output/diff auto-collapses once the tool finishes (click the title to expand), so the diff
@@ -82,8 +82,7 @@ test("/fork opens the fork picker listing the conversation's user turns", async 
   await t.mockInput.typeText("teach me about closures")
   await t.flush()
   t.mockInput.pressEnter()
-  await Bun.sleep(40)
-  await t.flush()
+  await waitForFrame(t, "teach me about closures")
 
   // Run /fork. With the command highlighted in the autocomplete, Enter runs it directly
   // (Tab would complete to "/fork " for adding args).
@@ -121,11 +120,9 @@ test("native markdown renders headings + fenced code blocks", async () => {
   await t.mockInput.typeText("show me code")
   await t.flush()
   t.mockInput.pressEnter()
-  // Native markdown highlights code via async tree-sitter; allow time under full-suite load.
-  await Bun.sleep(250)
-  await t.flush()
-
-  const frame = t.captureCharFrame()
+  // Native markdown highlights code via async tree-sitter; poll until every asserted element has
+  // landed instead of a fixed sleep, which is flaky under full-suite load on CI.
+  const frame = await waitForFrame(t, ["Overview", "const answer = 42", "first"])
   expect(frame).toContain("Overview") // heading text
   expect(frame).toContain("const answer = 42") // fenced code content
   expect(frame).toContain("first") // list item

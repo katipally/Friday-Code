@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import path from "node:path"
-import { formatDiagnostics, LspManager, pathToUri } from "../src/manager.ts"
+import { formatDiagnostics, LspManager, pathToUri, uriToPath } from "../src/manager.ts"
 import { LspConnection } from "../src/protocol.ts"
 import { languageForFile } from "../src/servers.ts"
 
@@ -50,5 +50,10 @@ test("formatDiagnostics renders a readable summary", () => {
 })
 
 test("pathToUri produces a file URI", () => {
-  expect(pathToUri("/a/b/c.ts")).toBe("file:///a/b/c.ts")
+  // POSIX: /a/b/c.ts is already absolute. Windows: path.resolve prepends a drive (e.g. C:\a\b\c.ts),
+  // so assert URI shape + a path round-trip rather than a hardcoded Unix string.
+  const uri = pathToUri("/a/b/c.ts")
+  expect(uri.startsWith("file:///")).toBe(true)
+  expect(uri.endsWith("/a/b/c.ts")).toBe(true)
+  expect(uriToPath(uri)).toBe(path.resolve("/a/b/c.ts"))
 })

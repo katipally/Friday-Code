@@ -143,10 +143,13 @@ test("gap D: hitting the step limit emits a notice instead of stopping silently"
   engine.selectModel("mock", "mock-model")
   const events = collect(engine)
   engine.send({ type: "prompt", text: "loop forever" })
-  await Bun.sleep(800)
+  // Exhausting all 50 steps (each a tool round-trip) takes longer than a fixed sleep allows on
+  // slower CI runners, so poll for the notice rather than guessing a duration.
+  const stepNotice = () => events.find((e) => e.type === "notice" && /step limit/i.test((e as any).text))
+  const start = Bun.nanoseconds()
+  while (!stepNotice() && (Bun.nanoseconds() - start) / 1e6 < 10000) await Bun.sleep(20)
 
-  const notice = events.find((e) => e.type === "notice" && /step limit/i.test((e as any).text))
-  expect(notice).toBeTruthy()
+  expect(stepNotice()).toBeTruthy()
   expect(events.some((e) => e.type === "turn-done")).toBe(true)
   fs.rmSync(dir, { recursive: true, force: true })
 })

@@ -1,21 +1,16 @@
 import fs from "node:fs"
 import path from "node:path"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { type Diagnostic, LspConnection } from "./protocol.ts"
 import { languageForFile, resolveServer } from "./servers.ts"
 
+// Use Node's URL helpers so file URIs are correct on every platform — notably Windows, where a
+// hand-rolled encoder mangles the drive letter (`C:` -> `C%3A`) and drops the `file:///` slash.
 export function pathToUri(p: string): string {
-  return (
-    "file://" +
-    path
-      .resolve(p)
-      .split(path.sep)
-      .map(encodeURIComponent)
-      .join("/")
-      .replace(/^([A-Za-z]:)/, "/$1")
-  )
+  return pathToFileURL(path.resolve(p)).href
 }
 export function uriToPath(uri: string): string {
-  return decodeURIComponent(uri.replace(/^file:\/\//, ""))
+  return fileURLToPath(uri)
 }
 
 interface Doc {

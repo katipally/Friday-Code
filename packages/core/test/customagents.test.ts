@@ -97,10 +97,13 @@ test("a custom agent supplies the sub-agent's prompt and narrows its tools", asy
 test("sub-agent tool calls fire the PreToolUse hook", async () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "friday-cwd-"))
   const marker = path.join(cwd, "pretool-fired")
-  // A PreToolUse hook (loaded from FRIDAY_HOME/config.json) that touches a marker file.
+  // A PreToolUse hook (loaded from FRIDAY_HOME/config.json) that creates a marker file. Hooks run
+  // via `sh -c`, so use a forward-slash path and a POSIX redirection (`: > file`) instead of
+  // `touch <backslash-path>`, which breaks on Windows (backslashes are sh escapes; no `touch`).
+  const markerSh = marker.replace(/\\/g, "/")
   fs.writeFileSync(
     path.join(process.env.FRIDAY_HOME!, "config.json"),
-    JSON.stringify({ hooks: { PreToolUse: [{ command: `touch ${marker}` }] } }),
+    JSON.stringify({ hooks: { PreToolUse: [{ command: `: > "${markerSh}"` }] } }),
   )
   const engine = new Engine({
     cwd,
@@ -137,7 +140,10 @@ test("sub-agent tool calls fire the PreToolUse hook", async () => {
   const events: EngineEvent[] = []
   engine.subscribe((e) => events.push(e))
   engine.send({ type: "prompt", text: "go" })
-  await Bun.sleep(60)
+  // Poll for the marker: the sub-agent + grep + hook chain takes longer than a fixed sleep allows
+  // on slower CI runners.
+  const start = Bun.nanoseconds()
+  while (!fs.existsSync(marker) && (Bun.nanoseconds() - start) / 1e6 < 3000) await Bun.sleep(20)
 
   expect(fs.existsSync(marker)).toBe(true)
   // clean up the global hook config so it doesn't leak into other tests in this file

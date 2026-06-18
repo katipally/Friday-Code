@@ -6,6 +6,7 @@ import { Engine, type StreamFn } from "@friday/core"
 import type { ProviderEvent } from "@friday/shared"
 import { testRender } from "@opentui/solid"
 import { App } from "../src/App.tsx"
+import { waitForFrame } from "./helpers.ts"
 
 process.env.FRIDAY_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "friday-home-"))
 
@@ -52,10 +53,9 @@ test("issue 1: no stray ▋ caret after a multi-step (tool call + text) turn set
   await t.mockInput.typeText("read foo")
   await t.flush()
   t.mockInput.pressEnter()
-  await Bun.sleep(120)
-  await t.flush()
-
-  const frame = t.captureCharFrame()
+  // Two turns settle here (text + tool, then final text); wait for both bubbles rather than a fixed
+  // sleep that under-waits on slower CI runners.
+  const frame = await waitForFrame(t, ["Let me read it.", "It says hi."])
   expect(frame).toContain("Let me read it.") // intermediate bubble text rendered
   expect(frame).toContain("It says hi.") // final bubble text rendered
   expect(frame).not.toContain("▋") // ...but no streaming caret left behind anywhere
@@ -93,11 +93,8 @@ test("issue 2: todos render live in the panel after a todo_write", async () => {
   await t.mockInput.typeText("plan the work")
   await t.flush()
   t.mockInput.pressEnter()
-  await Bun.sleep(100)
-  await t.flush()
-
-  const frame = t.captureCharFrame()
   // The Todos section (default-open) shows every task live, without the user clicking to expand.
+  const frame = await waitForFrame(t, ["read the schema", "write migration", "run the tests"])
   expect(frame).toContain("read the schema")
   expect(frame).toContain("write migration")
   expect(frame).toContain("run the tests")
