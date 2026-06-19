@@ -37,6 +37,9 @@ jobs:
         # All internal package.json files must be pinned to "0.0.0-private" —
         # the real version is derived from the git tag at release time. This
         # fails the build if anyone re-introduces a hardcoded version.
+        # shell: bash — Windows runners default to PowerShell, which doesn't
+        # grok `[ -n "$x" ]`. GitHub ships bash on every runner image.
+        shell: bash
         run: |
           set -euo pipefail
           bad=$(grep -rE '^  "version":' packages/*/package.json packaging/friday-code/package.json package.json \

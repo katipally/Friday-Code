@@ -45,14 +45,27 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with: { persist-credentials: false }
-      - uses: oven-sh/setup-bun@v2
-        with: { bun-version: "1.3.11" }
       - id: v
-        run: bun run scripts/version.ts
-        env:
-          GITHUB_REF_TYPE: ${{ github.ref_type }}
-          GITHUB_REF_NAME: ${{ github.ref_name }}
-          INPUT_TAG:       ${{ inputs.tag }}
+        # Pure bash — no bun runtime dependency. scripts/version.ts is also
+        # available locally for `bun run version`, but the workflow avoids it
+        # to sidestep the intermittent bun 1.3.x @babel/traverse flake.
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG="${{ github.ref_name }}"
+          else
+            TAG="${{ inputs.tag }}"
+          fi
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "version: invalid tag \"$TAG\" (expected vX.Y.Z[-suffix])" >&2
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG"         >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION"
+          echo "tag=$TAG"
 
   # ── 2. Build matrix (8 targets on native runners) ─────────────────────────
   build:
@@ -78,16 +91,22 @@ jobs:
       - uses: actions/checkout@v7
         with: { persist-credentials: false }
 
-      # Musl variants need Bun built against musl libc — build inside Alpine.
-      - name: Build ${{ matrix.target }} (Alpine)
+      # Musl variants: build AND smoke-test inside Alpine (the musl-linked binary
+      # can't be exec'd on the glibc host, so the standalone smoke-test step below
+      # is skipped for this group).
+      - name: Build ${{ matrix.target }} (Alpine) + smoke test
         if: matrix.group == 'musl'
+        env:
+          EXPECTED: ${{ needs.version.outputs.version }}
         run: |
           docker run --rm \
             -v "${{ github.workspace }}:/workspace" -w /workspace \
-            -e FRIDAY_VERSION=${{ needs.version.outputs.version }} \
+            -e FRIDAY_VERSION="$EXPECTED" \
             oven/bun:1.3.11-alpine \
             sh -c "bun install --frozen-lockfile && \
-                   bun run scripts/build.ts --target=${{ matrix.target }}"
+                   bun run scripts/build.ts --target=${{ matrix.target }} && \
+                   ./dist/bin/friday-${{ matrix.target }} --version | grep -Fxq \"$EXPECTED\" && \
+                   echo 'musl smoke test: OK'"
           sudo chown -R $USER:$USER dist/
 
       - name: Setup Bun
@@ -106,6 +125,7 @@ jobs:
           FRIDAY_VERSION: ${{ needs.version.outputs.version }}
 
       - name: Smoke test (--version)
+        if: matrix.group != 'musl'
         shell: bash
         run: |
           EXPECTED=${{ needs.version.outputs.version }}

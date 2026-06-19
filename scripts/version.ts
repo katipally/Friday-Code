@@ -2,12 +2,15 @@
 
 // Derive VERSION + TAG for a release.
 //
-// Called by .github/workflows/release.yml (the `version` job) on tag push
-// and on workflow_dispatch. Reads:
+// Reads:
 //   GITHUB_REF_TYPE="tag"           for tag pushes
 //   GITHUB_REF_NAME="v2.0.1"        for tag pushes
 //   INPUT_TAG="v2.0.1"              for manual dispatch
 // Writes to $GITHUB_OUTPUT so downstream jobs can use outputs.version / outputs.tag.
+//
+// Note: the release workflow runs an inline-bash version of this in the
+// `version` job to avoid a flaky @babel/traverse interaction in bun 1.3.x.
+// This file is kept for local use (`bun run version`).
 
 import { appendFile } from "node:fs/promises"
 
