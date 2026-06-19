@@ -5,6 +5,7 @@ import path from "node:path"
 import { Engine, type StreamFn } from "@friday/core"
 import { createRoot } from "solid-js"
 import { createAppStore } from "../src/store.tsx"
+import { waitFor } from "./helpers.ts"
 
 process.env.FRIDAY_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "friday-home-"))
 process.env.FRIDAY_NO_NOTIFY = "1"
@@ -18,11 +19,12 @@ const gatedStream: StreamFn = async function* (_p, _k, req) {
   yield { type: "done", stopReason: "stop" }
 }
 
-// Long, slow-friendly sleeps between async state transitions. The store is
-// event-driven (setTimeout(0) chains inside the runner), so the CI runner
-// needs a few hundred ms headroom. 500ms is well under bun:test's default
-// timeout but comfortably longer than any realistic setTimeout(0) chain.
-const STEP = 500
+// All async state transitions are awaited via `waitFor` (predicate + timeout)
+// rather than fixed sleeps. The store is event-driven — the runner drains the
+// queue through a setTimeout(0) chain — so the time between submit / release
+// and the resulting state change is non-deterministic on slow CI runners.
+// `waitFor` is O(K) faster in the happy path and self-failing in the sad path.
+const TIMEOUT = 5000
 
 test("switching mid-stream keeps each session's own transcript + status", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-test-"))
@@ -36,34 +38,36 @@ test("switching mid-stream keeps each session's own transcript + status", async 
 
     // Start a turn on s1; it streams a delta then blocks.
     app.submit("task A")
-    await Bun.sleep(STEP)
-    expect(app.busy()).toBe(true)
+    await waitFor(() => app.busy() && app.status().includes("Responding"), { timeoutMs: TIMEOUT })
     expect(app.items().some((i) => i.kind === "assistant" && i.text.includes("task A"))).toBe(true)
-    // Once text starts flowing the status is "Responding…" (phase labels: sent→Connecting→Thinking→Responding).
-    expect(app.status()).toContain("Responding")
 
     // Open a fresh session — it must NOT inherit s1's "thinking" status or transcript.
     engine.send({ type: "new-session" })
-    await Bun.sleep(STEP)
+    await waitFor(
+      () =>
+        app.activeSession() !== s1 && app.status() === "ready" && app.items().length === 0 && app.sessionRunning(s1),
+      { timeoutMs: TIMEOUT },
+    )
     const s2 = app.activeSession()
     expect(s2).not.toBe(s1)
-    expect(app.status()).toBe("ready")
-    expect(app.items().length).toBe(0)
     // s1 is still busy in the background.
     expect(app.sessionRunning(s1)).toBe(true)
 
     // Switch back to s1 — the in-flight turn is still there (not lost on switch).
     engine.send({ type: "switch-session", sessionId: s1 })
-    await Bun.sleep(STEP)
-    expect(app.activeSession()).toBe(s1)
-    expect(app.items().some((i) => i.kind === "assistant" && i.text.includes("task A"))).toBe(true)
-    expect(app.busy()).toBe(true)
+    await waitFor(
+      () =>
+        app.activeSession() === s1 &&
+        app.items().some((i) => i.kind === "assistant" && i.text.includes("task A")) &&
+        app.busy(),
+      { timeoutMs: TIMEOUT },
+    )
 
     // Let it finish.
     release?.()
-    await Bun.sleep(STEP)
-    expect(app.busy()).toBe(false)
-    expect(app.items().some((i) => i.kind === "assistant" && i.done)).toBe(true)
+    await waitFor(() => !app.busy() && app.items().some((i) => i.kind === "assistant" && i.done), {
+      timeoutMs: TIMEOUT,
+    })
 
     dispose()
   })
@@ -80,24 +84,28 @@ test("a prompt submitted mid-turn is queued, then drained at the turn boundary",
     engine.ready()
 
     app.submit("first")
-    await Bun.sleep(STEP)
-    expect(app.busy()).toBe(true)
+    // Wait for the text delta to land in items — that signals the stream has
+    // yielded and is now blocked on `release`. Without this, calling
+    // `release?.()` below is a no-op (release is still null) and the queue
+    // never drains. Same rationale as test 1.
+    await waitFor(() => app.busy() && app.items().some((i) => i.kind === "assistant" && i.text.includes("first")), {
+      timeoutMs: TIMEOUT,
+    })
 
     // Submitting while busy queues instead of racing the engine.
     app.submit("second")
-    await Bun.sleep(STEP)
-    expect(app.queued()).toEqual(["second"])
+    await waitFor(() => app.queued().length === 1 && app.queued()[0] === "second", { timeoutMs: TIMEOUT })
     expect(app.items().filter((i) => i.kind === "user").length).toBe(1) // not appended yet
 
     // Finish the first turn → the queue drains and "second" starts.
     release?.()
-    await Bun.sleep(STEP)
-    expect(app.queued()).toEqual([])
-    expect(app.items().filter((i) => i.kind === "user").length).toBe(2)
-    expect(app.busy()).toBe(true)
+    await waitFor(
+      () => app.queued().length === 0 && app.items().filter((i) => i.kind === "user").length === 2 && app.busy(),
+      { timeoutMs: TIMEOUT },
+    )
 
     release?.()
-    await Bun.sleep(STEP)
+    await waitFor(() => !app.busy(), { timeoutMs: TIMEOUT })
     dispose()
   })
   fs.rmSync(dir, { recursive: true, force: true })
@@ -113,17 +121,18 @@ test("aborting discards queued prompts", async () => {
     engine.ready()
 
     app.submit("first")
-    await Bun.sleep(STEP)
+    // Wait for the text delta (stream blocked on release) — see test 2.
+    await waitFor(() => app.busy() && app.items().some((i) => i.kind === "assistant" && i.text.includes("first")), {
+      timeoutMs: TIMEOUT,
+    })
     app.submit("queued one")
     app.submit("queued two")
-    await Bun.sleep(STEP)
-    expect(app.queued().length).toBe(2)
+    await waitFor(() => app.queued().length === 2, { timeoutMs: TIMEOUT })
 
     app.abort()
-    await Bun.sleep(STEP)
-    expect(app.queued()).toEqual([]) // interrupting clears the queue
+    await waitFor(() => app.queued().length === 0, { timeoutMs: TIMEOUT }) // interrupting clears the queue
     release?.()
-    await Bun.sleep(STEP)
+    await waitFor(() => !app.busy(), { timeoutMs: TIMEOUT })
     dispose()
   })
   fs.rmSync(dir, { recursive: true, force: true })

@@ -64,6 +64,27 @@ mismatched versions.
 - npm publish is **idempotent**: if a `package@version` is already on npm
   (e.g. from a partial retry), it's skipped rather than failing.
 
+### Why artifacts are tarballs, not directories
+
+Each `build` job tars `dist/npm/<target>/` into `dist/npm-<target>.tar.gz`
+and uploads that single file as the `npm-<target>` artifact. The `npm-publish`
+job downloads each tarball with `gh run download` and untars it into
+`dist/npm/`.
+
+This avoids `actions/upload-artifact`'s well-known flattening behaviour:
+when you upload a directory, the artifact's zip contains the directory's
+contents at the root (the directory name is stripped). All 8 `npm-<target>`
+zips then have **identical** top-level paths (`package.json`, `bin/`), and
+`download-artifact`'s `merge-multiple: true` happily overwrites them with
+"last writer wins" — silently producing an empty `dist/npm/<target>/` for 7
+of the 8 platforms. This bug broke every v2.0.x release between 2026-06-18
+and 2026-06-19.
+
+A tarball is one file with the structure preserved on extract; the loop
+in `npm-publish` downloads each one to its own subdir. Don't "simplify"
+this back to `actions/download-artifact@v4` + `merge-multiple: true` unless
+you also add per-artifact renaming to the upload step.
+
 To retry a tag manually:
 
 ```

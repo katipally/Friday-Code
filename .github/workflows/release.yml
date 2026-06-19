@@ -134,6 +134,28 @@ jobs:
           echo "binary: $OUT  expected: $EXPECTED"
           test "$OUT" = "$EXPECTED"
 
+      # Package the per-target npm dir into a single tarball whose top-level
+      # component is `npm/<target>/`. Plain `actions/upload-artifact` flattens
+      # the source directory (the top-level name is stripped), so 8 separate
+      # `npm-<target>` zips end up with identical contents and overwrite each
+      # other when `merge-multiple: true` is used downstream. A tarball is
+      # one file; the structure is preserved on extract by `npm-publish`.
+      - name: Package dist/npm/${{ matrix.target }} for upload
+        if: always()
+        env:
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -d "dist/npm/${TARGET}" ]; then
+            echo "✖ dist/npm/${TARGET} missing — build did not produce it" >&2
+            exit 1
+          fi
+          tar --create --gzip \
+            --file "dist/npm-${TARGET}.tar.gz" \
+            -C dist "npm/${TARGET}"
+          ls -la "dist/npm-${TARGET}.tar.gz"
+
       - name: Upload raw binary
         if: always()
         uses: actions/upload-artifact@v7
@@ -147,10 +169,10 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: npm-${{ matrix.target }}
-          # dist/npm/<target>/ contains package.json + bin/. Uploading the
-          # subdir (not the file paths) preserves the target name in the
-          # zip so the npm-publish job can extract it under the same name.
-          path: dist/npm/${{ matrix.target }}
+          # Upload the tarball (one file), not the source dir. The tarball
+          # preserves `npm/<target>/` structure across the upload/download
+          # round-trip — see "Package dist/npm/<target>" step for context.
+          path: dist/npm-${{ matrix.target }}.tar.gz
           if-no-files-found: ignore
 
   # ── 3. GitHub Release (requires the 5 STABLE builds) ─────────────────────
@@ -229,13 +251,48 @@ jobs:
         env:
           FRIDAY_VERSION: ${{ needs.release.outputs.tag }}
 
-      # Download the per-platform packages. merge-multiple + the existing
-      # dist/npm/friday-code/ directory → all 9 packages coexist.
-      - uses: actions/download-artifact@v8
-        with:
-          pattern: npm-*
-          path: dist/npm
-          merge-multiple: true
+      # Download each per-platform tarball by name and untar into dist/npm/.
+      # We avoid `actions/download-artifact`'s `merge-multiple: true` because
+      # it flattens identical top-level paths and overwrites siblings — the
+      # exact bug that broke v2.0.0–v2.0.6. Per-target downloads via
+      # `gh run download` keep each `<target>/` subdir intact.
+      - name: Restore per-platform npm packages
+        env:
+          RUN_ID: ${{ github.run_id }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/npm _artifacts
+          for t in darwin-arm64 darwin-x64 linux-x64 linux-arm64 \
+                   linux-x64-musl linux-arm64-musl win32-x64 win32-arm64; do
+            echo "▸ downloading npm-$t"
+            gh run download "$RUN_ID" --name "npm-$t" --dir "_artifacts/npm-$t"
+            tar -xzf "_artifacts/npm-$t/dist/npm-$t.tar.gz" -C dist/npm --strip-components=1
+          done
+          echo "---"
+          find dist/npm -maxdepth 2 -name package.json | sort
+
+      - name: Validate dist/npm layout
+        # Fail loudly BEFORE npm publish if a stable target's dir is missing
+        # (best-effort ones are tolerated). publish.ts would otherwise fail
+        # partway through the publish loop with a less actionable error.
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=()
+          for t in darwin-arm64 darwin-x64 linux-x64 linux-arm64 win32-x64 friday-code; do
+            if [ ! -f "dist/npm/$t/package.json" ]; then
+              missing+=("$t")
+            else
+              node -e "JSON.parse(require('fs').readFileSync('dist/npm/$t/package.json'))"
+            fi
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "✖ missing package.json in: ${missing[*]}" >&2
+            exit 1
+          fi
+          echo "✓ 6 required npm packages present and parseable"
 
       - name: Publish npm + open Homebrew/Scoop PRs
         run: bun run scripts/publish.ts
