@@ -268,7 +268,18 @@ jobs:
                    linux-x64-musl linux-arm64-musl win32-x64 win32-arm64; do
             echo "▸ downloading npm-$t"
             gh run download "$RUN_ID" --name "npm-$t" --dir "_artifacts/npm-$t"
-            tar -xzf "_artifacts/npm-$t/dist/npm-$t.tar.gz" -C dist/npm --strip-components=1
+            # `actions/upload-artifact` strips the source directory and only
+            # preserves the file's basename, so the tarball lands at
+            # `_artifacts/npm-$t/npm-$t.tar.gz` (no `dist/` prefix). Use
+            # `find` so we don't break if upload-artifact ever changes its
+            # path layout again.
+            tarball=$(find "_artifacts/npm-$t" -type f -name "*.tar.gz" | head -1)
+            if [ -z "$tarball" ]; then
+              echo "✖ no .tar.gz found under _artifacts/npm-$t" >&2
+              find "_artifacts/npm-$t" >&2
+              exit 1
+            fi
+            tar -xzf "$tarball" -C dist/npm --strip-components=1
           done
           echo "---"
           find dist/npm -maxdepth 2 -name package.json | sort
