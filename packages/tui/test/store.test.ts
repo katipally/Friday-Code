@@ -18,6 +18,12 @@ const gatedStream: StreamFn = async function* (_p, _k, req) {
   yield { type: "done", stopReason: "stop" }
 }
 
+// Long, slow-friendly sleeps between async state transitions. The store is
+// event-driven (setTimeout(0) chains inside the runner), so the CI runner
+// needs a few hundred ms headroom. 500ms is well under bun:test's default
+// timeout but comfortably longer than any realistic setTimeout(0) chain.
+const STEP = 500
+
 test("switching mid-stream keeps each session's own transcript + status", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-test-"))
   await createRoot(async (dispose) => {
@@ -30,7 +36,7 @@ test("switching mid-stream keeps each session's own transcript + status", async 
 
     // Start a turn on s1; it streams a delta then blocks.
     app.submit("task A")
-    await Bun.sleep(20)
+    await Bun.sleep(STEP)
     expect(app.busy()).toBe(true)
     expect(app.items().some((i) => i.kind === "assistant" && i.text.includes("task A"))).toBe(true)
     // Once text starts flowing the status is "Responding…" (phase labels: sent→Connecting→Thinking→Responding).
@@ -38,7 +44,7 @@ test("switching mid-stream keeps each session's own transcript + status", async 
 
     // Open a fresh session — it must NOT inherit s1's "thinking" status or transcript.
     engine.send({ type: "new-session" })
-    await Bun.sleep(20)
+    await Bun.sleep(STEP)
     const s2 = app.activeSession()
     expect(s2).not.toBe(s1)
     expect(app.status()).toBe("ready")
@@ -48,14 +54,14 @@ test("switching mid-stream keeps each session's own transcript + status", async 
 
     // Switch back to s1 — the in-flight turn is still there (not lost on switch).
     engine.send({ type: "switch-session", sessionId: s1 })
-    await Bun.sleep(20)
+    await Bun.sleep(STEP)
     expect(app.activeSession()).toBe(s1)
     expect(app.items().some((i) => i.kind === "assistant" && i.text.includes("task A"))).toBe(true)
     expect(app.busy()).toBe(true)
 
     // Let it finish.
     release?.()
-    await Bun.sleep(20)
+    await Bun.sleep(STEP)
     expect(app.busy()).toBe(false)
     expect(app.items().some((i) => i.kind === "assistant" && i.done)).toBe(true)
 
@@ -74,24 +80,24 @@ test("a prompt submitted mid-turn is queued, then drained at the turn boundary",
     engine.ready()
 
     app.submit("first")
-    await Bun.sleep(20)
+    await Bun.sleep(STEP)
     expect(app.busy()).toBe(true)
 
     // Submitting while busy queues instead of racing the engine.
     app.submit("second")
-    await Bun.sleep(10)
+    await Bun.sleep(STEP)
     expect(app.queued()).toEqual(["second"])
     expect(app.items().filter((i) => i.kind === "user").length).toBe(1) // not appended yet
 
     // Finish the first turn → the queue drains and "second" starts.
     release?.()
-    await Bun.sleep(30)
+    await Bun.sleep(STEP)
     expect(app.queued()).toEqual([])
     expect(app.items().filter((i) => i.kind === "user").length).toBe(2)
     expect(app.busy()).toBe(true)
 
     release?.()
-    await Bun.sleep(20)
+    await Bun.sleep(STEP)
     dispose()
   })
   fs.rmSync(dir, { recursive: true, force: true })
@@ -107,17 +113,17 @@ test("aborting discards queued prompts", async () => {
     engine.ready()
 
     app.submit("first")
-    await Bun.sleep(20)
+    await Bun.sleep(STEP)
     app.submit("queued one")
     app.submit("queued two")
-    await Bun.sleep(10)
+    await Bun.sleep(STEP)
     expect(app.queued().length).toBe(2)
 
     app.abort()
-    await Bun.sleep(10)
+    await Bun.sleep(STEP)
     expect(app.queued()).toEqual([]) // interrupting clears the queue
     release?.()
-    await Bun.sleep(20)
+    await Bun.sleep(STEP)
     dispose()
   })
   fs.rmSync(dir, { recursive: true, force: true })

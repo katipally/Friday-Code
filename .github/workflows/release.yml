@@ -147,7 +147,10 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: npm-${{ matrix.target }}
-          path: dist/npm/friday-code-${{ matrix.target }}
+          # dist/npm/<target>/ contains package.json + bin/. Uploading the
+          # subdir (not the file paths) preserves the target name in the
+          # zip so the npm-publish job can extract it under the same name.
+          path: dist/npm/${{ matrix.target }}
           if-no-files-found: ignore
 
   # ── 3. GitHub Release (requires the 5 STABLE builds) ─────────────────────

@@ -160,10 +160,14 @@ for (const f of ["README.md", "LICENSE"]) {
 }
 
 // --- per-target binaries + platform packages ---
+// Each per-target npm package lives in its own target-named subdir
+// (e.g. dist/npm/darwin-arm64/package.json) so that the upload step in the
+// release workflow preserves the target name in the artifact, and the
+// download step in npm-publish restores the same structure.
 const checksums: string[] = []
 for (const t of targets) {
   console.log(`▸ building ${t.name} …`)
-  const pkgDir = path.join(DIST, `npm/friday-code-${t.name}`)
+  const pkgDir = path.join(DIST, `npm/${t.name}`)
   await mkdir(path.join(pkgDir, "bin"), { recursive: true })
   const outBase = path.join(pkgDir, "bin", "friday")
 

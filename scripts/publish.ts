@@ -39,12 +39,12 @@ console.log(`=== publish v${VERSION} ===\n`)
 const summary: Record<string, string> = {}
 
 // 1. platform packages (best-effort)
-//    Build matrix uploads each per-target package as the directory
-//    `dist/npm/friday-code-<target>/` (npmPackageName in build.ts), and
-//    downloads merge them into NPM_DIR. The launcher is built locally
-//    in this job as `dist/npm/friday-code/`.
+//    Build matrix uploads each per-target package as `dist/npm/<target>/`
+//    (see scripts/build.ts: pkgDir = `npm/${t.name}`). Each target lives
+//    in its own subdir so the upload step preserves the target name and
+//    the download step restores it under the same name.
 for (const target of [...STABLE, ...OPTIONAL]) {
-  const dir = path.join(NPM_DIR, `friday-code-${target}`)
+  const dir = path.join(NPM_DIR, target)
   if (!existsSync(path.join(dir, "package.json"))) {
     if ((STABLE as readonly string[]).includes(target)) {
       console.error(`publish: missing required package dir ${dir}`)
