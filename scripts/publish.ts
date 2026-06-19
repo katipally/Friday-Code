@@ -39,8 +39,12 @@ console.log(`=== publish v${VERSION} ===\n`)
 const summary: Record<string, string> = {}
 
 // 1. platform packages (best-effort)
+//    Build matrix uploads each per-target package as the directory
+//    `dist/npm/friday-code-<target>/` (npmPackageName in build.ts), and
+//    downloads merge them into NPM_DIR. The launcher is built locally
+//    in this job as `dist/npm/friday-code/`.
 for (const target of [...STABLE, ...OPTIONAL]) {
-  const dir = path.join(NPM_DIR, `npm-${target}`)
+  const dir = path.join(NPM_DIR, `friday-code-${target}`)
   if (!existsSync(path.join(dir, "package.json"))) {
     if ((STABLE as readonly string[]).includes(target)) {
       console.error(`publish: missing required package dir ${dir}`)
@@ -53,7 +57,7 @@ for (const target of [...STABLE, ...OPTIONAL]) {
 }
 
 // 2. launcher (required)
-const launcherDir = path.join(NPM_DIR, "npm-launcher")
+const launcherDir = path.join(NPM_DIR, "friday-code")
 if (!existsSync(path.join(launcherDir, "package.json"))) {
   console.error("publish: missing required launcher dir", launcherDir)
   process.exit(1)
