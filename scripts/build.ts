@@ -27,6 +27,7 @@ const ROOT = path.resolve(import.meta.dir, "..")
 const ENTRY = path.join(ROOT, "packages/cli/src/index.tsx")
 const DIST = path.join(ROOT, "dist")
 const SHIM_SRC = path.join(ROOT, "packaging/friday-code")
+const PLATFORM_README_SRC = path.join(ROOT, "packaging/platforms/README.md")
 
 type Target = {
   name: string
@@ -203,17 +204,30 @@ for (const t of targets) {
       {
         name: t.npmPackageName,
         version: VERSION,
-        description: `Prebuilt Friday binary for ${t.name}.`,
+        description: `Prebuilt friday binary for ${t.name}.`,
         license: "MIT",
+        author: shimPkg.author,
+        homepage: shimPkg.homepage,
         repository: shimPkg.repository,
+        bugs: shimPkg.bugs,
+        keywords: shimPkg.keywords,
         os: [t.os],
         cpu: [t.cpu],
-        files: ["bin/"],
+        files: ["bin/", "README.md", "LICENSE"],
       },
       null,
       2,
     )}\n`,
   )
+
+  // Per-platform README so the npm package page renders useful content
+  // instead of falling back to the auto-generated package.json dump.
+  const platformReadmeTpl = await readFile(PLATFORM_README_SRC, "utf8")
+  await writeFile(
+    path.join(pkgDir, "README.md"),
+    platformReadmeTpl.replace(/\{\{TARGET\}\}/g, t.name),
+  )
+  await copyFile(path.join(ROOT, "LICENSE"), path.join(pkgDir, "LICENSE"))
 
   // Raw binary for GitHub Release + checksum.
   const releaseName = `friday-${t.name}${t.win ? ".exe" : ""}`
