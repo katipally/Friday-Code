@@ -1,6 +1,6 @@
 {
   "name": "friday-code",
-  "version": "2.0.0",
+  "version": "0.0.0-private",
   "description": "A terminal AI coding agent — animated TUI, multi-provider, tool-calling. Ships as a self-contained binary; no runtime required.",
   "license": "MIT",
   "author": "Yashwanth Reddy Katipally",
@@ -26,6 +26,9 @@
     "gemini"
   ],
   "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
   "bin": {
     "friday": "bin/friday.mjs"
   },
@@ -35,13 +38,13 @@
     "LICENSE"
   ],
   "optionalDependencies": {
-    "friday-code-darwin-arm64": "2.0.0",
-    "friday-code-darwin-x64": "2.0.0",
-    "friday-code-linux-x64": "2.0.0",
-    "friday-code-linux-arm64": "2.0.0",
-    "friday-code-linux-x64-musl": "2.0.0",
-    "friday-code-linux-arm64-musl": "2.0.0",
-    "friday-code-windows-x64": "2.0.0",
-    "friday-code-windows-arm64": "2.0.0"
+    "friday-code-darwin-arm64": "0.0.0-private",
+    "friday-code-darwin-x64": "0.0.0-private",
+    "friday-code-linux-x64": "0.0.0-private",
+    "friday-code-linux-arm64": "0.0.0-private",
+    "friday-code-linux-x64-musl": "0.0.0-private",
+    "friday-code-linux-arm64-musl": "0.0.0-private",
+    "friday-code-windows-x64": "0.0.0-private",
+    "friday-code-windows-arm64": "0.0.0-private"
   }
 }

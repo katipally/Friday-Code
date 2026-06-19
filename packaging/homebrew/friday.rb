@@ -6,7 +6,7 @@
 class Friday < Formula
   desc "Terminal AI coding agent — animated TUI, multi-provider, tool-calling"
   homepage "https://github.com/katipally/friday-code"
-  version "2.0.0"
+  version "0.0.0-private" # rendered from the release tag at publish time
   license "MIT"
 
   on_macos do

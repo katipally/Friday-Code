@@ -1,5 +1,5 @@
 {
-  "version": "2.0.0",
+  "version": "0.0.0-private",
   "description": "Terminal AI coding agent — animated TUI, multi-provider, tool-calling",
   "homepage": "https://github.com/katipally/friday-code",
   "license": "MIT",

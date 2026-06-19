@@ -33,6 +33,22 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Guard against version drift
+        # All internal package.json files must be pinned to "0.0.0-private" —
+        # the real version is derived from the git tag at release time. This
+        # fails the build if anyone re-introduces a hardcoded version.
+        run: |
+          set -euo pipefail
+          bad=$(grep -rE '^  "version":' packages/*/package.json packaging/friday-code/package.json package.json \
+                | grep -vE '^[^:]+:  "version": "0\.0\.0-private"' || true)
+          if [ -n "$bad" ]; then
+            echo "✖ these package.json files have hardcoded versions:" >&2
+            echo "$bad" >&2
+            echo "   → set version to \"0.0.0-private\" (the real version comes from the git tag at release time)" >&2
+            exit 1
+          fi
+          echo "✓ all manifests pinned to 0.0.0-private"
+
       - name: Lint & format (Biome)
         run: bunx biome ci packages scripts
 

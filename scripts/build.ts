@@ -110,23 +110,40 @@ const wanted = args.filter((a) => a.startsWith("--target=")).map((a) => a.slice(
 const hostName = `${process.platform}-${process.arch}`
 
 let targets: Target[]
-if (args.includes("--all")) targets = TARGETS
-else if (wanted.length) targets = TARGETS.filter((t) => wanted.includes(t.name))
-else targets = TARGETS.filter((t) => t.name === hostName)
+let launcherOnly = false
+if (wanted[0] === "__launcher__") {
+  // Special mode: build only the launcher npm package (no native binaries).
+  // Used by the `npm-publish` job so the launcher is not tied to any specific
+  // native runner. The launcher assembly below still runs; only the per-target
+  // binary loop is skipped.
+  launcherOnly = true
+  targets = []
+} else if (args.includes("--all")) {
+  targets = TARGETS
+} else if (wanted.length) {
+  targets = TARGETS.filter((t) => wanted.includes(t.name))
+} else {
+  targets = TARGETS.filter((t) => t.name === hostName)
+}
 
-if (targets.length === 0) {
+if (!launcherOnly && targets.length === 0) {
   console.error(`No build targets selected (host=${hostName}). Known: ${TARGETS.map((t) => t.name).join(", ")}.`)
   process.exit(1)
 }
 
 const shimPkg = JSON.parse(await readFile(path.join(SHIM_SRC, "package.json"), "utf8"))
-const RAW_VERSION: string = process.env.FRIDAY_VERSION ?? shimPkg.version
+// FRIDAY_VERSION is set by the release workflow from the git tag. Locally (no
+// env), default to "dev" so `bun run scripts/build.ts` produces a binary that
+// self-reports as "dev" — matching the source-mode fallback in cli/src/index.tsx.
+const RAW_VERSION: string = process.env.FRIDAY_VERSION ?? "dev"
 const VERSION = RAW_VERSION.replace(/^v(?=\d)/, "")
-if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(VERSION)) {
+if (VERSION !== "dev" && !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(VERSION)) {
   console.error(`Invalid release version "${RAW_VERSION}". Expected semver like 2.0.0 or v2.0.0.`)
   process.exit(1)
 }
-console.log(`Friday build · version ${VERSION} · targets: ${targets.map((t) => t.name).join(", ")}\n`)
+console.log(
+  `Friday build · version ${VERSION} · targets: ${launcherOnly ? "(launcher only)" : targets.map((t) => t.name).join(", ")}\n`,
+)
 
 await rm(DIST, { recursive: true, force: true })
 await mkdir(path.join(DIST, "bin"), { recursive: true })
@@ -203,5 +220,7 @@ for (const t of targets) {
   console.log(`  ✓ ${releaseName}`)
 }
 
-await writeFile(path.join(DIST, "bin/SHASUMS256.txt"), `${checksums.join("\n")}\n`)
+if (!launcherOnly) {
+  await writeFile(path.join(DIST, "bin/SHASUMS256.txt"), `${checksums.join("\n")}\n`)
+}
 console.log(`\nDone → ${path.relative(ROOT, DIST)}/  (npm packages in dist/npm, binaries in dist/bin)`)

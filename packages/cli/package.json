@@ -1,10 +1,12 @@
 {
   "name": "@friday/cli",
-  "version": "2.0.0",
+  "version": "0.0.0-private",
   "private": true,
   "license": "MIT",
   "type": "module",
-  "bin": { "friday": "src/index.tsx" },
+  "bin": {
+    "friday": "src/index.tsx"
+  },
   "dependencies": {
     "@friday/core": "workspace:*",
     "@friday/tui": "workspace:*"

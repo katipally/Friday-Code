@@ -1,6 +1,6 @@
 {
   "name": "friday-code-workspace",
-  "version": "2.0.0",
+  "version": "0.0.0-private",
   "private": true,
   "description": "Monorepo workspace for Friday Code — a terminal AI coding agent. The published artifact is the `friday-code` package built from this workspace.",
   "license": "MIT",
@@ -14,7 +14,9 @@
     "url": "https://github.com/katipally/friday-code/issues"
   },
   "type": "module",
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "engines": {
     "bun": ">=1.3.0"
   },
@@ -23,12 +25,14 @@
     "friday": "bun run packages/cli/src/index.tsx",
     "dev": "bun --watch run packages/cli/src/index.tsx",
     "test": "bun test",
-    "typecheck": "tsc --noEmit -p packages/shared/tsconfig.json && tsc --noEmit -p packages/providers/tsconfig.json && tsc --noEmit -p packages/tools/tsconfig.json && tsc --noEmit -p packages/mcp/tsconfig.json && tsc --noEmit -p packages/lsp/tsconfig.json && tsc --noEmit -p packages/core/tsconfig.json && tsc --noEmit -p packages/tui/tsconfig.json && tsc --noEmit -p packages/cli/tsconfig.json",
-    "lint": "biome lint packages",
-    "format": "biome format --write packages",
-    "check": "biome check packages",
-    "ci": "biome ci packages && bun run typecheck && bun test",
-    "build": "bun run scripts/build.ts"
+    "typecheck": "tsc --noEmit -p packages/shared/tsconfig.json && tsc --noEmit -p packages/providers/tsconfig.json && tsc --noEmit -p packages/tools/tsconfig.json && tsc --noEmit -p packages/mcp/tsconfig.json && tsc --noEmit -p packages/lsp/tsconfig.json && tsc --noEmit -p packages/core/tsconfig.json && tsc --noEmit -p packages/tui/tsconfig.json && tsc --noEmit -p packages/cli/tsconfig.json && tsc --noEmit -p scripts/tsconfig.json",
+    "lint": "biome lint packages scripts",
+    "format": "biome format --write packages scripts",
+    "check": "biome check packages scripts",
+    "ci": "biome ci packages scripts && bun run typecheck && bun test",
+    "build": "bun run scripts/build.ts",
+    "version": "bun run scripts/version.ts",
+    "publish": "bun run scripts/publish.ts"
   },
   "dependencies": {
     "@opentui/core": "0.4.1",
