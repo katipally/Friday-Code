@@ -22,6 +22,15 @@
 import { existsSync } from "node:fs"
 import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
+import solidTransformPlugin from "@opentui/solid/bun-plugin"
+
+// The Solid babel plugin is the difference between a working TUI and one
+// that throws "useApp must be used within <AppProvider>" on launch. Without
+// it, bun's default JSX transform does NOT wrap component children in lazy
+// getters, so `<AppRoot />` inside `<AppProvider>` is evaluated eagerly,
+// before `AppContext.Provider` sets the context. Dev mode works because
+// bunfig.toml preloads the same plugin for `bun run`; for `Bun.build()`
+// (used below) we pass it explicitly via the `plugins` option.
 
 const ROOT = path.resolve(import.meta.dir, "..")
 const ENTRY = path.join(ROOT, "packages/cli/src/index.tsx")
@@ -172,26 +181,34 @@ for (const t of targets) {
   await mkdir(path.join(pkgDir, "bin"), { recursive: true })
   const outBase = path.join(pkgDir, "bin", "friday")
 
-  const proc = Bun.spawnSync(
-    [
-      "bun",
-      "build",
-      ENTRY,
-      "--compile",
-      `--target=${t.bun}`,
-      // Don't read the user's cwd bunfig.toml at runtime: it's only needed for the
-      // dev-time Solid JSX transform, and honoring it would let a cwd config inject
-      // preload scripts into Friday's process. Frozen, deterministic behavior.
-      "--no-compile-autoload-bunfig",
-      "--define",
-      `__FRIDAY_VERSION__="${VERSION}"`,
-      "--outfile",
-      outBase,
-    ],
-    { stdout: "inherit", stderr: "inherit", cwd: ROOT },
-  )
-  if (proc.exitCode !== 0) {
-    console.error(`\nbuild failed for ${t.name} (exit ${proc.exitCode}).`)
+  // Use the Bun.build() JS API instead of spawning `bun build` CLI: the CLI
+  // does not accept `--plugin` (and there's no way to pass JS-API plugins from
+  // a subprocess), which means JSX in our `.tsx` sources is transformed by
+  // bun's default (non-Solid) JSX transform. That default transform does NOT
+  // wrap component children in lazy getters — so `AppRoot` is evaluated
+  // eagerly inside `App`, before `AppContext.Provider` sets the context, and
+  // the published binary throws "useApp must be used within <AppProvider>"
+  // on launch. `Bun.build({ plugins })` lets us load the Solid babel plugin
+  // directly, producing the correct lazy-children shape (and matching dev
+  // mode, where bunfig.toml's preload registers the same plugin).
+  const result = await Bun.build({
+    entrypoints: [ENTRY],
+    compile: {
+      target: t.bun as Bun.Build.CompileTarget,
+      outfile: outBase,
+      // Frozen, deterministic behavior: the runtime bunfig.toml is not read
+      // (a user's cwd config can't inject preload scripts into Friday's
+      // process).
+      autoloadBunfig: false,
+    },
+    define: {
+      __FRIDAY_VERSION__: JSON.stringify(VERSION),
+    },
+    plugins: [solidTransformPlugin],
+  })
+  if (!result.success) {
+    console.error(`\nbuild failed for ${t.name}.`)
+    for (const log of result.logs) console.error(log)
     if (t.name !== hostName)
       console.error("Cross-compiling needs that platform's native OpenTUI lib; build on a native runner.")
     process.exit(1)
@@ -223,10 +240,7 @@ for (const t of targets) {
   // Per-platform README so the npm package page renders useful content
   // instead of falling back to the auto-generated package.json dump.
   const platformReadmeTpl = await readFile(PLATFORM_README_SRC, "utf8")
-  await writeFile(
-    path.join(pkgDir, "README.md"),
-    platformReadmeTpl.replace(/\{\{TARGET\}\}/g, t.name),
-  )
+  await writeFile(path.join(pkgDir, "README.md"), platformReadmeTpl.replace(/\{\{TARGET\}\}/g, t.name))
   await copyFile(path.join(ROOT, "LICENSE"), path.join(pkgDir, "LICENSE"))
 
   // Raw binary for GitHub Release + checksum.
