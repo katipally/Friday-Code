@@ -215,21 +215,24 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with: { bun-version: "1.3.11" }
 
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Build the launcher FIRST — it does `rm -rf dist/` at the start, so it
+      # must run before the artifact download (otherwise it would wipe the
+      # downloaded platform packages).
+      - name: Build launcher package
+        run: bun run scripts/build.ts --target=__launcher__
+        env:
+          FRIDAY_VERSION: ${{ needs.release.outputs.tag }}
+
+      # Download the per-platform packages. merge-multiple + the existing
+      # dist/npm/friday-code/ directory → all 9 packages coexist.
       - uses: actions/download-artifact@v8
         with:
           pattern: npm-*
           path: dist/npm
           merge-multiple: true
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      # Rebuild the launcher npm package here — it's OS-independent so it
-      # shouldn't be tied to whichever native runner happened to upload it.
-      - name: Build launcher package
-        run: bun run scripts/build.ts --target=__launcher__
-        env:
-          FRIDAY_VERSION: ${{ needs.release.outputs.tag }}
 
       - name: Publish npm + open Homebrew/Scoop PRs
         run: bun run scripts/publish.ts
