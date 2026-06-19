@@ -227,6 +227,10 @@ jobs:
   npm-publish:
     name: npm publish
     needs: github-release
+    # Explicitly handle the case where experimental builds failed (build-musl, build-win-arm64)
+    # but the release itself succeeded. Without this, GitHub Actions skips npm-publish when
+    # any transitive dependency failed, even if the direct dependency (github-release) succeeded.
+    if: always() && needs.github-release.result == 'success'
     runs-on: ubuntu-latest
     environment: release # optional extra reviewer gate in repo settings
     permissions:
