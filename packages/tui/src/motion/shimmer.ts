@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js"
 import { lighten } from "../util/colors.ts"
+import { hasTruecolor } from "../util/term.ts"
 import { motion } from "./config.ts"
 
 /**
@@ -28,9 +29,13 @@ export function shimmerPhase(): number {
   return phase()
 }
 
-/** The current shimmering tint of `accent` (a gentle pulse toward white). Static if reduced-motion. */
+/**
+ * The current shimmering tint of `accent` (a gentle pulse toward white). Static if reduced-motion,
+ * or on 256-color terminals where the smooth pulse would band into the nearest palette cells —
+ * there we hold the solid accent (an exact palette member) so it renders clean instead of blocky.
+ */
 export function shimmerAccent(accent: string, amt = 0.22): string {
-  if (motion.reduced()) return accent
+  if (motion.reduced() || !hasTruecolor) return accent
   const wave = (Math.sin(shimmerPhase() * Math.PI * 2) + 1) / 2 // 0..1
   return lighten(accent, wave * amt)
 }

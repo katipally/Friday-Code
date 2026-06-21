@@ -29,7 +29,7 @@ export const MODES: readonly Mode[] = [
     id: "default",
     label: "default",
     glyph: "◈", // guarded — asks before edits & commands
-    accent: "#9aa5ce", // slate blue-grey — neutral & calm, so default mode doesn't visually shout
+    accent: "#87afd7", // slate blue-grey — neutral & calm; exact xterm-256 cube member (110) so it renders the same hue on Terminal.app
     hint: "asks before edits & commands",
     policy: { edit: "ask", bash: "ask", network: "ask" },
   },
@@ -37,7 +37,7 @@ export const MODES: readonly Mode[] = [
     id: "plan",
     label: "plan",
     glyph: "◐",
-    accent: "#38bdf8", // cyan/blue
+    accent: "#5fafff", // cyan/blue — exact xterm-256 cube member (75)
     hint: "read-only · proposes a plan you review, then run",
     policy: { edit: "deny", bash: "ask", network: "ask" },
   },
@@ -45,7 +45,7 @@ export const MODES: readonly Mode[] = [
     id: "yolo",
     label: "yolo",
     glyph: "⚡", // full auto — no prompts
-    accent: "#f5a623", // amber/gold — full-auto, proceed-with-caution
+    accent: "#ffaf00", // amber/gold — full-auto, proceed-with-caution; exact xterm-256 cube member (214)
     hint: "full auto · no prompts",
     policy: { edit: "allow", bash: "allow", network: "allow" },
   },

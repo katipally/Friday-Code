@@ -19,11 +19,13 @@ const term = process.env.TERM ?? ""
  * truecolor without setting it. Apple Terminal sets none of these, so it correctly falls through.
  */
 export const hasTruecolor =
-  /truecolor|24bit/i.test(process.env.COLORTERM ?? "") ||
-  /direct|kitty|ghostty|alacritty/i.test(term) ||
-  !!process.env.WT_SESSION ||
-  !!process.env.KITTY_WINDOW_ID ||
-  ["iTerm.app", "WezTerm", "ghostty", "vscode", "Hyper"].includes(termProgram)
+  // FRIDAY_NO_TRUECOLOR=1 forces the 256-color path so it can be previewed from any terminal.
+  !/^(1|true)$/i.test(process.env.FRIDAY_NO_TRUECOLOR ?? "") &&
+  (/truecolor|24bit/i.test(process.env.COLORTERM ?? "") ||
+    /direct|kitty|ghostty|alacritty/i.test(term) ||
+    !!process.env.WT_SESSION ||
+    !!process.env.KITTY_WINDOW_ID ||
+    ["iTerm.app", "WezTerm", "ghostty", "vscode", "Hyper"].includes(termProgram))
 
 /**
  * Whether to avoid wide/emoji glyphs. We render the FULL glyph set in every terminal (like opencode)

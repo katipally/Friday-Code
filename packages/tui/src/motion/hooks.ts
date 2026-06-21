@@ -1,6 +1,7 @@
 import { theme } from "@friday/shared"
 import { type Accessor, createEffect, createSignal, on, onCleanup, onMount } from "solid-js"
 import { lighten, mix } from "../util/colors.ts"
+import { hasTruecolor } from "../util/term.ts"
 import { type AnimateOpts, animate } from "./animate.ts"
 import { motion } from "./config.ts"
 import { easeOutQuad } from "./easing.ts"
@@ -74,7 +75,8 @@ export function useBreathe(accent: Accessor<string>, active: Accessor<boolean>, 
     onCleanup(() => clearInterval(timer))
   })
   return () => {
-    if (!active() || motion.reduced()) return accent()
+    // Solid on 256-color terminals: the pulse toward white would band into palette cells.
+    if (!active() || motion.reduced() || !hasTruecolor) return accent()
     const wave = (Math.sin(phase() * Math.PI * 2) + 1) / 2 // 0..1
     return lighten(accent(), wave * 0.35)
   }
@@ -98,7 +100,8 @@ export function useHover(opts: { hover?: string; base?: string; duration?: numbe
   const [hovered, setHovered] = createSignal(false)
   let stop: (() => void) | undefined
   const go = (to: number) => {
-    if (motion.reduced()) return setP(to)
+    // No tween on 256-color terminals — the mix() fade only shows 2-3 stepped cells; snap instead.
+    if (motion.reduced() || !hasTruecolor) return setP(to)
     stop?.()
     stop = animate(p(), to, setP, { duration: opts.duration ?? 120, ease: easeOutQuad })
   }

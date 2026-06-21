@@ -4,6 +4,7 @@ import { motion } from "../motion/config.ts"
 import { shimmerPhase } from "../motion/index.ts"
 import { useApp } from "../store.tsx"
 import { lighten } from "../util/colors.ts"
+import { hasTruecolor } from "../util/term.ts"
 
 /**
  * The `friday` wordmark, hand-built from half-block subpixels (▀ ▄ █) like opencode's logo.
@@ -42,6 +43,9 @@ export function Logo() {
 
   const colorAt = (col: number): string => {
     const accent = getMode(app.mode()).accent
+    // 256-color terminals (Terminal.app) can't render the smooth per-column sweep without banding,
+    // so hold the solid accent — an exact palette member — for a clean, identical wordmark.
+    if (!hasTruecolor) return accent
     if (motion.reduced()) return lighten(accent, 0.12)
     const phase = shimmerPhase() // 0..1, shared clock
     // Highlight center travels across the full width plus a margin so it enters/exits cleanly.
