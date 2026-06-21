@@ -26,7 +26,7 @@ function fmtElapsed(ms?: number): string {
     .padStart(2, "0")}s`
 }
 
-/** User prompt: a right-aligned rounded bubble whose border is colored by the mode it was sent in. */
+/** User prompt: a right-aligned bubble whose sharp border is colored by the mode it was sent in. */
 function UserBubble(props: { item: Extract<ViewItem, { kind: "user" }> }) {
   const app = useApp()
   const renderer = useRenderer()
@@ -50,7 +50,7 @@ function UserBubble(props: { item: Extract<ViewItem, { kind: "user" }> }) {
           gap={1}
           maxWidth="85%"
           border
-          borderStyle="rounded"
+          borderStyle="single"
           borderColor={accent()}
           backgroundColor={theme.bgComposer}
           paddingLeft={1}
@@ -77,7 +77,7 @@ function UserBubble(props: { item: Extract<ViewItem, { kind: "user" }> }) {
 }
 
 /** Assistant reply: rendered flush on the background with a ⏺ marker tinted by the mode the reply
- * ran in (so you can tell at a glance whether it was plan/default/accept/yolo); reasoning is a ╰ branch. */
+ * ran in (so you can tell at a glance whether it was plan/default/yolo); reasoning is a ╰ branch. */
 function AssistantMessage(props: { item: Extract<ViewItem, { kind: "assistant" }> }) {
   const app = useApp()
   const renderer = useRenderer()
@@ -150,7 +150,7 @@ function NoticeBubble(props: { item: Extract<ViewItem, { kind: "notice" }> }) {
     <box flexDirection="row" justifyContent="center" marginBottom={1}>
       <box
         border
-        borderStyle="rounded"
+        borderStyle="single"
         borderColor={theme.border}
         paddingLeft={1}
         paddingRight={1}
@@ -180,7 +180,7 @@ function BreakerRow(props: { item: Extract<ViewItem, { kind: "breaker" }> }) {
         <box flexGrow={1} flexBasis={0} minWidth={0} height={1} overflow="hidden">
           <text fg={tint()}>{rule}</text>
         </box>
-        <box border borderStyle="rounded" borderColor={tint()} paddingLeft={1} paddingRight={1} flexShrink={0}>
+        <box border borderStyle="single" borderColor={tint()} paddingLeft={1} paddingRight={1} flexShrink={0}>
           <text fg={tint()}>
             {modeGlyph(props.item.mode)} {props.item.label}
           </text>
@@ -209,8 +209,9 @@ function ErrorBubble(props: { item: Extract<ViewItem, { kind: "error" }> }) {
   )
 }
 
-export function Chat() {
+export function Chat(props: { pad?: number }) {
   const app = useApp()
+  const pad = () => props.pad ?? 1
   let sb: any
   // Freeze scroll-back keys whenever a modal owns the keyboard (single source of truth in store).
   const canScroll = () => app.view() === "shell" && !app.anyModalOpen()
@@ -228,7 +229,8 @@ export function Chat() {
 
   return (
     <Show when={app.items().length > 0} fallback={<EmptyHome />}>
-      {/* paddingRight leaves a buffer so the scrollbar never overlaps the message text. */}
+      {/* The scrollbar sits on the far-right edge with a 1-col gap (paddingLeft) so it never touches
+          the message text; track/thumb are subtle so it reads as a quiet edge affordance. */}
       <scrollbox
         ref={(r: any) => (sb = r)}
         flexGrow={1}
@@ -236,34 +238,52 @@ export function Chat() {
         stickyScroll
         stickyStart="bottom"
         paddingTop={1}
-        paddingRight={1}
+        verticalScrollbarOptions={{
+          showArrows: false,
+          paddingLeft: 1,
+          trackOptions: { backgroundColor: theme.borderMuted, foregroundColor: theme.borderActive },
+        }}
       >
-        <For each={app.items()}>
-          {(item) => (
-            <Appear distance={1} duration={170}>
-              <Switch>
-                <Match when={item.kind === "user"}>
-                  <UserBubble item={item as any} />
-                </Match>
-                <Match when={item.kind === "assistant"}>
-                  <AssistantMessage item={item as any} />
-                </Match>
-                <Match when={item.kind === "tool"}>
-                  <ToolCard item={item as any} />
-                </Match>
-                <Match when={item.kind === "error"}>
-                  <ErrorBubble item={item as any} />
-                </Match>
-                <Match when={item.kind === "notice"}>
-                  <NoticeBubble item={item as any} />
-                </Match>
-                <Match when={item.kind === "breaker"}>
-                  <BreakerRow item={item as any} />
-                </Match>
-              </Switch>
-            </Appear>
-          )}
-        </For>
+        {/* Content inset keeps the conversation centered/aligned with the composer while the
+            scrollbox (and its scrollbar) spans to the terminal edge. */}
+        <box flexDirection="column" paddingLeft={pad()} paddingRight={pad()}>
+          <For each={app.items()}>
+            {(item) => {
+              const body = (
+                <Switch>
+                  <Match when={item.kind === "user"}>
+                    <UserBubble item={item as any} />
+                  </Match>
+                  <Match when={item.kind === "assistant"}>
+                    <AssistantMessage item={item as any} />
+                  </Match>
+                  <Match when={item.kind === "tool"}>
+                    <ToolCard item={item as any} />
+                  </Match>
+                  <Match when={item.kind === "error"}>
+                    <ErrorBubble item={item as any} />
+                  </Match>
+                  <Match when={item.kind === "notice"}>
+                    <NoticeBubble item={item as any} />
+                  </Match>
+                  <Match when={item.kind === "breaker"}>
+                    <BreakerRow item={item as any} />
+                  </Match>
+                </Switch>
+              )
+              // A streaming assistant reply re-renders every flush as tokens arrive; wrapping it in the
+              // enter-animation makes that growth look glitchy. Animate only settled items.
+              const streaming = item.kind === "assistant" && !(item as any).done
+              return streaming ? (
+                body
+              ) : (
+                <Appear distance={1} duration={170}>
+                  {body}
+                </Appear>
+              )
+            }}
+          </For>
+        </box>
       </scrollbox>
     </Show>
   )

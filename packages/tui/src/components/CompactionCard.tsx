@@ -37,7 +37,7 @@ export function CompactionCard() {
           flexDirection="column"
           width={46}
           border
-          borderStyle="rounded"
+          borderStyle="single"
           borderColor={shimmerAccent(accent())}
           backgroundColor={theme.bgElevated}
           paddingLeft={2}
@@ -91,8 +91,8 @@ export function CompactionSummary() {
           flexDirection="column"
           width={W()}
           border
-          borderStyle="rounded"
-          borderColor={accent()}
+          borderStyle="single"
+          borderColor={theme.border}
           backgroundColor={theme.bgElevated}
           paddingLeft={2}
           paddingRight={2}

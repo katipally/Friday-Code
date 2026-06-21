@@ -12,7 +12,7 @@ export function FileChip(props: { chip: Chip; accent: string; onOpen: () => void
   return (
     <box
       border
-      borderStyle="rounded"
+      borderStyle="single"
       borderColor={props.chip.abs ? props.accent : h.hovered() ? theme.borderActive : theme.border}
       backgroundColor={h.bg()}
       paddingLeft={1}

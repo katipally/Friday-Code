@@ -4,7 +4,7 @@
  * `policy` is the default permission posture the engine applies (consumed in M2); the UI only needs
  * id/label/glyph/accent/hint for M0.
  */
-export type ModeId = "plan" | "default" | "accept-edit" | "yolo"
+export type ModeId = "plan" | "default" | "yolo"
 
 export type PermissionPolicy = {
   /** edits to files (write/edit/multi-edit) */
@@ -42,18 +42,10 @@ export const MODES: readonly Mode[] = [
     policy: { edit: "deny", bash: "ask", network: "ask" },
   },
   {
-    id: "accept-edit",
-    label: "accept edits",
-    glyph: "✎", // auto-applies edits
-    accent: "#f5a623", // amber/gold
-    hint: "auto-applies edits · asks for bash & network",
-    policy: { edit: "allow", bash: "ask", network: "ask" },
-  },
-  {
     id: "yolo",
     label: "yolo",
     glyph: "⚡", // full auto — no prompts
-    accent: "#f7768e", // red/magenta
+    accent: "#f5a623", // amber/gold — full-auto, proceed-with-caution
     hint: "full auto · no prompts",
     policy: { edit: "allow", bash: "allow", network: "allow" },
   },

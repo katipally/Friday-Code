@@ -5,7 +5,27 @@ import { start } from "@friday/tui"
 // Stamped at compile time by scripts/build.ts via --define; "dev" when run from source.
 // `typeof` guards the reference so an undefined global never throws at runtime.
 declare const __FRIDAY_VERSION__: string
-const VERSION = typeof __FRIDAY_VERSION__ === "string" ? __FRIDAY_VERSION__ : "dev"
+const STAMPED = typeof __FRIDAY_VERSION__ === "string" ? __FRIDAY_VERSION__ : "dev"
+// Release builds carry the tag-stamped version. Running from source it's "dev" —
+// fall back to `git describe` so the top bar reflects local development.
+// ponytail: one git call, dev-only; "dev" if not a git checkout.
+function devVersion(): string {
+  try {
+    const r = Bun.spawnSync(["git", "describe", "--tags", "--always", "--dirty"], {
+      cwd: import.meta.dir,
+      stdout: "pipe",
+      stderr: "ignore",
+    })
+    const out = r.stdout
+      .toString()
+      .trim()
+      .replace(/^v(?=\d)/, "")
+    return out || "dev"
+  } catch {
+    return "dev"
+  }
+}
+const VERSION = STAMPED === "dev" ? devVersion() : STAMPED
 
 const HELP = `friday — a terminal AI coding agent
 
@@ -46,7 +66,7 @@ if (argv[0] === "-v" || argv[0] === "--version") {
   }
   const engine = new Engine({ cwd: process.cwd(), resumeId, continueLast })
   await engine.init() // connect MCP servers (no-op if none configured)
-  start(engine)
+  await start(engine, VERSION)
 }
 
 async function runHeadless(args: string[]): Promise<void> {

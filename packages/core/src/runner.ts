@@ -46,7 +46,14 @@ import {
   WORKTREE_LIST,
 } from "@friday/tools"
 import { type AgentDef, loadAgents } from "./agents.ts"
-import { applyFiles, type Checkpoint, readOrNull, snapshotFile } from "./checkpoints.ts"
+import {
+  applyFiles,
+  type Checkpoint,
+  deserializeCheckpoints,
+  readOrNull,
+  serializeCheckpoints,
+  snapshotFile,
+} from "./checkpoints.ts"
 import { type CustomCommand, loadCommands } from "./commands.ts"
 import { COMPACTION, collapseToolOutputs, estimateTokens, renderTranscript, safeCutIndex } from "./compaction.ts"
 import { loadProjectContext, type ProjectContext } from "./context.ts"
@@ -56,7 +63,7 @@ import { deleteMemory, listMemory, memoryDigest, saveMemory } from "./memory.ts"
 import { collectImages, expandMentions } from "./mentions.ts"
 import { customAgentPrompt, subagentPrompt, systemPrompt } from "./prompt.ts"
 import { bashRisk, matchesList } from "./safety.ts"
-import type { SessionStore } from "./sessions.ts"
+import type { PlanRow, SessionStore } from "./sessions.ts"
 import { loadSkills, type Skill } from "./skills.ts"
 import type { StreamFn } from "./stream.ts"
 
@@ -331,6 +338,7 @@ export class SessionRunner {
   private redoState?: { files: Map<string, string | null>; messages: Message[] }
 
   private todos: TodoItem[] = []
+  private plans: PlanRow[] = []
   private compaction?: { summary: string; throughIndex: number }
   /** Abort controller for an in-flight compaction summarize call — lets the user STOP it. */
   private compactionAbort?: AbortController
@@ -350,6 +358,10 @@ export class SessionRunner {
     this.cwd = this.roots[0]!
     this.messages = host.store.loadMessages(row.id)
     this.seq = this.messages.length
+    // Restore per-session UI state (todos, plans, rewind checkpoints) so resuming feels continuous.
+    this.todos = host.store.loadTodos(row.id)
+    this.plans = host.store.loadPlans(row.id)
+    this.checkpoints = deserializeCheckpoints(host.store.loadCheckpointsJson(row.id))
     this.context = loadProjectContext(this.roots)
     this.skills = loadSkills(this.roots)
     this.agents = loadAgents(this.roots)
@@ -501,12 +513,28 @@ export class SessionRunner {
     return { messages, tokens: this.totalTokens, durationMs: now() - this.startedAt }
   }
   listCheckpoints(): { id: string; label: string; createdAt: number; files: number }[] {
-    return this.checkpoints
-      .map((c) => ({ id: c.id, label: c.label, createdAt: c.createdAt, files: c.files.size }))
-      .reverse()
+    // Chronological: oldest first, newest last (the UI focuses the newest at the bottom).
+    return this.checkpoints.map((c) => ({ id: c.id, label: c.label, createdAt: c.createdAt, files: c.files.size }))
   }
   hasRedo(): boolean {
     return !!this.redoState
+  }
+
+  private persistCheckpoints(): void {
+    this.host.store.setCheckpointsJson(this.sessionId, serializeCheckpoints(this.checkpoints))
+  }
+  /** Record a plan (title = first non-empty line), persist it, and surface the execute gate. */
+  private recordPlan(plan: string): void {
+    const title =
+      plan
+        .split("\n")
+        .map((s) => s.trim())
+        .find(Boolean)
+        ?.replace(/^#+\s*/, "")
+        .slice(0, 60) ?? "plan"
+    this.plans.push({ id: this.host.nextId(), title, text: plan })
+    this.host.store.setPlans(this.sessionId, this.plans)
+    this.emit({ type: "plan-ready", plan })
   }
 
   /** Emit this session's full current state (on focus / resume). */
@@ -528,6 +556,7 @@ export class SessionRunner {
         messages: this.messages,
       })
     this.emit({ type: "todos", items: this.todos })
+    this.emit({ type: "plans", items: this.plans })
     this.emitSessionFiles()
   }
 
@@ -699,6 +728,7 @@ export class SessionRunner {
       this.compaction = undefined
     }
 
+    if (scope !== "code") this.persistCheckpoints() // the checkpoint list was truncated
     const what = scope === "code" ? "files" : scope === "conversation" ? "conversation" : `to “${cp.label}”`
     this.emit({ type: "status", text: `rewound ${what}` })
     this.emit({
@@ -790,13 +820,15 @@ export class SessionRunner {
       }
       void this.hook("Stop")
       this.emitSessionFiles()
+      // The turn's checkpoint now has all its file snapshots — persist so rewind survives a restart.
+      this.persistCheckpoints()
       // Fallback: if the model finished a plan-mode turn WITHOUT calling exit_plan, still surface
       // something so the gate isn't lost — the plan is the last assistant message produced this turn.
       // The deterministic path (exit_plan) is preferred; this only runs when it wasn't used.
       if (!aborted && !this.planEmitted && this.host.selection().mode === "plan") {
         const last = [...this.messages].reverse().find((m) => m.role === "assistant" && !!m.text)
         if (last && last.role === "assistant" && last.text && last.text.trim().length > 12) {
-          this.emit({ type: "plan-ready", plan: last.text })
+          this.recordPlan(last.text)
         }
       }
       this.emit({ type: "mascot", state: "idle" })
@@ -1134,6 +1166,7 @@ export class SessionRunner {
             .filter((t) => t.text)
             .map((t, i) => ({ id: `t${i}`, text: t.text!, status: normTodoStatus(t.status) }))
           this.emit({ type: "todos", items: this.todos })
+          this.host.store.setTodos(this.sessionId, this.todos)
           const rendered = this.todos.length
             ? this.todos
                 .map((t) => `${t.status === "done" ? "[x]" : t.status === "active" ? "[~]" : "[ ]"} ${t.text}`)
@@ -1161,7 +1194,7 @@ export class SessionRunner {
             result: "Plan presented to the user for approval.",
           })
           this.emit({ type: "tool-result", callId: tc.id, ok: true, output: plan, title: "plan ready" })
-          this.emit({ type: "plan-ready", plan })
+          this.recordPlan(plan)
           this.emit({ type: "turn-done", id })
           this.activeAssistantId = undefined
           return

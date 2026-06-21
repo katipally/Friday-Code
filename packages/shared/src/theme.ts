@@ -3,7 +3,7 @@
  *
  * Clean, readable neutral dark theme with crisp borders and clear surface separation.
  * The single dynamic value is `accent`, which the UI swaps to the current mode's color
- * (see modes.ts) and applies to the frame border + active focus rings.
+ * (see modes.ts) and applies to bordered elements + active focus rings.
  */
 export const theme = {
   // surfaces — true-black canvas (like opencode) with neutral grey layers stepped far
@@ -24,8 +24,6 @@ export const theme = {
   borderMuted: "#1f1f23",
   /** hover / active edge — brighter than `border` for clear affordance */
   borderActive: "#3a3a42",
-  /** the single outermost frame around the whole app — subtle, clean */
-  frame: "#161618",
 
   // roles
   user: "#9aa5ce", // user message accent (calm)
@@ -88,7 +86,6 @@ export const THEMES: Record<string, Partial<Theme>> = {
     border: "#d0d4da",
     borderMuted: "#e2e5ea",
     borderActive: "#b3b9c2",
-    frame: "#d0d4da",
     success: "#2f8f3e",
     warning: "#b3791a",
     error: "#c0384b",
@@ -106,12 +103,37 @@ export const THEMES: Record<string, Partial<Theme>> = {
     border: "#434c5e",
     borderMuted: "#3b4252",
     borderActive: "#5e81ac",
-    frame: "#434c5e",
     success: "#a3be8c",
     warning: "#ebcb8b",
     error: "#bf616a",
     info: "#88c0d0",
   },
+}
+
+/**
+ * 256-color-safe surface/border greys for the default dark theme. The values are exact members of
+ * xterm's 24-step grey ramp (232–255), so they survive 256-color quantization unchanged instead of
+ * collapsing into each other the way the finely-stepped truecolor greys do on Terminal.app. Applied
+ * only when the terminal lacks truecolor AND the default dark theme is active.
+ */
+const COARSE_DARK: Partial<Theme> = {
+  bgComposer: "#121212", // 233
+  bgPanel: "#121212",
+  bgElevated: "#1c1c1c", // 234
+  bgHover: "#303030", // 236
+  borderMuted: "#262626", // 235
+  border: "#444444", // 238
+  borderActive: "#585858", // 240
+}
+
+/**
+ * Layer the terminal color profile onto the live `theme`. Call AFTER applyTheme(). When the terminal
+ * has no truecolor and we're on the default dark theme, swap in the 256-safe greys so panels/borders
+ * read the same as they do in a truecolor terminal.
+ */
+export function applyTerminalProfile(opts: { truecolor: boolean; themeName?: string }): void {
+  const isDefaultDark = !opts.themeName || opts.themeName === "dark"
+  if (!opts.truecolor && isDefaultDark) Object.assign(theme, COARSE_DARK)
 }
 
 export function themeNames(): string[] {

@@ -14,7 +14,6 @@ type Choice =
 
 const CHOICES: Choice[] = [
   { kind: "mode", mode: "default", label: "run · default", hint: "execute, asking before edits & commands" },
-  { kind: "mode", mode: "accept-edit", label: "run · accept-edit", hint: "auto-apply edits, ask for bash/network" },
   { kind: "mode", mode: "yolo", label: "run · yolo", hint: "full auto, no prompts" },
   { kind: "keep", label: "keep planning", hint: "close — type your next step in the composer" },
   { kind: "custom", label: "custom input…", hint: "type here to refine the plan, stay in plan mode" },
@@ -23,7 +22,7 @@ const CHOICES: Choice[] = [
 /**
  * Plan card. Two modes, driven by `app.planReadOnly()`:
  *  - EXECUTE GATE (a fresh plan-ready): shows the full plan plus a chooser for how to run it
- *    (default / accept-edit / yolo), keep planning, or custom input.
+ *    (default / yolo), keep planning, or custom input.
  *  - READ-ONLY VIEWER (a plan re-opened from the Context panel): just renders the plan for review,
  *    scrollable, with no execute options — viewing only.
  */
@@ -101,7 +100,7 @@ export function PlanCard() {
           flexDirection="column"
           width={W()}
           border
-          borderStyle="rounded"
+          borderStyle="single"
           borderColor={shimmerAccent(getMode("plan").accent)}
           backgroundColor={theme.bgElevated}
           paddingLeft={2}
@@ -157,7 +156,7 @@ export function PlanCard() {
               Kept as a TOP-LEVEL sibling (not nested inside the !readOnly Show) so re-renders never
               destroy/recreate it mid-typing, which would silently drop focus. */}
           <Show when={!readOnly() && typing()}>
-            <box border borderStyle="rounded" borderColor={accent()} paddingLeft={1} paddingRight={1}>
+            <box border borderStyle="single" borderColor={theme.border} paddingLeft={1} paddingRight={1}>
               <textarea
                 ref={(r: any) => (input = r)}
                 onSubmit={submitRefine}

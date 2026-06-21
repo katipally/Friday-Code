@@ -7,7 +7,7 @@ import { Logo } from "./Logo.tsx"
 import { Scrim } from "./Scrim.tsx"
 
 const TOUR: { keys: string; what: string }[] = [
-  { keys: "⇧⭾", what: "cycle mode: plan · default · accept-edit · yolo" },
+  { keys: "⇧⭾", what: "cycle mode: plan · default · yolo" },
   { keys: "⌃k", what: "command palette (every action)" },
   { keys: "@ / ", what: "mention a file or image · run a command" },
   { keys: "⌃1–9", what: "switch between parallel sessions" },
@@ -51,8 +51,8 @@ export function Onboarding() {
       <box
         flexDirection="column"
         border
-        borderStyle="rounded"
-        borderColor={accent()}
+        borderStyle="single"
+        borderColor={theme.border}
         backgroundColor={theme.bgElevated}
         padding={1}
         gap={1}
@@ -90,7 +90,7 @@ export function Onboarding() {
         </box>
 
         <box flexDirection="row" justifyContent="center" marginTop={1} onMouseDown={connect}>
-          <box border borderStyle="rounded" borderColor={accent()} paddingLeft={2} paddingRight={2}>
+          <box border borderStyle="single" borderColor={theme.border} paddingLeft={2} paddingRight={2}>
             <text fg={accent()}>connect a model ⏎</text>
           </box>
         </box>

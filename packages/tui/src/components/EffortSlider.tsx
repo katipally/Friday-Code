@@ -1,5 +1,5 @@
-import { allowedEfforts, type Effort, getMode, theme } from "@friday/shared"
-import { useKeyboard } from "@opentui/solid"
+import { allowedEfforts, type Effort, theme } from "@friday/shared"
+import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { createSignal, Show } from "solid-js"
 import { shimmerAccent } from "../motion/index.ts"
 import { useApp } from "../store.tsx"
@@ -94,7 +94,7 @@ export function EffortGauge(props: {
  */
 export function EffortSlider() {
   const app = useApp()
-  const accent = () => getMode(app.mode()).accent
+  const dims = useTerminalDimensions()
   const levels = () => allowedEfforts(app.providerProtocol(), app.reasoningModel())
 
   const initial = () => {
@@ -120,10 +120,10 @@ export function EffortSlider() {
     <Scrim onClose={() => app.setEffortOpen(false)}>
       <box
         flexDirection="column"
-        width={52}
+        width={Math.min(52, dims().width - 4)}
         border
-        borderStyle="rounded"
-        borderColor={accent()}
+        borderStyle="single"
+        borderColor={theme.border}
         backgroundColor={theme.bgElevated}
         paddingLeft={2}
         paddingRight={2}
@@ -132,7 +132,7 @@ export function EffortSlider() {
         gap={1}
       >
         <box flexDirection="row" gap={1}>
-          <text fg={accent()}>/effort</text>
+          <text fg={theme.textMuted}>/effort</text>
           <text fg={theme.textFaint}>· reasoning effort for this model</text>
         </box>
         <EffortGauge levels={levels()} index={idx()} onScrub={setIdx} onPick={setTo} />

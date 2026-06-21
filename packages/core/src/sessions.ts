@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite"
 import fs from "node:fs"
 import { fridayDir, sessionsDb } from "@friday/providers"
-import type { Message } from "@friday/shared"
+import type { Message, TodoItem } from "@friday/shared"
 
 export interface SessionRow {
   id: string
@@ -11,6 +11,13 @@ export interface SessionRow {
   roots: string[]
   createdAt: number
   updatedAt: number
+}
+
+/** A persisted plan (mirrors the TUI PlanEntry). */
+export interface PlanRow {
+  id: string
+  title: string
+  text: string
 }
 
 /** Durable session + message storage backed by bun:sqlite (zero external deps). */
@@ -41,6 +48,57 @@ export class SessionStore {
       );`,
     )
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_msg_session ON messages (session_id, seq);")
+    // Per-session UI state that isn't part of the message log: todos, plans, and rewind checkpoints.
+    // Stored as JSON blobs (replace-on-write) keyed by session so a resumed session restores them.
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS session_state (
+        session_id TEXT PRIMARY KEY, todos TEXT NOT NULL DEFAULT '[]',
+        plans TEXT NOT NULL DEFAULT '[]', checkpoints TEXT NOT NULL DEFAULT '[]'
+      );`,
+    )
+  }
+
+  private upsertState(sessionId: string, column: "todos" | "plans" | "checkpoints", json: string): void {
+    this.db
+      .query(
+        `INSERT INTO session_state (session_id, ${column}) VALUES (?, ?)
+         ON CONFLICT(session_id) DO UPDATE SET ${column} = excluded.${column}`,
+      )
+      .run(sessionId, json)
+  }
+  private readState(sessionId: string, column: "todos" | "plans" | "checkpoints"): string {
+    const r = this.db.query(`SELECT ${column} AS v FROM session_state WHERE session_id = ?`).get(sessionId) as
+      | { v: string }
+      | undefined
+    return r?.v ?? "[]"
+  }
+
+  setTodos(sessionId: string, todos: TodoItem[]): void {
+    this.upsertState(sessionId, "todos", JSON.stringify(todos))
+  }
+  loadTodos(sessionId: string): TodoItem[] {
+    try {
+      return JSON.parse(this.readState(sessionId, "todos")) as TodoItem[]
+    } catch {
+      return []
+    }
+  }
+  setPlans(sessionId: string, plans: PlanRow[]): void {
+    this.upsertState(sessionId, "plans", JSON.stringify(plans))
+  }
+  loadPlans(sessionId: string): PlanRow[] {
+    try {
+      return JSON.parse(this.readState(sessionId, "plans")) as PlanRow[]
+    } catch {
+      return []
+    }
+  }
+  /** Checkpoints serialize their file-snapshot Map to entry arrays; callers (re)hydrate the Map. */
+  setCheckpointsJson(sessionId: string, json: string): void {
+    this.upsertState(sessionId, "checkpoints", json)
+  }
+  loadCheckpointsJson(sessionId: string): string {
+    return this.readState(sessionId, "checkpoints")
   }
 
   create(roots: string[], id: string, now: number, title = "new session"): SessionRow {
@@ -91,6 +149,7 @@ export class SessionStore {
 
   delete(id: string): void {
     this.db.query("DELETE FROM messages WHERE session_id = ?").run(id)
+    this.db.query("DELETE FROM session_state WHERE session_id = ?").run(id)
     this.db.query("DELETE FROM sessions WHERE id = ?").run(id)
   }
 

@@ -1,5 +1,5 @@
 import { getMode, theme } from "@friday/shared"
-import { useKeyboard } from "@opentui/solid"
+import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { createMemo, createSignal, For } from "solid-js"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
@@ -12,6 +12,7 @@ function home(p: string): string {
 /** Full session history across all directories, grouped by directory. Resume or delete any. */
 export function SessionHistory() {
   const app = useApp()
+  const dims = useTerminalDimensions()
   const accent = () => getMode(app.mode()).accent
   const [sel, setSel] = createSignal(0)
 
@@ -63,11 +64,11 @@ export function SessionHistory() {
     <Scrim onClose={() => app.setHistoryOpen(false)}>
       <box
         flexDirection="column"
-        width={72}
+        width={Math.min(72, dims().width - 4)}
         maxHeight={Math.max(10, 24)}
         border
-        borderStyle="rounded"
-        borderColor={accent()}
+        borderStyle="single"
+        borderColor={theme.border}
         backgroundColor={theme.bgElevated}
         paddingLeft={2}
         paddingRight={2}
@@ -76,7 +77,7 @@ export function SessionHistory() {
         gap={1}
       >
         <box flexDirection="row" gap={1}>
-          <text fg={accent()}>history</text>
+          <text fg={theme.textMuted}>history</text>
           <text fg={theme.textFaint}>· all sessions, grouped by directory</text>
         </box>
         <scrollbox maxHeight={18}>

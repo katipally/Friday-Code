@@ -205,7 +205,7 @@ export function AskCard() {
             flexDirection="column"
             width={totalW()}
             border
-            borderStyle="rounded"
+            borderStyle="single"
             borderColor={shimmerAccent(theme.info)}
             backgroundColor={theme.bgElevated}
             paddingLeft={1}
@@ -246,7 +246,7 @@ export function AskCard() {
 
             {/* Optional ASCII banner the agent supplied for this question. */}
             <Show when={q()?.art}>
-              <box border borderStyle="rounded" borderColor={theme.borderMuted} paddingLeft={1} paddingRight={1}>
+              <box border borderStyle="single" borderColor={theme.borderMuted} paddingLeft={1} paddingRight={1}>
                 <text fg={theme.textMuted}>{q()!.art}</text>
               </box>
             </Show>
@@ -316,7 +316,7 @@ export function AskCard() {
                     onMouseDown={() => setTyping(true)}
                   >
                     <text fg={isCustomRow() ? accent() : theme.textFaint}>{isCustomRow() ? G.caret : " "}</text>
-                    <text fg={typing() ? accent() : theme.textFaint}>{G.modeAcceptEdit}</text>
+                    <text fg={typing() ? accent() : theme.textFaint}>{G.pencil}</text>
                     <text fg={isCustomRow() || typing() ? theme.text : theme.textMuted}>type your own answer</text>
                   </box>
                 </scrollbox>
@@ -325,8 +325,8 @@ export function AskCard() {
                 <Show when={typing()}>
                   <box
                     border
-                    borderStyle="rounded"
-                    borderColor={accent()}
+                    borderStyle="single"
+                    borderColor={theme.border}
                     paddingLeft={1}
                     paddingRight={1}
                     marginTop={1}
@@ -351,7 +351,7 @@ export function AskCard() {
                   flexDirection="column"
                   width={previewW()}
                   border
-                  borderStyle="rounded"
+                  borderStyle="single"
                   borderColor={theme.border}
                   backgroundColor={theme.bgComposer}
                   paddingLeft={1}

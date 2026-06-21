@@ -1,6 +1,6 @@
 import type { McpServerConfig } from "@friday/core"
 import { getMode, theme } from "@friday/shared"
-import { useKeyboard } from "@opentui/solid"
+import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { createSignal, For, Show } from "solid-js"
 import { useApp } from "../store.tsx"
 import { G } from "../util/term.ts"
@@ -11,6 +11,7 @@ type View = "list" | "add"
 /** View / add / remove MCP servers. Add a stdio command or an http URL; connects live. */
 export function McpModal() {
   const app = useApp()
+  const dims = useTerminalDimensions()
   const accent = () => getMode(app.mode()).accent
   const [view, setView] = createSignal<View>("list")
   const [kind, setKind] = createSignal<"stdio" | "http">("stdio")
@@ -64,10 +65,10 @@ export function McpModal() {
     <Scrim onClose={() => app.setMcpModalOpen(false)}>
       <box
         flexDirection="column"
-        width={68}
+        width={Math.min(68, dims().width - 4)}
         border
-        borderStyle="rounded"
-        borderColor={accent()}
+        borderStyle="single"
+        borderColor={theme.border}
         backgroundColor={theme.bgElevated}
         paddingLeft={2}
         paddingRight={2}
@@ -76,7 +77,7 @@ export function McpModal() {
         gap={1}
       >
         <box flexDirection="row" gap={1}>
-          <text fg={accent()}>/mcp</text>
+          <text fg={theme.textMuted}>/mcp</text>
           <text fg={theme.textFaint}>· model context protocol servers</text>
         </box>
 
@@ -115,7 +116,7 @@ export function McpModal() {
                 setView("add")
               }}
             >
-              <text fg={accent()}>+ add a server</text>
+              <text fg={theme.textMuted}>+ add a server</text>
             </box>
           </box>
           <text fg={theme.textFaint}>esc close</text>
@@ -136,7 +137,7 @@ export function McpModal() {
             </box>
             <box flexDirection="column">
               <text fg={theme.textFaint}>name</text>
-              <box border borderStyle="rounded" borderColor={theme.border} paddingLeft={1} paddingRight={1}>
+              <box border borderStyle="single" borderColor={theme.border} paddingLeft={1} paddingRight={1}>
                 <input
                   ref={(r: any) => (nameInput = r)}
                   focused
@@ -147,7 +148,7 @@ export function McpModal() {
             </box>
             <box flexDirection="column">
               <text fg={theme.textFaint}>{kind() === "stdio" ? "command (e.g. npx -y some-mcp)" : "url"}</text>
-              <box border borderStyle="rounded" borderColor={theme.border} paddingLeft={1} paddingRight={1}>
+              <box border borderStyle="single" borderColor={theme.border} paddingLeft={1} paddingRight={1}>
                 <input
                   ref={(r: any) => (valueInput = r)}
                   onSubmit={add}
@@ -160,7 +161,7 @@ export function McpModal() {
             <Show when={kind() === "http"}>
               <box flexDirection="column">
                 <text fg={theme.textFaint}>auth token (optional)</text>
-                <box border borderStyle="rounded" borderColor={theme.border} paddingLeft={1} paddingRight={1}>
+                <box border borderStyle="single" borderColor={theme.border} paddingLeft={1} paddingRight={1}>
                   <input
                     ref={(r: any) => (tokenInput = r)}
                     onSubmit={add}
@@ -176,7 +177,7 @@ export function McpModal() {
             <box flexDirection="row" gap={2}>
               <box
                 border
-                borderStyle="rounded"
+                borderStyle="single"
                 borderColor={theme.success}
                 paddingLeft={1}
                 paddingRight={1}
@@ -186,7 +187,7 @@ export function McpModal() {
               </box>
               <box
                 border
-                borderStyle="rounded"
+                borderStyle="single"
                 borderColor={theme.border}
                 paddingLeft={1}
                 paddingRight={1}

@@ -12,6 +12,36 @@ export interface Checkpoint {
   files: Map<string, string | null>
 }
 
+/** JSON-friendly checkpoint (the `files` Map flattened to entries) for SQLite persistence. */
+interface SerializedCheckpoint {
+  id: string
+  label: string
+  createdAt: number
+  messageSeq: number
+  files: [string, string | null][]
+}
+
+export function serializeCheckpoints(cps: Checkpoint[]): string {
+  const flat: SerializedCheckpoint[] = cps.map((c) => ({
+    id: c.id,
+    label: c.label,
+    createdAt: c.createdAt,
+    messageSeq: c.messageSeq,
+    files: [...c.files.entries()],
+  }))
+  return JSON.stringify(flat)
+}
+
+export function deserializeCheckpoints(json: string): Checkpoint[] {
+  try {
+    const arr = JSON.parse(json) as SerializedCheckpoint[]
+    if (!Array.isArray(arr)) return []
+    return arr.map((c) => ({ ...c, files: new Map(c.files) }))
+  } catch {
+    return []
+  }
+}
+
 export function readOrNull(file: string): string | null {
   try {
     return fs.readFileSync(file, "utf8")

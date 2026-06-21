@@ -197,7 +197,7 @@ export function Composer() {
           flexDirection="column"
           flexShrink={0}
           border
-          borderStyle="rounded"
+          borderStyle="single"
           borderColor={theme.border}
           backgroundColor={theme.bgElevated}
           paddingLeft={1}
@@ -245,7 +245,7 @@ export function Composer() {
         flexDirection="row"
         flexShrink={0}
         border
-        borderStyle="rounded"
+        borderStyle="single"
         borderColor={focused() ? accentS() : theme.border}
         backgroundColor={theme.bgComposer}
         paddingLeft={1}

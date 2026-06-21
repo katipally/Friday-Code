@@ -1,7 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import { getMode, theme } from "@friday/shared"
-import { useKeyboard } from "@opentui/solid"
+import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { createMemo, createSignal, For, Show } from "solid-js"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
@@ -17,6 +17,7 @@ function expand(v: string): string {
 /** Change the working directory (new session) or add a directory to the current session. */
 export function DirectoryModal() {
   const app = useApp()
+  const dims = useTerminalDimensions()
   const accent = () => getMode(app.mode()).accent
   const [value, setValue] = createSignal("")
   const [error, setError] = createSignal("")
@@ -101,10 +102,10 @@ export function DirectoryModal() {
     <Scrim onClose={() => app.setDirModalOpen(false)}>
       <box
         flexDirection="column"
-        width={68}
+        width={Math.min(68, dims().width - 4)}
         border
-        borderStyle="rounded"
-        borderColor={accent()}
+        borderStyle="single"
+        borderColor={theme.border}
         backgroundColor={theme.bgElevated}
         paddingLeft={2}
         paddingRight={2}
@@ -113,7 +114,7 @@ export function DirectoryModal() {
         gap={1}
       >
         <box flexDirection="row" gap={1}>
-          <text fg={accent()}>/dir</text>
+          <text fg={theme.textMuted}>/dir</text>
           <text fg={theme.textFaint}>· workspace directories</text>
         </box>
 
@@ -144,7 +145,7 @@ export function DirectoryModal() {
 
         <box flexDirection="column">
           <text fg={theme.textFaint}>path</text>
-          <box border borderStyle="rounded" borderColor={accent()} paddingLeft={1} paddingRight={1}>
+          <box border borderStyle="single" borderColor={theme.border} paddingLeft={1} paddingRight={1}>
             <input
               value={value()}
               onInput={(v) => {
@@ -184,7 +185,7 @@ export function DirectoryModal() {
         <box flexDirection="row" gap={2}>
           <box
             border
-            borderStyle="rounded"
+            borderStyle="single"
             borderColor={theme.success}
             paddingLeft={1}
             paddingRight={1}
@@ -193,7 +194,7 @@ export function DirectoryModal() {
             <text fg={theme.success}>open here ⏎</text>
             <text fg={theme.textFaint}> (new session)</text>
           </box>
-          <box border borderStyle="rounded" borderColor={theme.info} paddingLeft={1} paddingRight={1} onMouseDown={add}>
+          <box border borderStyle="single" borderColor={theme.info} paddingLeft={1} paddingRight={1} onMouseDown={add}>
             <text fg={theme.info}>+ add directory</text>
             <text fg={theme.textFaint}> (same session)</text>
           </box>

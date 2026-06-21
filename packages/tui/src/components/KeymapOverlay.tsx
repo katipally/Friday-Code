@@ -1,4 +1,4 @@
-import { getMode, MODES, theme } from "@friday/shared"
+import { MODES, theme } from "@friday/shared"
 import { For } from "solid-js"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
@@ -6,7 +6,7 @@ import { Scrim } from "./Scrim.tsx"
 const KEYS: { keys: string; label: string }[] = [
   { keys: "Enter", label: "send message" },
   { keys: "Shift+Enter", label: "new line in composer" },
-  { keys: "Shift+Tab", label: "cycle mode (plan → default → accept → yolo)" },
+  { keys: "Shift+Tab", label: "cycle mode (plan → default → yolo)" },
   { keys: "Ctrl+B", label: "toggle context panel" },
   { keys: "Ctrl+K", label: "command palette" },
   { keys: "/effort", label: "reasoning-effort slider (←/→ · click · enter)" },
@@ -21,15 +21,14 @@ const KEYS: { keys: string; label: string }[] = [
 /** Full-screen keymap overlay. Dismissed via Esc or click (handled in App + backdrop). */
 export function KeymapOverlay() {
   const app = useApp()
-  const accent = () => getMode(app.mode()).accent
 
   return (
     <Scrim onClose={() => app.setOverlayOpen(false)}>
       <box
         flexDirection="column"
         border
-        borderStyle="rounded"
-        borderColor={accent()}
+        borderStyle="single"
+        borderColor={theme.border}
         backgroundColor={theme.bgElevated}
         paddingLeft={2}
         paddingRight={2}
@@ -37,7 +36,7 @@ export function KeymapOverlay() {
         paddingBottom={1}
         gap={1}
       >
-        <text fg={accent()}>keyboard</text>
+        <text fg={theme.textMuted}>keyboard</text>
         <box flexDirection="column">
           <For each={KEYS}>
             {(k) => (
@@ -51,7 +50,7 @@ export function KeymapOverlay() {
           </For>
         </box>
         <box height={1} />
-        <text fg={accent()}>modes</text>
+        <text fg={theme.textMuted}>modes</text>
         <box flexDirection="column">
           <For each={MODES}>
             {(m) => (

@@ -105,7 +105,7 @@ function messagesToItems(messages: Message[]): ViewItem[] {
   return out
 }
 
-export function createAppStore(engine: Engine) {
+export function createAppStore(engine: Engine, version = "dev") {
   const [view, setView] = createSignal<"splash" | "shell" | "exit">("splash")
   const [mode, setModeSig] = createSignal<ModeId>(engine.selection().mode ?? DEFAULT_MODE)
   const [effort, setEffortSig] = createSignal<Effort>(engine.selection().effort ?? "medium")
@@ -384,7 +384,9 @@ export function createAppStore(engine: Engine) {
     let b = streamBuf.get(id)
     if (!b) streamBuf.set(id, (b = { sid, id, text: "", reasoning: "" }))
     b[field] += delta
-    if (!flushTimer) flushTimer = setInterval(flushStream, 33)
+    // ~18fps: coarse enough that each flush carries a meaningful chunk (so markdown re-parses land
+    // as steady growth, not per-token flicker) while still feeling live.
+    if (!flushTimer) flushTimer = setInterval(flushStream, 55)
   }
   /** Apply any buffered deltas for one item immediately (used when its turn finalizes). */
   function flushItem(id: string) {
@@ -540,6 +542,10 @@ export function createAppStore(engine: Engine) {
         break
       case "todos":
         setKey(setSessionTodos, sid, e.items)
+        break
+      case "plans":
+        // The persisted plan list (on resume) — replace so the Context panel matches what's saved.
+        setSessionPlans((m) => ({ ...m, [sid]: e.items }))
         break
       case "diagnostics":
         setKey(setSessionDiag, sid, e.items)
@@ -1043,6 +1049,7 @@ export function createAppStore(engine: Engine) {
 
   return {
     engine,
+    version,
     view,
     setView,
     mode,

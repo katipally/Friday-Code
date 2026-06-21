@@ -74,7 +74,7 @@ function Shell() {
   const TARGET = 100
   const contentPad = createMemo(() => {
     const sidebar = !narrow() && app.rightOpen() ? app.rightWidth() + 1 : 0
-    const mainW = dims().width - 2 /* frame */ - sidebar
+    const mainW = dims().width - sidebar
     return 1 + Math.max(0, Math.floor((mainW - TARGET) / 2))
   })
 
@@ -95,15 +95,9 @@ function Shell() {
 
   return (
     <box width="100%" height="100%" backgroundColor={theme.bg}>
-      {/* The single outermost frame stays subtle; mode accent lives on badges, focus rings, active divider. */}
-      <box
-        flexGrow={1}
-        flexDirection="column"
-        border
-        borderStyle="rounded"
-        borderColor={theme.frame}
-        backgroundColor={theme.bg}
-      >
+      {/* No outer app frame (opencode-style): the canvas is borderless and accent lives on the
+          bordered elements themselves (user bubble, side panel) and focus rings. */}
+      <box flexGrow={1} flexDirection="column" backgroundColor={theme.bg}>
         {/* The side panel is a full-height LEFT sidebar that PUSHES the main column (it never hovers).
             Drag is handled at the row so resize keeps tracking once the cursor leaves the grip. */}
         <box
@@ -126,14 +120,11 @@ function Shell() {
               chat area, which narrows as the sidebar opens, keeping the UI balanced. */}
           <box flexGrow={1} minHeight={0} flexDirection="column">
             <TopBar />
-            <box
-              flexGrow={1}
-              minHeight={0}
-              flexDirection="column"
-              paddingLeft={contentPad()}
-              paddingRight={contentPad()}
-            >
-              <Chat />
+            {/* The chat area spans the FULL column width so its scrollbar sits on the terminal's
+                right edge; the conversation content is inset by `pad` internally to stay centered
+                and aligned with the composer below. */}
+            <box flexGrow={1} minHeight={0} flexDirection="column">
+              <Chat pad={contentPad()} />
             </box>
             {/* Status + composer share the chat's inset so the input box stays aligned with the
                 conversation column as it centers on wide terminals. */}
@@ -148,13 +139,7 @@ function Shell() {
 
       {/* Narrow-terminal fullscreen overlay for the right panel. */}
       <Show when={narrow() && app.rightOpen()}>
-        <box
-          position="absolute"
-          top={1}
-          left={1}
-          width={Math.max(0, dims().width - 2)}
-          height={Math.max(0, dims().height - 2)}
-        >
+        <box position="absolute" top={0} left={0} width={dims().width} height={dims().height}>
           <ContextPanel fullscreen />
         </box>
       </Show>
@@ -281,8 +266,8 @@ function AppRoot() {
   )
 }
 
-export function App(props: { engine: Engine }) {
-  const store = createAppStore(props.engine)
+export function App(props: { engine: Engine; version?: string }) {
+  const store = createAppStore(props.engine, props.version)
   return (
     <AppProvider store={store}>
       <AppRoot />

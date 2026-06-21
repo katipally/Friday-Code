@@ -20,7 +20,7 @@ export function DiffCard(props: { diff: string }) {
   return (
     <box
       border
-      borderStyle="rounded"
+      borderStyle="single"
       borderColor={theme.borderMuted}
       backgroundColor={theme.bg}
       paddingLeft={1}

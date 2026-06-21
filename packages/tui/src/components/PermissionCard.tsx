@@ -50,7 +50,7 @@ export function PermissionCard() {
             flexDirection="column"
             width={64}
             border
-            borderStyle="rounded"
+            borderStyle="single"
             borderColor={shimmerAccent(theme.warning)}
             backgroundColor={theme.bgElevated}
             paddingLeft={1}
@@ -71,7 +71,7 @@ export function PermissionCard() {
             <Show when={p().detail}>
               <box
                 border
-                borderStyle="rounded"
+                borderStyle="single"
                 borderColor={p().risk ? theme.error : theme.border}
                 backgroundColor={theme.bgComposer}
                 paddingLeft={1}

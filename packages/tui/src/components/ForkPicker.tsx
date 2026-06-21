@@ -1,5 +1,5 @@
 import { getMode, theme } from "@friday/shared"
-import { useKeyboard } from "@opentui/solid"
+import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { createMemo, createSignal, For, Show } from "solid-js"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
@@ -8,6 +8,7 @@ import { Scrim } from "./Scrim.tsx"
  * conversation up to the chosen turn, so you can explore an alternative without losing this thread. */
 export function ForkPicker() {
   const app = useApp()
+  const dims = useTerminalDimensions()
   const accent = () => getMode(app.mode()).accent
   const points = createMemo(() => app.engine.forkPoints())
   const [sel, setSel] = createSignal(0)
@@ -28,10 +29,10 @@ export function ForkPicker() {
     <Scrim onClose={() => app.setForkOpen(false)}>
       <box
         flexDirection="column"
-        width={70}
+        width={Math.min(70, dims().width - 4)}
         border
-        borderStyle="rounded"
-        borderColor={accent()}
+        borderStyle="single"
+        borderColor={theme.border}
         backgroundColor={theme.bgElevated}
         paddingLeft={2}
         paddingRight={2}
@@ -40,7 +41,7 @@ export function ForkPicker() {
         gap={1}
       >
         <box flexDirection="row" gap={1}>
-          <text fg={accent()}>fork</text>
+          <text fg={theme.textMuted}>fork</text>
           <text fg={theme.textFaint}>· branch a new session from a past turn</text>
         </box>
         <Show

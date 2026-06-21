@@ -1,5 +1,5 @@
 import { allowedEfforts, getMode, type ProviderInfo, theme } from "@friday/shared"
-import { useKeyboard } from "@opentui/solid"
+import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { createEffect, createMemo, createResource, createSignal, For, Match, Show, Switch } from "solid-js"
 import { useApp } from "../store.tsx"
 import { EffortGauge } from "./EffortSlider.tsx"
@@ -44,6 +44,7 @@ function Row(props: {
 
 export function ModelModal() {
   const app = useApp()
+  const dims = useTerminalDimensions()
   const accent = () => getMode(app.mode()).accent
 
   const providers = app.engine.listProviders()
@@ -186,10 +187,10 @@ export function ModelModal() {
     <Scrim onClose={() => app.setModelModalOpen(false)}>
       <box
         flexDirection="column"
-        width={64}
+        width={Math.min(64, dims().width - 4)}
         border
-        borderStyle="rounded"
-        borderColor={accent()}
+        borderStyle="single"
+        borderColor={theme.border}
         backgroundColor={theme.bgElevated}
         paddingLeft={2}
         paddingRight={2}
@@ -198,7 +199,7 @@ export function ModelModal() {
         gap={1}
       >
         <box flexDirection="row" gap={1}>
-          <text fg={accent()}>/model</text>
+          <text fg={theme.textMuted}>/model</text>
           <text fg={theme.textFaint}>· connect a provider and pick a model</text>
         </box>
 
@@ -238,7 +239,7 @@ export function ModelModal() {
                 <text fg={theme.textFaint}>API key</text>
                 <box
                   border
-                  borderStyle="rounded"
+                  borderStyle="single"
                   borderColor={keyField() === "key" ? accent() : theme.border}
                   paddingLeft={1}
                   paddingRight={1}
@@ -262,7 +263,7 @@ export function ModelModal() {
                 <text fg={theme.textFaint}>base URL (optional override · tab)</text>
                 <box
                   border
-                  borderStyle="rounded"
+                  borderStyle="single"
                   borderColor={keyField() === "url" ? accent() : theme.border}
                   paddingLeft={1}
                   paddingRight={1}
@@ -282,7 +283,7 @@ export function ModelModal() {
               <box flexDirection="row" gap={2}>
                 <box
                   border
-                  borderStyle="rounded"
+                  borderStyle="single"
                   borderColor={validating() ? theme.textFaint : theme.success}
                   paddingLeft={1}
                   paddingRight={1}
@@ -294,7 +295,7 @@ export function ModelModal() {
                 </box>
                 <box
                   border
-                  borderStyle="rounded"
+                  borderStyle="single"
                   borderColor={theme.border}
                   paddingLeft={1}
                   paddingRight={1}
@@ -310,7 +311,14 @@ export function ModelModal() {
             <box flexDirection="column" gap={1}>
               <box flexDirection="row" gap={1} alignItems="center">
                 <text fg={theme.text}>{provider()?.name}</text>
-                <box flexGrow={1} border borderStyle="rounded" borderColor={accent()} paddingLeft={1} paddingRight={1}>
+                <box
+                  flexGrow={1}
+                  border
+                  borderStyle="single"
+                  borderColor={theme.border}
+                  paddingLeft={1}
+                  paddingRight={1}
+                >
                   <input
                     value={query()}
                     onInput={setQuery}
@@ -336,7 +344,7 @@ export function ModelModal() {
                       <text fg={mIndex() === i() ? theme.text : theme.textMuted}>{m.name}</text>
                       <box flexGrow={1} />
                       <Show when={m.reasoning}>
-                        <text fg={accent()}>◇</text>
+                        <text fg={mIndex() === i() ? accent() : theme.textFaint}>◇</text>
                       </Show>
                       <Show when={m.contextWindow}>
                         <text fg={theme.textFaint}>{fmtCtx(m.contextWindow)}</text>

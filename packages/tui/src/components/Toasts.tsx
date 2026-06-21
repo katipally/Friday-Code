@@ -15,7 +15,7 @@ export function Toasts() {
             <Appear distance={1} duration={160}>
               <box
                 border
-                borderStyle="rounded"
+                borderStyle="single"
                 borderColor={color(t.kind)}
                 backgroundColor={theme.bgElevated}
                 paddingLeft={1}

@@ -29,7 +29,7 @@ export function TopBar() {
         <strong>{BRAND.name}</strong>
       </text>
       <text fg={theme.textMuted}>{BRAND.suffix}</text>
-      <text fg={theme.textFaint}>v{BRAND.version}</text>
+      <text fg={theme.textFaint}>v{app.version}</text>
       <text fg={theme.textFaint}>·</text>
       <box flexDirection="row" gap={1} onMouseDown={() => app.setDirModalOpen(true)}>
         <text fg={theme.textMuted}>{home(app.currentCwd())}</text>

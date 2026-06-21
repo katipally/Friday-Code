@@ -1,6 +1,6 @@
 import { getMode, theme } from "@friday/shared"
-import { useKeyboard } from "@opentui/solid"
-import { createMemo, createSignal, For, Show } from "solid-js"
+import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
 
@@ -14,9 +14,20 @@ function ago(ms: number): string {
 /** Snapshot history: rewind files + conversation to any checkpoint, or redo the last rewind. */
 export function CheckpointHistory() {
   const app = useApp()
+  const dims = useTerminalDimensions()
   const accent = () => getMode(app.mode()).accent
   const [sel, setSel] = createSignal(0)
   const checkpoints = createMemo(() => app.engine.listCheckpoints())
+  let sb: { scrollTo?: (p: number | { x: number; y: number }) => void } | null = null
+
+  // Newest checkpoint sits at the bottom — focus it and scroll it into view whenever the list
+  // grows or the panel opens.
+  createEffect(() => {
+    const n = checkpoints().length
+    if (!app.checkpointsOpen() || n === 0) return
+    setSel(n - 1)
+    queueMicrotask(() => sb?.scrollTo?.({ x: 0, y: Number.MAX_SAFE_INTEGER }))
+  })
 
   useKeyboard((key) => {
     if (!app.checkpointsOpen()) return
@@ -38,10 +49,10 @@ export function CheckpointHistory() {
     <Scrim onClose={() => app.setCheckpointsOpen(false)}>
       <box
         flexDirection="column"
-        width={68}
+        width={Math.min(68, dims().width - 4)}
         border
-        borderStyle="rounded"
-        borderColor={accent()}
+        borderStyle="single"
+        borderColor={theme.border}
         backgroundColor={theme.bgElevated}
         paddingLeft={2}
         paddingRight={2}
@@ -50,14 +61,14 @@ export function CheckpointHistory() {
         gap={1}
       >
         <box flexDirection="row" gap={1}>
-          <text fg={accent()}>checkpoints</text>
+          <text fg={theme.textMuted}>checkpoints</text>
           <text fg={theme.textFaint}>· rewind code, conversation, or both</text>
         </box>
         <Show
           when={checkpoints().length}
           fallback={<text fg={theme.textFaint}>no checkpoints yet — send a prompt first</text>}
         >
-          <scrollbox maxHeight={14}>
+          <scrollbox ref={(r: any) => (sb = r)} maxHeight={14} stickyScroll stickyStart="bottom">
             <For each={checkpoints()}>
               {(c, i) => (
                 <box

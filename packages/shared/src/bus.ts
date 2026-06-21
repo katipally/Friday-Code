@@ -34,6 +34,8 @@ export type EngineEventBody =
   | { type: "session-changed"; sessionId: string; title: string; cwd: string; roots: string[] }
   | { type: "session-loaded"; sessionId: string; title: string; cwd: string; roots: string[]; messages: Message[] }
   | { type: "todos"; items: TodoItem[] }
+  /** The session's persisted plan list (emitted on resume so the Context panel rebuilds it). */
+  | { type: "plans"; items: { id: string; title: string; text: string }[] }
   | { type: "diagnostics"; items: { path: string; errors: number; warnings: number }[] }
   | {
       type: "changed-files"

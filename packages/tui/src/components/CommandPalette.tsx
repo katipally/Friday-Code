@@ -1,5 +1,5 @@
 import { getMode, theme } from "@friday/shared"
-import { useKeyboard } from "@opentui/solid"
+import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { createMemo, createSignal, onMount } from "solid-js"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
@@ -8,6 +8,7 @@ import { SelectList } from "./SelectList.tsx"
 /** Ctrl/Cmd+K fuzzy command palette over built-in + custom commands. */
 export function CommandPalette() {
   const app = useApp()
+  const dims = useTerminalDimensions()
   const accent = () => getMode(app.mode()).accent
   const all = app.listCommands()
   const [query, setQuery] = createSignal("")
@@ -45,10 +46,10 @@ export function CommandPalette() {
     <Scrim onClose={() => app.setPaletteOpen(false)}>
       <box
         flexDirection="column"
-        width={64}
+        width={Math.min(64, dims().width - 4)}
         border
-        borderStyle="rounded"
-        borderColor={accent()}
+        borderStyle="single"
+        borderColor={theme.border}
         backgroundColor={theme.bgElevated}
         paddingLeft={1}
         paddingRight={1}
@@ -57,8 +58,8 @@ export function CommandPalette() {
         gap={1}
       >
         <box flexDirection="row" gap={1} alignItems="center">
-          <text fg={accent()}>⌘</text>
-          <box flexGrow={1} border borderStyle="rounded" borderColor={theme.border} paddingLeft={1} paddingRight={1}>
+          <text fg={theme.textMuted}>⌘</text>
+          <box flexGrow={1} border borderStyle="single" borderColor={theme.border} paddingLeft={1} paddingRight={1}>
             <textarea
               ref={(r: any) => (input = r)}
               focused
