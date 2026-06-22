@@ -57,6 +57,7 @@ import {
 import { type CustomCommand, loadCommands } from "./commands.ts"
 import { COMPACTION, collapseToolOutputs, estimateTokens, renderTranscript, safeCutIndex } from "./compaction.ts"
 import { loadProjectContext, type ProjectContext } from "./context.ts"
+import { formatFile } from "./format.ts"
 import { gitCommitAll, gitDiff, gitIsTracked, gitShowHead, gitStatus, gitWorktreeAdd, gitWorktreeList } from "./git.ts"
 import { type HookEvent, type HookPayload, type HooksConfig, runHooks } from "./hooks.ts"
 import { deleteMemory, listMemory, memoryDigest, saveMemory } from "./memory.ts"
@@ -267,6 +268,8 @@ export interface RunnerHost {
     mode: ModeId
     contextWindow: number
     cost?: { input: number; output: number }
+    /** config.outputStyle — nudges prompt verbosity (concise | explanatory | minimal) */
+    outputStyle?: string
   }
   resolveProvider: () => ProviderInfo
   /** globally-unique id source (so permission/ask requestIds don't collide across sessions) */
@@ -277,6 +280,8 @@ export interface RunnerHost {
   hooks: () => HooksConfig | undefined
   /** bash allow/deny lists */
   bashPolicy: () => { allow?: string[]; deny?: string[] } | undefined
+  /** config.formatter — false disables auto-format-on-edit (undefined = on) */
+  formatterEnabled: () => boolean | undefined
   /** per-project "always allow" rules (bash prefixes + categories) */
   projectPermissions: (root: string) => { bash?: string[]; categories?: PermissionCategory[] }
   /** persist an "allow always" decision for a project root */
@@ -1073,6 +1078,8 @@ export class SessionRunner {
                 .filter((t) => t.deferred && !this.activatedTools.has(t.name))
                 .map((t) => ({ name: t.name, description: t.description })),
               memory: memoryDigest(),
+              providerId: provider.id,
+              outputStyle: sel.outputStyle,
             }),
           } as Message,
           ...this.sendMessages(),
@@ -1466,9 +1473,11 @@ export class SessionRunner {
 
         if (bashBefore) await this.snapshotBashChanges(bashBefore)
 
-        // Ground edits in real compiler output: feed back LSP diagnostics for the changed file.
+        // Auto-format the touched file, then ground the edit in real compiler output (diagnostics).
         if (tool.permission === "edit" && !result.isError && typeof (args as any)?.path === "string") {
-          const diag = await this.diagnoseEdited(path.resolve(this.cwd, (args as any).path))
+          const abs = path.resolve(this.cwd, (args as any).path)
+          await formatFile(this.cwd, abs, this.host.formatterEnabled())
+          const diag = await this.diagnoseEdited(abs)
           if (diag) result = { ...result, output: result.output + diag }
         }
 

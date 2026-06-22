@@ -628,6 +628,13 @@ export function createAppStore(engine: Engine, version = "dev") {
     { name: "dir", description: "change or add a working directory" },
     { name: "mcp", description: "view / add / remove MCP servers" },
     { name: "compact", description: "summarize old context to free space" },
+    { name: "init", description: "scan the repo and write a FRIDAY.md guide" },
+    { name: "context", description: "show what's in the context window" },
+    { name: "usage", description: "show token + cost usage this session" },
+    { name: "stats", description: "show token + cost usage this session" },
+    { name: "doctor", description: "check model, provider & environment health" },
+    { name: "review", description: "review the current changes" },
+    { name: "security-review", description: "audit the current changes for security issues" },
     { name: "permissions", description: "view / clear remembered approvals" },
     { name: "theme", description: "switch UI theme" },
     { name: "budget", description: "set a token/$ usage budget" },
@@ -719,6 +726,52 @@ export function createAppStore(engine: Engine, version = "dev") {
         engine.setUserConfig({ budget: next })
         setBudget(next)
         pushToast(`budget set: ${usd != null ? `$${usd}` : `${tokens} tokens`}`, "done")
+        return true
+      }
+      case "init":
+        submitRaw(
+          "Scan this repository and write a concise FRIDAY.md at the repo root that orients a coding agent: the project's purpose, tech stack, how to build/test/run, the key directories, and any conventions. Read package.json, the README, and a sample of the source tree first. Keep it under ~50 lines. Create or overwrite FRIDAY.md.",
+          "/init",
+        )
+        return true
+      case "review":
+        submitRaw(
+          "Review the current uncommitted changes (start with `git diff`). Report bugs, regressions, missing edge cases, and style issues grouped by severity, each with a specific file:line. Do not make edits — just report.",
+          "/review",
+        )
+        return true
+      case "security-review":
+        submitRaw(
+          "Audit the current uncommitted changes (`git diff`) for security issues: injection, auth/authz gaps, secret leakage, unsafe deserialization, path traversal, SSRF, and risky dependencies. Report findings with severity and file:line. Do not make edits.",
+          "/security-review",
+        )
+        return true
+      case "context":
+      case "usage":
+      case "stats": {
+        const sid = activeSession()
+        const tok = sessionTokens()[sid] ?? 0
+        const cost = sessionCost()[sid]
+        const cw = engine.selection().contextWindow
+        const pct = cw ? Math.round((tok / cw) * 100) : undefined
+        const parts = [
+          `model: ${model()}${providerId() ? ` (${providerId()})` : ""}`,
+          `tokens: ${tok.toLocaleString()}${cw ? ` / ${cw.toLocaleString()}${pct != null ? ` (${pct}%)` : ""}` : ""}`,
+          cost != null ? `cost: $${cost.toFixed(4)}` : "",
+          `mode: ${mode()}`,
+        ].filter(Boolean)
+        appendItem(sid, { kind: "notice", id: nextLocalId(), text: parts.join(" · ") })
+        return true
+      }
+      case "doctor": {
+        const sid = activeSession()
+        const lines = [
+          model() && providerId() ? `✓ model: ${model()} (${providerId()})` : "✗ no model — run /model",
+          `✓ mode: ${mode()} · effort: ${effort()}${reasoningModel() ? "" : " (model has no reasoning channel)"}`,
+          `✓ output style: ${engine.selection().outputStyle ?? "concise"}`,
+          `✓ platform: ${process.platform}`,
+        ]
+        appendItem(sid, { kind: "notice", id: nextLocalId(), text: lines.join("\n") })
         return true
       }
       case "permissions": {

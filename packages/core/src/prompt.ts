@@ -25,6 +25,31 @@ function deferredToolsSection(deferred?: { name: string; description: string }[]
   return `\n# More tools (on demand)\nThese tools exist but aren't loaded by default. Call tool_search({ query }) to load the ones you need before using them:\n${lines.join("\n")}`
 }
 
+/** Small per-provider overlay. The base prompt is Claude-tuned; nudge other families where it pays off. */
+function providerOverlay(providerId?: string): string {
+  switch (providerId) {
+    case "openai":
+    case "azure":
+      return "\n# Provider notes\n- Keep responses tight; minimize preamble and meta-commentary.\n- For multi-file changes, prefer apply_patch with a single unified diff over many edit calls."
+    case "google":
+      return "\n# Provider notes\n- Be explicit and well-structured; lay out changes as clear ordered steps."
+    default:
+      return ""
+  }
+}
+
+/** Output-style overlay (config.outputStyle). Base behavior is already concise. */
+function outputStyleOverlay(style?: string): string {
+  switch (style) {
+    case "explanatory":
+      return "\n# Output style\nAlongside the work, add brief teaching notes explaining the why behind non-obvious changes."
+    case "minimal":
+      return "\n# Output style\nMinimize prose. Reply with the smallest correct answer; skip summaries unless asked."
+    default:
+      return ""
+  }
+}
+
 /** Assemble the system prompt: identity + environment + behavior + mode posture + project context. */
 export function systemPrompt(opts: {
   cwd: string
@@ -35,6 +60,8 @@ export function systemPrompt(opts: {
   agents?: { name: string; description: string }[]
   deferredTools?: { name: string; description: string }[]
   memory?: string
+  providerId?: string
+  outputStyle?: string
 }): string {
   const mode = getMode(opts.mode)
   const extraRoots = (opts.roots ?? []).slice(1)
@@ -69,6 +96,8 @@ export function systemPrompt(opts: {
     skillsSection(opts.skills),
     agentsSection(opts.agents),
     deferredToolsSection(opts.deferredTools),
+    providerOverlay(opts.providerId),
+    outputStyleOverlay(opts.outputStyle),
     modePostureNote(opts.mode),
   ]
     .filter(Boolean)

@@ -24,6 +24,10 @@ export interface FridayConfig {
   theme?: string
   /** optional per-session budget; the context panel warns when usage exceeds it */
   budget?: { tokens?: number; usd?: number }
+  /** output verbosity overlay for the system prompt: "concise" (default) | "explanatory" | "minimal" */
+  outputStyle?: string
+  /** auto-format touched files after edit/write; false disables. Default: auto-detect. */
+  formatter?: boolean
 }
 
 export function loadConfig(): FridayConfig {

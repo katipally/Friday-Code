@@ -86,12 +86,14 @@ export class Engine {
       mode: this.mode,
       contextWindow: this.contextWindow,
       cost: this.modelCost,
+      outputStyle: loadConfig().outputStyle,
     }),
     resolveProvider: () => this.resolveProvider(),
     nextId: () => this.nextId(),
     emit: (sessionId, body) => this.dispatch(sessionId, body),
     hooks: () => loadConfig().hooks,
     bashPolicy: () => loadConfig().bash,
+    formatterEnabled: () => loadConfig().formatter,
     projectPermissions: (root) => projectPermissions(root),
     persistPermission: (root, rule) => persistPermission(root, rule),
     spawnTask: (prompt, description, worktree) => this.spawnTask(prompt, description, worktree),
@@ -495,13 +497,23 @@ export class Engine {
     }
     return out
   }
-  selection(): { providerId?: string; model?: string; effort: Effort; mode: ModeId; reasoning: boolean } {
+  selection(): {
+    providerId?: string
+    model?: string
+    effort: Effort
+    mode: ModeId
+    reasoning: boolean
+    contextWindow: number
+    outputStyle?: string
+  } {
     return {
       providerId: this.providerId,
       model: this.model,
       effort: this.effort,
       mode: this.mode,
       reasoning: this.modelReasoning,
+      contextWindow: this.contextWindow,
+      outputStyle: loadConfig().outputStyle,
     }
   }
   private resolveProvider(): ProviderInfo {
