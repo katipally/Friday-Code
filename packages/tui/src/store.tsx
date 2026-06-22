@@ -636,6 +636,7 @@ export function createAppStore(engine: Engine, version = "dev") {
     { name: "fleet", description: "open a window per running background agent" },
     { name: "chrome", description: "launch the browser for automation (/chrome close to stop)" },
     { name: "voice", description: "press-to-talk: start, then /voice again to transcribe" },
+    { name: "computer-use", description: "install/uninstall desktop control (mouse/keyboard/screen)" },
     { name: "review", description: "review the current changes" },
     { name: "security-review", description: "audit the current changes for security issues" },
     { name: "permissions", description: "view / clear remembered approvals" },
@@ -779,6 +780,36 @@ export function createAppStore(engine: Engine, version = "dev") {
         )
         return true
       }
+      case "computer-use": {
+        const a = args.trim().toLowerCase()
+        const installed = engine.computerInstalled()
+        if (a === "uninstall" || a === "remove") {
+          pushToast(engine.uninstallComputerUse() ? "computer-use uninstalled" : "uninstall failed", installed ? "done" : "input")
+          return true
+        }
+        if (a === "install") {
+          if (installed) {
+            pushToast("computer-use already installed", "input")
+            return true
+          }
+          pushToast("installing computer-use (nut.js)… this can take a minute", "input")
+          engine
+            .installComputerUse()
+            .then((r) =>
+              pushToast(r.ok ? "computer-use installed — desktop tools active" : "install failed (see logs)", r.ok ? "done" : "error"),
+            )
+            .catch((e) => pushToast(`install error: ${e?.message ?? e}`, "error"))
+          return true
+        }
+        appendItem(activeSession(), {
+          kind: "notice",
+          id: nextLocalId(),
+          text: installed
+            ? "computer-use is INSTALLED — desktop control tools (screenshot/click/type/key/scroll) are active.\n/computer-use uninstall to remove it."
+            : "computer-use is NOT installed. It enables desktop control (mouse/keyboard/screenshot) via nut.js.\n/computer-use install to add it (opt-in, removable anytime).",
+        })
+        return true
+      }
       case "voice": {
         if (engine.voiceRecording()) {
           pushToast("transcribing…", "input")
@@ -831,6 +862,9 @@ export function createAppStore(engine: Engine, version = "dev") {
             const v = engine.voiceStatus()
             return v.ok ? "✓ voice: ready (/voice)" : `✗ voice: ${v.reason}`
           })(),
+          engine.computerInstalled()
+            ? "✓ computer-use: installed"
+            : "· computer-use: not installed (/computer-use install)",
           `✓ platform: ${process.platform}`,
         ]
         appendItem(sid, { kind: "notice", id: nextLocalId(), text: lines.join("\n") })

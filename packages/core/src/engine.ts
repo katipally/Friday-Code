@@ -20,7 +20,17 @@ import {
   type ProviderInfo,
   type UICommand,
 } from "@friday/shared"
-import { BUILTIN_TOOLS, buildRegistry, closeBrowser, findBrowser, startBrowser, type Tool } from "@friday/tools"
+import {
+  BUILTIN_TOOLS,
+  buildRegistry,
+  closeBrowser,
+  computerInstalled,
+  findBrowser,
+  installComputerUse,
+  startBrowser,
+  type Tool,
+  uninstallComputerUse,
+} from "@friday/tools"
 import { type CustomCommand, loadCommands } from "./commands.ts"
 import { loadConfig, saveConfig } from "./config.ts"
 import { type CronJob, loadCron, parseInterval, saveCron } from "./cron.ts"
@@ -254,6 +264,16 @@ export class Engine {
   }
   cancelVoice(): void {
     cancelVoice()
+  }
+  // ---- computer use (opt-in native backend) ----
+  computerInstalled(): boolean {
+    return computerInstalled()
+  }
+  installComputerUse(): Promise<{ ok: boolean; log: string }> {
+    return installComputerUse()
+  }
+  uninstallComputerUse(): boolean {
+    return uninstallComputerUse()
   }
   /** Open a viewer window per running task (tmux pane / OS terminal); returns the chosen backend. */
   openFleet(): { ok: boolean; backend: string; opened: number } {
