@@ -203,6 +203,9 @@ test("ask_user modal: renders an option's ASCII preview in a side panel", async 
 
 test("Ctrl+Y opens session history grouped by directory", async () => {
   const e = ready()
+  // Empty sessions aren't persisted; a real action (adding a workspace dir) persists this one so it
+  // shows up in history.
+  e.addRoot(fs.mkdtempSync(path.join(os.tmpdir(), "friday-cwd2-")))
   const t = await testRender(() => <App engine={e} />, { width: 100, height: 28 })
   await t.renderOnce()
   t.mockInput.pressEnter()
@@ -213,7 +216,7 @@ test("Ctrl+Y opens session history grouped by directory", async () => {
   const frame = t.captureCharFrame()
   expect(frame).toContain("history")
   expect(frame).toContain("all sessions")
-  expect(frame).toContain("new session") // the auto-created session
+  expect(frame).toContain("new session") // the now-persisted session
 
   t.renderer.destroy()
 })

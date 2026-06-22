@@ -14,9 +14,16 @@ function skillsSection(skills?: SkillSummary[]): string {
 }
 
 function agentsSection(agents?: { name: string; description: string }[]): string {
-  if (!agents?.length) return ""
-  const lines = agents.map((a) => `- ${a.name}: ${a.description}`)
-  return `\n# Sub-agents\nSpawn a focused read-only sub-agent with task({ agent, prompt }). Besides the built-in "explore", these custom agents are available:\n${lines.join("\n")}`
+  // Always promote the synchronous sub-agent — it's how Friday should offload investigation, not a
+  // feature gated on the user having authored custom agents.
+  const custom = agents?.length
+    ? `\nCustom agents available (pass as { agent }):\n${agents.map((a) => `- ${a.name}: ${a.description}`).join("\n")}`
+    : ""
+  return (
+    `\n# Sub-agents\n` +
+    `Delegate read-only investigation with task({ prompt }) — it spawns a focused sub-agent that searches/reads the codebase and returns just the answer, keeping your own context clean. Reach for it whenever a question means sweeping many files ("where is X handled", "how does Y work", "find everything that calls Z") instead of reading them all yourself. The built-in agent is "explore"; spawn several in parallel for independent questions.` +
+    custom
+  )
 }
 
 function deferredToolsSection(deferred?: { name: string; description: string }[]): string {

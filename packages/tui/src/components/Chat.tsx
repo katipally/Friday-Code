@@ -248,7 +248,10 @@ export function Chat(props: { pad?: number }) {
             scrollbox (and its scrollbar) spans to the terminal edge. */}
         <box flexDirection="column" paddingLeft={pad()} paddingRight={pad()}>
           <For each={app.items()}>
-            {(item) => {
+            {(item, i) => {
+              // The last item is the "active" one: a just-finished tool stays expanded while it's last,
+              // then collapses to its title once the turn appends something new (stream-then-collapse).
+              const last = () => i() === app.items().length - 1
               const body = (
                 <Switch>
                   <Match when={item.kind === "user"}>
@@ -258,7 +261,7 @@ export function Chat(props: { pad?: number }) {
                     <AssistantMessage item={item as any} />
                   </Match>
                   <Match when={item.kind === "tool"}>
-                    <ToolCard item={item as any} />
+                    <ToolCard item={item as any} last={last()} />
                   </Match>
                   <Match when={item.kind === "error"}>
                     <ErrorBubble item={item as any} />

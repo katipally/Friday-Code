@@ -33,6 +33,8 @@ export interface FridayConfig {
   browser?: { binary?: string; port?: number; userDataDir?: string }
   /** mic input (on-device speech-to-text): recorder/model overrides */
   voice?: MicConfig
+  /** directories the user has granted Friday access to (shown the trust prompt only once each) */
+  trustedRoots?: string[]
 }
 
 export function loadConfig(): FridayConfig {

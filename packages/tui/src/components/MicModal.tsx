@@ -16,6 +16,9 @@ export function MicModal() {
   useKeyboard((key) => {
     if (!app.micModalOpen()) return
     if (app.micPhase() === "transcribing") return // busy — ignore keys until it finishes
+    // While recording, ←/→ or j/k switch the input device (restarts capture on the new one).
+    if (app.micPhase() === "recording" && (key.name === "left" || key.name === "k")) return app.cycleMicDevice(-1)
+    if (app.micPhase() === "recording" && (key.name === "right" || key.name === "j")) return app.cycleMicDevice(1)
     if (
       key.name === "return" ||
       key.name === "enter" ||
@@ -45,8 +48,16 @@ export function MicModal() {
           <Switch>
             <Match when={app.micPhase() === "recording"}>
               <text fg={theme.info}>🎙 recording — speak now</text>
+              <Show when={app.micDevices().length}>
+                <text fg={theme.textFaint}>
+                  device: ▸ {app.micDevices()[app.micDevice()]?.label ?? "default"}
+                  {app.micDevices().length > 1 ? "   (←/→ to switch)" : ""}
+                </text>
+              </Show>
               <box backgroundColor={theme.bgComposer} paddingLeft={1} paddingRight={1} minHeight={1}>
-                <text fg={theme.textMuted}>listening on-device · nothing leaves your machine</text>
+                <text fg={app.micPartial() ? theme.text : theme.textMuted}>
+                  {app.micPartial() || "listening on-device · nothing leaves your machine"}
+                </text>
               </box>
               <text fg={theme.textFaint}>⏎ / esc / Ctrl+R — stop & transcribe</text>
             </Match>

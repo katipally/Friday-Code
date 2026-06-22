@@ -337,6 +337,8 @@ export class SessionRunner {
   private cwd: string
   private messages: Message[]
   private seq: number
+  /** Whether this session's row is in the store yet. New, empty sessions persist on their first message. */
+  private persisted: boolean
   private startedAt = now()
   private totalTokens = 0
   /** input tokens the provider reported for the most recent request — the real size of the current
@@ -402,6 +404,7 @@ export class SessionRunner {
     this.cwd = this.roots[0]!
     this.messages = host.store.loadMessages(row.id)
     this.seq = this.messages.length
+    this.persisted = this.messages.length > 0 // a resumed session already has a stored row
     // Restore per-session UI state (todos, plans, rewind checkpoints) so resuming feels continuous.
     this.todos = host.store.loadTodos(row.id)
     this.plans = host.store.loadPlans(row.id)
@@ -606,6 +609,7 @@ export class SessionRunner {
 
   addRoot(dir: string): void {
     if (this.roots.includes(dir)) return
+    this.ensurePersisted() // adding a workspace dir is a real action — persist so it survives
     this.roots = this.host.store.addRoot(this.sessionId, dir, now())
     this.context = loadProjectContext(this.roots)
     this.skills = loadSkills(this.roots)
@@ -701,7 +705,24 @@ export class SessionRunner {
     return true
   }
 
+  /** Persist this session's row if it isn't stored yet (new, empty sessions stay out of history until
+   * they do something real — a first message or an explicit workspace change). Idempotent. */
+  private ensurePersisted(): void {
+    if (this.persisted) return
+    const ts = now()
+    this.host.store.ensure({
+      id: this.sessionId,
+      title: this.title,
+      cwd: this.cwd,
+      roots: this.roots,
+      createdAt: ts,
+      updatedAt: ts,
+    })
+    this.persisted = true
+  }
+
   private addMessage(msg: Message): void {
+    this.ensurePersisted()
     this.messages.push(msg)
     this.host.store.appendMessage(this.sessionId, this.seq++, msg)
     this.host.store.touch(this.sessionId, now())

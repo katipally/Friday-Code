@@ -2,12 +2,8 @@ import { getMode, theme } from "@friday/shared"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { createMemo, createSignal, For } from "solid-js"
 import { useApp } from "../store.tsx"
+import { groupSessionsByDir, homeDir as home } from "../util/sessions.ts"
 import { Scrim } from "./Scrim.tsx"
-
-function home(p: string): string {
-  const h = process.env.HOME
-  return h && p.startsWith(h) ? `~${p.slice(h.length)}` : p
-}
 
 /** Full session history across all directories, grouped by directory. Resume or delete any. */
 export function SessionHistory() {
@@ -17,28 +13,7 @@ export function SessionHistory() {
   const [sel, setSel] = createSignal(0)
 
   // Flat, navigable list ordered by directory then recency; rows carry their flat index for headers.
-  type Row = { dir: string } | { session: { id: string; title: string; cwd: string }; index: number }
-  const grouped = createMemo(() => {
-    // A session appears under each of its roots.
-    const byDir = new Map<string, { id: string; title: string; cwd: string; updatedAt: number }[]>()
-    for (const s of app.allSessions()) {
-      for (const root of s.roots.length ? s.roots : [s.cwd]) {
-        if (!byDir.has(root)) byDir.set(root, [])
-        byDir.get(root)!.push(s)
-      }
-    }
-    const dirs = [...byDir.keys()].sort()
-    const rows: Row[] = []
-    const flat: { id: string; cwd: string }[] = []
-    for (const dir of dirs) {
-      rows.push({ dir })
-      for (const s of byDir.get(dir)!.sort((a, b) => b.updatedAt - a.updatedAt)) {
-        rows.push({ session: s, index: flat.length })
-        flat.push({ id: s.id, cwd: s.cwd })
-      }
-    }
-    return { rows, flat }
-  })
+  const grouped = createMemo(() => groupSessionsByDir(app.allSessions()))
 
   function resume(i: number) {
     const s = grouped().flat[i]

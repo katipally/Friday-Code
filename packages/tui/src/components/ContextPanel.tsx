@@ -288,8 +288,9 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
 
             <text fg={theme.borderMuted}>{"─".repeat(innerW())}</text>
 
-            {/* Quick actions — same as the Ctrl+R / Ctrl+O shortcuts, clickable for mouse users. */}
-            <box flexDirection="row" gap={1}>
+            {/* Quick actions — same as the Ctrl+R / Ctrl+O shortcuts, clickable for mouse users.
+                Stacked (mic above dashboard) so each is a full-width target. */}
+            <box flexDirection="column" gap={0}>
               <QuickButton label="🎙 mic" hint="Ctrl+R" onClick={() => app.toggleMic()} accent={accent()} />
               <QuickButton label="▦ dashboard" hint="Ctrl+O" onClick={() => app.toggleDashboard()} accent={accent()} />
             </box>

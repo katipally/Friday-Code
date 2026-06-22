@@ -4,12 +4,16 @@
  *   - INTERACTIVE  → `friday [args]` you can type in (new chat / resumed session).
  *   - WATCH (tiled)→ `friday attach <id>`, a read-only tail of a background agent's transcript.
  *
- * Backend is auto-detected and adaptive: inside tmux → panes/windows; iTerm/Terminal on macOS; the
- * common emulators on Linux. Unknown env degrades to "none" so the caller can fall back to the in-TUI
- * view rather than guessing.
+ * Backend is auto-detected and adaptive: inside tmux → panes/windows; macOS → a temp .command file
+ * opened with `open` (no Automation/AppleScript permission needed — that was why windows silently
+ * failed or opened blank behind the editor); the common emulators on Linux. Unknown env degrades to
+ * "none" so the caller can fall back to the in-TUI view rather than guessing.
  *
- * ponytail: covers tmux + iTerm + macOS Terminal + common Linux emulators; add more as users hit them.
+ * ponytail: covers tmux + macOS (open .command) + common Linux emulators; add more as users hit them.
  */
+import fs from "node:fs"
+import os from "node:os"
+import path from "node:path"
 
 /** Reconstruct how to launch friday itself. Dev: `bun <script>`; compiled: just the binary. */
 function selfCmd(): string[] {
@@ -22,10 +26,13 @@ function sh(parts: string[]): string {
   return parts.map((p) => `'${p.replace(/'/g, "'\\''")}'`).join(" ")
 }
 
-/** A shell command string for one window: optionally cd into `cwd`, then run friday with `args`. */
+/** A shell command string for one window: optionally cd into `cwd`, then run friday with `args`.
+ * Keeps the window open if friday ever exits (or fails to start) so it's never a blank black window —
+ * the exit screen's resume hint stays visible, and any startup error is readable. */
 function fridayCommand(args: string[], cwd?: string): string {
   const cmd = sh([...selfCmd(), ...args])
-  return cwd ? `cd ${sh([cwd])} && ${cmd}` : cmd
+  const run = cwd ? `cd ${sh([cwd])} && ${cmd}` : cmd
+  return `${run}; echo; echo '[friday exited — press Enter to close]'; read _`
 }
 
 function run(cmd: string[]): boolean {
@@ -47,23 +54,24 @@ function openTmux(cmds: string[], tile: boolean): number {
   return opened
 }
 
-function openITerm(cmds: string[]): number {
+/**
+ * Open each command in its own macOS terminal window via a temp .command file + `open`. Unlike
+ * AppleScript's `do script`, `open` needs no Automation permission (the usual reason new windows
+ * silently failed from the VS Code terminal) and it raises the terminal to the front. Defaults to
+ * Terminal.app; honors iTerm when that's the host terminal.
+ */
+function openMacWindows(cmds: string[]): number {
+  const app = process.env.TERM_PROGRAM === "iTerm.app" ? "iTerm" : "Terminal"
   let opened = 0
   for (const c of cmds) {
-    const script = `tell application "iTerm2"
-      create window with default profile
-      tell current session of current window to write text "${c.replace(/"/g, '\\"')}"
-    end tell`
-    if (run(["osascript", "-e", script])) opened++
-  }
-  return opened
-}
-
-function openMacTerminal(cmds: string[]): number {
-  let opened = 0
-  for (const c of cmds) {
-    const script = `tell application "Terminal" to do script "${c.replace(/"/g, '\\"')}"`
-    if (run(["osascript", "-e", script])) opened++
+    try {
+      const file = path.join(os.tmpdir(), `friday-${process.pid}-${opened}-${Date.now()}.command`)
+      // Self-delete on launch so temp files never accumulate, then run the command.
+      fs.writeFileSync(file, `#!/bin/bash\nrm -f ${sh([file])}\n${c}\n`, { mode: 0o755 })
+      if (run(["open", "-a", app, file])) opened++
+    } catch {
+      /* ignore and try the next */
+    }
   }
   return opened
 }
@@ -94,9 +102,9 @@ function openWindows(cmds: string[], tile: boolean): WinResult {
     return { ok: opened > 0, backend: "tmux", opened }
   }
   if (process.platform === "darwin") {
-    const iterm = process.env.TERM_PROGRAM === "iTerm.app" && Bun.which("osascript")
-    const opened = iterm ? openITerm(cmds) : openMacTerminal(cmds)
-    return { ok: opened > 0, backend: iterm ? "iTerm" : "Terminal.app", opened }
+    const opened = openMacWindows(cmds)
+    const backend = process.env.TERM_PROGRAM === "iTerm.app" ? "iTerm" : "Terminal.app"
+    return { ok: opened > 0, backend, opened }
   }
   if (process.platform === "linux") {
     const { opened, backend } = openLinuxTerminal(cmds)

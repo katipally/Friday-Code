@@ -18,9 +18,7 @@ test("model modal: pick keyless provider, filter models, select", async () => {
   const e = new Engine({ cwd: fs.mkdtempSync(path.join(os.tmpdir(), "cwd-")) })
   const t = await testRender(() => <App engine={e} />, { width: 100, height: 30 })
   await t.renderOnce()
-  t.mockInput.pressEnter() // splash -> shell; first-run shows onboarding
-  await t.flush()
-  t.mockInput.pressEnter() // onboarding -> open /model
+  t.mockInput.pressEnter() // trust the workspace -> first-run with no model opens /model directly
   await t.flush()
   expect(t.captureCharFrame()).toContain("/model")
 

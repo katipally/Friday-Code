@@ -8,7 +8,7 @@ import { DiffCard } from "./DiffCard.tsx"
 const MAX_OUTPUT_LINES = 12
 
 /** A tool step on the timeline: ⏺ marker + title; output / diff hangs off a ╰ branch. */
-export function ToolCard(props: { item: Extract<ViewItem, { kind: "tool" }> }) {
+export function ToolCard(props: { item: Extract<ViewItem, { kind: "tool" }>; last?: boolean }) {
   const app = useApp()
   const spin = useSpinner()
   const accent = () => getMode(app.mode()).accent
@@ -18,9 +18,10 @@ export function ToolCard(props: { item: Extract<ViewItem, { kind: "tool" }> }) {
     props.item.status === "running" ? accent() : props.item.status === "error" ? theme.error : theme.success
 
   const hasBody = () => !!props.item.diff || !!props.item.output
-  // Auto-collapse once the tool finishes (like the thinking block): show the body live while running,
-  // then collapse to just the title on done. Click the title to expand/re-collapse.
-  const expanded = () => props.item.status === "running" || props.item.open
+  // Stream-then-collapse, like the thinking block: the output (tools emit it only on completion) stays
+  // visible while this is the running or last/active step, then collapses to just the title once the
+  // turn moves on. Click the title to re-expand any finished tool.
+  const expanded = () => props.item.status === "running" || props.item.open || !!props.last
   const outputLines = () => props.item.output.split("\n")
   const clippedOutput = () => {
     const lines = outputLines()

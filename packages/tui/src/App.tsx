@@ -14,23 +14,38 @@ import { Dashboard } from "./components/Dashboard.tsx"
 import { DirectoryModal } from "./components/DirectoryModal.tsx"
 import { CollapseTab, GripDivider } from "./components/Divider.tsx"
 import { EffortSlider } from "./components/EffortSlider.tsx"
-import { ExitScreen } from "./components/ExitScreen.tsx"
 import { FooterHints } from "./components/FooterHints.tsx"
 import { ForkPicker } from "./components/ForkPicker.tsx"
 import { KeymapOverlay } from "./components/KeymapOverlay.tsx"
 import { McpModal } from "./components/McpModal.tsx"
 import { MicModal } from "./components/MicModal.tsx"
 import { ModelModal } from "./components/ModelModal.tsx"
-import { Onboarding } from "./components/Onboarding.tsx"
 import { PermissionCard } from "./components/PermissionCard.tsx"
 import { PlanCard } from "./components/PlanCard.tsx"
 import { SessionHistory } from "./components/SessionHistory.tsx"
-import { Splash } from "./components/Splash.tsx"
 import { StatusStrip } from "./components/StatusStrip.tsx"
 import { Toasts } from "./components/Toasts.tsx"
 import { TopBar } from "./components/TopBar.tsx"
+import { TrustPrompt } from "./components/TrustPrompt.tsx"
 import { YoloConfirm } from "./components/YoloConfirm.tsx"
 import { AppProvider, createAppStore, useApp } from "./store.tsx"
+
+function fmtTokens(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
+}
+function fmtDuration(ms: number): string {
+  const s = Math.round(ms / 1000)
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`
+}
+
+// Plain-text wordmark left in the terminal on exit (the TUI subpixel logo can't render to stdout).
+const EXIT_LOGO = [
+  "  ███████ ██████  ██ ██████   █████  ██    ██",
+  "  ██      ██   ██ ██ ██   ██ ██   ██  ██  ██ ",
+  "  █████   ██████  ██ ██   ██ ███████   ████  ",
+  "  ██      ██   ██ ██ ██   ██ ██   ██    ██   ",
+  "  ██      ██   ██ ██ ██████  ██   ██    ██   ",
+].join("\n")
 
 function Shell() {
   const app = useApp()
@@ -181,9 +196,7 @@ function Shell() {
       <Show when={app.forkOpen()}>
         <ForkPicker />
       </Show>
-      <Show when={app.onboardingOpen()}>
-        <Onboarding />
-      </Show>
+      <TrustPrompt />
       {/* HITL prompts render as centered overlays above the (dimmed) shell. */}
       <PermissionCard />
       <AskCard />
@@ -204,12 +217,8 @@ function AppRoot() {
   let lastEsc = 0
   let stopArmedAt = 0
   useKeyboard((key) => {
-    if (app.view() === "exit") return // ExitScreen owns keys
+    if (app.view() === "exit") return // exit is finalizing; ignore keys
     if (key.ctrl && key.name === "c") return app.quit()
-    if (app.view() === "splash") {
-      if (["return", "enter", "space", "escape"].includes(key.name)) app.setView("shell")
-      return
-    }
     if (app.view() === "console") {
       // ConsoleView owns its keys; only the toggle is global so it can close from here too.
       if (key.ctrl && key.name === "t") return app.toggleConsole()
@@ -277,14 +286,31 @@ function AppRoot() {
     if (txt) renderer.copyToClipboardOSC52(txt)
   })
 
+  // Clean exit: no full-screen farewell. Tear down the TUI, then leave the wordmark, session stats and
+  // the resume command in the normal terminal scrollback.
+  let exited = false
+  function finalizeExit() {
+    if (exited) return
+    exited = true
+    const id = app.engine.currentSessionId()
+    const title = app.engine.currentTitle()
+    const empty = app.engine.currentIsEmpty()
+    const s = app.exitStats()
+    app.engine.dispose() // close MCP + discard empty placeholder sessions so history stays clean
+    renderer.destroy() // leave the alt-screen and restore the normal terminal
+    const name = title ? `  “${title}”\n` : ""
+    const stats = s ? `  ${s.messages} messages · ${fmtTokens(s.tokens)} tokens · ${fmtDuration(s.durationMs)}\n` : ""
+    const resume = empty ? "" : `  resume:  friday -s ${id}\n` // empty sessions are discarded on dispose
+    process.stdout.write(`\n${EXIT_LOGO}\n\n${name}${stats}${resume}\n`)
+    process.exit(0)
+  }
+  createEffect(() => {
+    if (app.view() === "exit") finalizeExit()
+  })
+
   return (
-    <Switch fallback={<Splash />}>
-      <Match when={app.view() === "exit"}>
-        <ExitScreen />
-      </Match>
-      <Match when={app.view() === "shell"}>
-        <Shell />
-      </Match>
+    <Switch fallback={<Shell />}>
+      <Match when={app.view() === "exit"}>{null}</Match>
       <Match when={app.view() === "console"}>
         <ConsoleView />
       </Match>

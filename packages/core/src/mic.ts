@@ -25,30 +25,82 @@ function modelsDir(): string {
 
 type Recorder = { bin: string; argv: (out: string) => string[] }
 
-/** Find an installed mic recorder, configured to capture 16 kHz mono WAV (what Whisper wants). */
-function findRecorder(override?: string): Recorder | undefined {
+/** An available mic input the user can pick. `id` is what the recorder backend expects. */
+export type InputDevice = { id: string; label: string }
+
+/**
+ * Find an installed mic recorder, configured to capture 16 kHz mono WAV (what Whisper wants).
+ * `device` (optional) is a backend-specific input id from listInputDevices(); falls back to default.
+ */
+function findRecorder(override?: string, device?: string): Recorder | undefined {
   if (override && Bun.which(override.split(" ")[0]!)) {
     const parts = override.split(" ")
     return { bin: parts[0]!, argv: (out) => [...parts, out] }
   }
+  // sox rec/sox: capture the default input (device selection not wired — uncommon in practice)
   if (Bun.which("rec")) return { bin: "rec", argv: (o) => ["rec", "-q", "-r", "16000", "-c", "1", o] } // sox
   if (Bun.which("sox")) return { bin: "sox", argv: (o) => ["sox", "-d", "-q", "-r", "16000", "-c", "1", o] }
-  if (process.platform === "linux" && Bun.which("arecord"))
-    return { bin: "arecord", argv: (o) => ["arecord", "-q", "-f", "S16_LE", "-r", "16000", "-c", "1", "-t", "wav", o] }
+  if (process.platform === "linux" && Bun.which("arecord")) {
+    const dflags = device ? ["-D", device] : []
+    return {
+      bin: "arecord",
+      argv: (o) => ["arecord", "-q", ...dflags, "-f", "S16_LE", "-r", "16000", "-c", "1", "-t", "wav", o],
+    }
+  }
   if (Bun.which("ffmpeg")) {
     const dev =
       process.platform === "darwin"
-        ? ["-f", "avfoundation", "-i", ":0"]
+        ? ["-f", "avfoundation", "-i", `:${device ?? "0"}`] // avfoundation audio index, e.g. :0
         : process.platform === "win32"
-          ? ["-f", "dshow", "-i", "audio=default"]
-          : ["-f", "alsa", "-i", "default"]
+          ? ["-f", "dshow", "-i", `audio=${device ?? "default"}`]
+          : ["-f", "alsa", "-i", device ?? "default"]
     return { bin: "ffmpeg", argv: (o) => ["ffmpeg", "-y", "-loglevel", "quiet", ...dev, "-ar", "16000", "-ac", "1", o] }
   }
   return undefined
 }
 
+/**
+ * Enumerate selectable mic inputs. macOS: parse ffmpeg's avfoundation device list; Linux: parse
+ * `arecord -l` cards. Anything else (or a parse miss) → a single "default" entry.
+ * ponytail: parse only what we need; the default entry always works, so a flaky parse just hides names.
+ */
+export function listInputDevices(): InputDevice[] {
+  const fallback: InputDevice[] = [{ id: process.platform === "darwin" ? "0" : "default", label: "default" }]
+  try {
+    if (process.platform === "darwin" && Bun.which("ffmpeg")) {
+      // ffmpeg prints the device list to stderr then errors out (empty input) — that's expected.
+      const r = Bun.spawnSync(["ffmpeg", "-f", "avfoundation", "-list_devices", "true", "-i", ""], {
+        stdout: "ignore",
+        stderr: "pipe",
+      })
+      const text = r.stderr.toString()
+      const out: InputDevice[] = []
+      let inAudio = false
+      for (const line of text.split("\n")) {
+        if (/AVFoundation audio devices:/.test(line)) inAudio = true
+        else if (/AVFoundation video devices:/.test(line)) inAudio = false
+        else if (inAudio) {
+          const m = line.match(/\[(\d+)\]\s+(.+?)\s*$/)
+          if (m) out.push({ id: m[1]!, label: m[2]! })
+        }
+      }
+      return out.length ? out : fallback
+    }
+    if (process.platform === "linux" && Bun.which("arecord")) {
+      const r = Bun.spawnSync(["arecord", "-l"], { stdout: "pipe", stderr: "ignore" })
+      const out: InputDevice[] = []
+      for (const line of r.stdout.toString().split("\n")) {
+        const m = line.match(/^card (\d+):\s+\S+\s+\[([^\]]+)\].*device (\d+):/)
+        if (m) out.push({ id: `hw:${m[1]},${m[3]}`, label: m[2]! })
+      }
+      return out.length ? out : fallback
+    }
+  } catch {}
+  return fallback
+}
+
 /** Decode a 16-bit PCM WAV file to mono Float32 in [-1,1] (first channel if stereo). */
-function decodeWav(file: string): Float32Array | undefined {
+export function decodeWav(file: string): Float32Array | undefined {
   const buf = fs.readFileSync(file)
   if (buf.length < 44 || buf.toString("ascii", 0, 4) !== "RIFF") return undefined
   let off = 12
@@ -70,7 +122,9 @@ function decodeWav(file: string): Float32Array | undefined {
     off += 8 + sz + (sz & 1)
   }
   if (dataOff < 0 || bits !== 16) return undefined // recorders emit 16-bit PCM; bail otherwise
-  dataLen = Math.min(dataLen, buf.length - dataOff)
+  // While still recording the data-chunk size is a placeholder (0 or huge); use what's on disk so
+  // partial WAVs decode for live transcription.
+  if (!dataLen || dataLen > buf.length - dataOff) dataLen = buf.length - dataOff
   const samples = dataLen >> 1
   const out = new Float32Array(Math.ceil(samples / channels))
   let j = 0
@@ -106,16 +160,41 @@ export function prewarmMic(cfg?: MicConfig): void {
 class MicSession {
   private proc?: ReturnType<typeof Bun.spawn>
   private out?: string
+  private partialBusy = false
+  private lastPartial = ""
   recording = false
 
-  start(cfg?: MicConfig): void {
+  start(cfg?: MicConfig, device?: string): void {
     if (this.recording) return
-    const rec = findRecorder(cfg?.recorder)
+    const rec = findRecorder(cfg?.recorder, device)
     if (!rec) throw new Error("no microphone recorder found — install ffmpeg or sox")
     this.out = path.join(os.tmpdir(), `friday-mic-${process.pid}.wav`)
+    this.lastPartial = ""
     this.proc = Bun.spawn(rec.argv(this.out), { stdout: "ignore", stderr: "ignore" })
     this.recording = true
     prewarmMic(cfg) // start loading the model while the user talks
+  }
+
+  /**
+   * Transcribe whatever's been captured so far WITHOUT stopping — for the live preview. Returns the
+   * last result while a previous pass is still running (no overlap) or before the model is ready.
+   */
+  async transcribePartial(cfg?: MicConfig): Promise<string> {
+    if (!this.recording || !this.out || this.partialBusy) return this.lastPartial
+    if (!asrPromise) return this.lastPartial // model not loaded yet — wait for prewarm
+    this.partialBusy = true
+    try {
+      const audio = decodeWav(this.out)
+      if (!audio || audio.length < 1600) return this.lastPartial
+      const asr = await getAsr(cfg?.model ?? DEFAULT_MODEL)
+      const r = await asr(audio)
+      this.lastPartial = (r?.text ?? "").trim()
+    } catch {
+      // partial decode/transcribe is best-effort; keep the last good text
+    } finally {
+      this.partialBusy = false
+    }
+    return this.lastPartial
   }
 
   /** Stop capture, transcribe locally, return recognized text ("" if nothing heard). */
@@ -165,8 +244,11 @@ function active(): MicSession {
 export function micRecording(): boolean {
   return active().recording
 }
-export function startMic(cfg?: MicConfig): void {
-  active().start(cfg)
+export function startMic(cfg?: MicConfig, device?: string): void {
+  active().start(cfg, device)
+}
+export function transcribePartial(cfg?: MicConfig): Promise<string> {
+  return active().transcribePartial(cfg)
 }
 export function stopMic(cfg?: MicConfig): Promise<string> {
   return active().stopAndTranscribe(cfg)

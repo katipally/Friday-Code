@@ -124,7 +124,7 @@ function messagesToItems(messages: Message[]): ViewItem[] {
 }
 
 export function createAppStore(engine: Engine, version = "dev") {
-  const [view, setView] = createSignal<"splash" | "shell" | "console" | "dashboard" | "exit">("splash")
+  const [view, setView] = createSignal<"shell" | "console" | "dashboard" | "exit">("shell")
   const [mode, setModeSig] = createSignal<ModeId>(engine.selection().mode ?? DEFAULT_MODE)
   const [effort, setEffortSig] = createSignal<Effort>(engine.selection().effort ?? "medium")
   const [model, setModel] = createSignal<string>(engine.selection().model ?? "no model — open /model")
@@ -149,7 +149,13 @@ export function createAppStore(engine: Engine, version = "dev") {
   const [micError, setMicError] = createSignal("")
   // Non-empty → the modal shows the OS-aware setup checklist (also shown alongside an error).
   const [micSetup, setMicSetup] = createSignal<string[]>([])
-  const [onboardingOpen, setOnboardingOpen] = createSignal(false)
+  // Mic input devices + live (partial) transcription while recording.
+  const [micDevices, setMicDevices] = createSignal<{ id: string; label: string }[]>([])
+  const [micDevice, setMicDevice] = createSignal(0) // index into micDevices()
+  const [micPartial, setMicPartial] = createSignal("")
+  let micTick: ReturnType<typeof setInterval> | undefined
+  // First-run-per-directory workspace trust gate (replaces the old welcome tour).
+  const [trustOpen, setTrustOpen] = createSignal(!engine.isCwdTrusted())
 
   const [paletteOpen, setPaletteOpen] = createSignal(false)
   // First Esc while busy "arms" the stop; a second Esc within the window actually aborts.
@@ -274,7 +280,7 @@ export function createAppStore(engine: Engine, version = "dev") {
     modelModalOpen() ||
     yoloConfirmOpen() ||
     micModalOpen() ||
-    onboardingOpen() ||
+    trustOpen() ||
     effortOpen() ||
     paletteOpen() ||
     historyOpen() ||
@@ -434,7 +440,9 @@ export function createAppStore(engine: Engine, version = "dev") {
     switch (e.type) {
       case "ready":
         setNeedsModel(e.needsModel)
-        if (e.needsModel) setOnboardingOpen(true) // first run → welcome tour, then /model
+        // No model yet → go straight to the picker (no welcome tour). Defer if the trust gate is up;
+        // accepting trust opens the picker itself.
+        if (e.needsModel && !trustOpen()) setModelModalOpen(true)
         break
       case "model-changed":
         setModel(e.model)
@@ -667,9 +675,38 @@ export function createAppStore(engine: Engine, version = "dev") {
     const cur = (composerEl as any)?.plainText ? String((composerEl as any).plainText).trim() : ""
     setComposerText(cur ? `${cur} ${text}` : text)
   }
+  function stopMicTick() {
+    if (micTick) clearInterval(micTick)
+    micTick = undefined
+  }
+  /** Begin capture on the selected device and stream a live (partial) transcription into the modal. */
+  function startMicCapture() {
+    const dev = micDevices()[micDevice()]?.id
+    engine.startMic(dev)
+    setMicPartial("")
+    setMicPhase("recording")
+    stopMicTick()
+    micTick = setInterval(() => {
+      if (micPhase() !== "recording") return
+      engine
+        .transcribePartial()
+        .then((t) => t && setMicPartial(t))
+        .catch(() => {})
+    }, 2000)
+  }
+  /** Cycle the mic input device while the picker is open; restarts capture on the new device. */
+  function cycleMicDevice(dir: 1 | -1) {
+    const n = micDevices().length
+    if (n < 2 || micPhase() !== "recording") return
+    setMicDevice((i) => (i + dir + n) % n)
+    engine.cancelMic()
+    startMicCapture()
+  }
   /** Close the mic modal, cancelling an in-progress recording. */
   function closeMic() {
+    stopMicTick()
     if (micPhase() === "recording") engine.cancelMic()
+    setMicPartial("")
     setMicModalOpen(false)
     setMicPhase("idle")
     setMicError("")
@@ -683,6 +720,7 @@ export function createAppStore(engine: Engine, version = "dev") {
   function toggleMic() {
     if (micPhase() === "recording") {
       // stop & transcribe locally (may take a moment, esp. on first run while the model loads)
+      stopMicTick()
       setMicPhase("transcribing")
       engine
         .stopMic()
@@ -711,11 +749,12 @@ export function createAppStore(engine: Engine, version = "dev") {
       return
     }
     try {
-      engine.startMic()
+      setMicDevices(engine.micInputDevices())
+      setMicDevice(0)
       setMicError("")
       setMicSetup([])
-      setMicPhase("recording")
       setMicModalOpen(true)
+      startMicCapture()
     } catch (e: any) {
       setMicError(e?.message ?? String(e))
       setMicSetup(engine.micSetupSteps().lines)
@@ -760,25 +799,24 @@ export function createAppStore(engine: Engine, version = "dev") {
   const BUILTIN_COMMANDS: { name: string; description: string }[] = [
     { name: "model", description: "connect a provider / pick a model" },
     { name: "effort", description: "set reasoning effort (slider)" },
-    { name: "new", description: "start a new session" },
-    { name: "clear", description: "clear the conversation (new session)" },
+    { name: "new", description: "start a new session in its own window" },
+    { name: "clear", description: "clear the conversation (reset this window)" },
     { name: "resume", description: "resume or switch to another session" },
     { name: "fork", description: "branch a session from a past turn" },
     { name: "dir", description: "change or add a working directory" },
+    { name: "mic", description: "talk to Friday — on-device speech-to-text (Ctrl+R)" },
     { name: "mcp", description: "view / add / remove MCP servers" },
     { name: "compact", description: "summarize old context to free space" },
     { name: "init", description: "scan the repo and write a FRIDAY.md guide" },
     { name: "context", description: "show what's in the context window" },
     { name: "usage", description: "show token + cost usage this session" },
-    { name: "stats", description: "show token + cost usage this session" },
     { name: "doctor", description: "check model, provider & environment health" },
     { name: "dashboard", description: "dashboard — Sessions · Teams · Swarm · History (Ctrl+O)" },
     { name: "console", description: "open the agent-team console (Ctrl+T)" },
     { name: "fleet", description: "swarm: open an external window per running agent (inline view: Ctrl+O)" },
     { name: "browser", description: "launch the browser + activate browser tools (/browser close to stop)" },
     { name: "chrome", description: "alias for /browser" },
-    { name: "computer", description: "activate desktop-control tools (install first via /computer-use install)" },
-    { name: "computer-use", description: "install/uninstall desktop control (mouse/keyboard/screen)" },
+    { name: "computer", description: "desktop control — /computer install · /computer uninstall" },
     { name: "review", description: "review the current changes" },
     { name: "security-review", description: "audit the current changes for security issues" },
     { name: "permissions", description: "view / clear remembered approvals" },
@@ -813,8 +851,10 @@ export function createAppStore(engine: Engine, version = "dev") {
         setEffortOpen(true)
         return true
       case "new":
+        newChatWindow() // a fresh session in its own real terminal window
+        return true
       case "clear":
-        newSession()
+        newSession() // reset the conversation in place (this window)
         return true
       case "resume":
       case "sessions": // aliases for the old command names
@@ -1263,6 +1303,16 @@ export function createAppStore(engine: Engine, version = "dev") {
     engine.stopTask(sessionId)
     pushToast("stopped agent", "input")
   }
+  /** Remove a swarm/background agent from the dashboard (stops it first if running). */
+  function removeAgent(sessionId: string) {
+    engine.removeTask(sessionId)
+    pushToast("removed agent", "input")
+  }
+  /** Dismiss the current agent team (stops running members) and clear the panel. */
+  function dismissTeam() {
+    engine.dismissTeam()
+    pushToast("dismissed team", "input")
+  }
   function popoutAgent(sessionId: string) {
     const r = engine.popoutAgent(sessionId)
     pushToast(r.ok ? `opened agent window via ${r.backend}` : "no terminal backend available", r.ok ? "done" : "input")
@@ -1359,6 +1409,18 @@ export function createAppStore(engine: Engine, version = "dev") {
     pushToast("forked a new session from that turn", "input")
   }
 
+  /** Workspace trust gate: grant access to this directory, then continue to the model picker if needed. */
+  function trustCwd() {
+    engine.trustCwd()
+    setTrustOpen(false)
+    if (needsModel()) setModelModalOpen(true)
+  }
+  /** Decline trust → leave immediately (don't operate on an untrusted directory). */
+  function declineTrust() {
+    setTrustOpen(false)
+    quit()
+  }
+
   const [exitStats, setExitStats] = createSignal<SessionStats | null>(null)
   function quit() {
     setExitStats(engine.stats())
@@ -1395,6 +1457,10 @@ export function createAppStore(engine: Engine, version = "dev") {
     micPhase,
     micError,
     micSetup,
+    micDevices,
+    micDevice,
+    micPartial,
+    cycleMicDevice,
     closeMic,
     toggleMic,
     newChatWindow,
@@ -1402,8 +1468,10 @@ export function createAppStore(engine: Engine, version = "dev") {
     launchSwarm,
     launchTeam,
     refreshSessions,
-    onboardingOpen,
-    setOnboardingOpen,
+    trustOpen,
+    trustCwd,
+    declineTrust,
+    cwdLabel: () => engine.currentCwd(),
     mascot,
     status,
     tokens,
@@ -1503,6 +1571,8 @@ export function createAppStore(engine: Engine, version = "dev") {
     toggleDashboard,
     visitAgent,
     stopAgent,
+    removeAgent,
+    dismissTeam,
     popoutAgent,
     budget,
     diagnostics,

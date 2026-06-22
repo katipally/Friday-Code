@@ -36,7 +36,18 @@ import { type CustomCommand, loadCommands } from "./commands.ts"
 import { loadConfig, saveConfig } from "./config.ts"
 import { type CronJob, loadCron, parseInterval, saveCron } from "./cron.ts"
 import { openFleetWindows, openInteractiveWindow } from "./fleet.ts"
-import { cancelMic, micRecording, micSetupSteps, micStatus, prewarmMic, startMic, stopMic } from "./mic.ts"
+import {
+  cancelMic,
+  type InputDevice,
+  listInputDevices,
+  micRecording,
+  micSetupSteps,
+  micStatus,
+  prewarmMic,
+  startMic,
+  stopMic,
+  transcribePartial,
+} from "./mic.ts"
 import { notify } from "./notify.ts"
 import { persistPermission, projectPermissions, revokeProjectPermissions } from "./permissions.ts"
 import { type RunnerHost, SessionRunner, type SessionStats } from "./runner.ts"
@@ -176,7 +187,7 @@ export class Engine {
       : opts.continueLast
         ? this.store.latest(this.cwd)
         : undefined
-    const row = resumed ?? this.store.create([this.cwd], crypto.randomUUID(), now())
+    const row = resumed ?? this.store.buildRow([this.cwd], crypto.randomUUID(), now())
     const runner = this.makeRunner(row)
     this.focusedId = runner.sessionId
   }
@@ -222,7 +233,7 @@ export class Engine {
   spawnTask(prompt: string, description: string, worktree?: string): string {
     const roots = this.focused().currentRoots()
     const title = (description || "task").slice(0, 60)
-    const runner = this.makeRunner(this.store.create(roots, crypto.randomUUID(), now(), title))
+    const runner = this.makeRunner(this.store.buildRow(roots, crypto.randomUUID(), now(), title))
     this.taskMeta.set(runner.sessionId, { description, createdAt: now() })
     void (async () => {
       if (worktree) await runner.enterWorktree(worktree)
@@ -250,6 +261,26 @@ export class Engine {
   stopTask(id: string): void {
     this.runners.get(id)?.abortRun()
     this.emitTasks()
+  }
+  /** Stop (if running) and drop a background/swarm agent from the list entirely. */
+  removeTask(id: string): void {
+    const r = this.runners.get(id)
+    if (r) {
+      r.abortRun()
+      r.dispose()
+      this.runners.delete(id)
+    }
+    this.taskMeta.delete(id)
+    this.teamOf.delete(id)
+    this.emitTasks()
+  }
+  /** Dismiss the current team: stop any running members and clear the team panel. */
+  dismissTeam(): void {
+    const teamId = this.board.latestTeamId()
+    if (!teamId) return
+    for (const m of this.board.members(teamId)) this.runners.get(m.sessionId)?.abortRun()
+    this.board.finishTeam(teamId, "done")
+    this.dispatch(this.focusedId, { type: "team", team: null })
   }
   /** Inject a follow-up prompt into a background task. Queues it if the task is mid-turn. */
   sendToTask(id: string, text: string): boolean {
@@ -287,6 +318,7 @@ export class Engine {
    * orchestrator is automatically re-prompted to merge & report. Returns the team id. */
   spawnTeam(orchestrator: string, goal: string, roles: { role: string; prompt: string; worktree?: string }[]): string {
     const teamId = this.board.createTeam(goal, orchestrator)
+    const sids: string[] = []
     for (const r of roles) {
       const wt = r.worktree || `team-${teamId}-${r.role}`.replace(/[^a-zA-Z0-9._/-]/g, "-")
       const briefing =
@@ -298,9 +330,13 @@ export class Engine {
       this.board.addMember(teamId, sid, r.role, wt)
       this.teamOf.set(sid, teamId)
       this.runners.get(sid)?.activateTools("board_")
+      sids.push(sid)
     }
     // The orchestrator needs the board tools too (to read progress / be re-prompted with context).
     this.runners.get(orchestrator)?.activateTools("board_")
+    // Pop a read-only watch window per member (real terminal) so the team runs visibly, like a swarm.
+    // The in-TUI Console (Ctrl+T) still tails the shared board. Degrades to in-TUI if no backend.
+    openFleetWindows(sids)
     const timer = setTimeout(() => this.gatherTimeout(teamId), Engine.TEAM_TIMEOUT_MS)
     timer.unref?.()
     this.emitTeam(teamId)
@@ -433,9 +469,17 @@ export class Engine {
   micRecording(): boolean {
     return micRecording()
   }
-  /** Begin capturing the mic (press-to-talk). Throws if no recorder is installed. */
-  startMic(): void {
-    startMic(loadConfig().voice)
+  /** Selectable mic inputs (for the device picker in the mic modal). */
+  micInputDevices(): InputDevice[] {
+    return listInputDevices()
+  }
+  /** Begin capturing the mic (press-to-talk). `device` is an id from micInputDevices(). */
+  startMic(device?: string): void {
+    startMic(loadConfig().voice, device)
+  }
+  /** Transcribe captured-so-far audio without stopping — drives the live preview. */
+  transcribePartial(): Promise<string> {
+    return transcribePartial(loadConfig().voice)
   }
   /** Stop capture and return the locally-transcribed text ("" if nothing heard). */
   stopMic(): Promise<string> {
@@ -606,6 +650,20 @@ export class Engine {
     this.dispatch(this.focusedId, { type: "ready", needsModel: !this.model || !this.providerId })
   }
 
+  // ---- workspace trust ----
+  /** Has the user granted Friday access to the cwd — or to an ancestor of it (prefix trust)? */
+  isCwdTrusted(): boolean {
+    const trusted = loadConfig().trustedRoots ?? []
+    return trusted.some(
+      (root) => this.cwd === root || this.cwd.startsWith(root.endsWith(path.sep) ? root : root + path.sep),
+    )
+  }
+  /** Remember the current directory as trusted so the prompt isn't shown again for it. */
+  trustCwd(): void {
+    const trusted = loadConfig().trustedRoots ?? []
+    if (!trusted.includes(this.cwd)) saveConfig({ trustedRoots: [...trusted, this.cwd] })
+  }
+
   // ---- sessions ----
   /**
    * "Active" sessions = those opened in THIS process run (the live runners), tagged with their
@@ -682,7 +740,7 @@ export class Engine {
       focused.emitState(true)
       return
     }
-    const runner = this.makeRunner(this.store.create(focused.currentRoots(), crypto.randomUUID(), now()))
+    const runner = this.makeRunner(this.store.buildRow(focused.currentRoots(), crypto.randomUUID(), now()))
     this.focusedId = runner.sessionId
     runner.emitState(true)
   }
@@ -726,19 +784,20 @@ export class Engine {
   }
   /** Open a new session rooted at `dir` and focus it. */
   setRoot(dir: string): void {
-    const runner = this.makeRunner(this.store.create([dir], crypto.randomUUID(), now()))
+    const runner = this.makeRunner(this.store.buildRow([dir], crypto.randomUUID(), now()))
     this.focusedId = runner.sessionId
     runner.emitState(true)
   }
   deleteSession(id: string): void {
     const r = this.runners.get(id)
     if (r) {
+      if (r.busy) r.abortRun() // stop a mid-turn session before discarding it
       r.dispose()
       this.runners.delete(id)
     }
     this.store.delete(id)
     if (id === this.focusedId) {
-      const next = this.store.latest(this.cwd) ?? this.store.create([this.cwd], crypto.randomUUID(), now())
+      const next = this.store.latest(this.cwd) ?? this.store.buildRow([this.cwd], crypto.randomUUID(), now())
       const runner = this.runnerFor(next.id) ?? this.makeRunner(next)
       this.focusedId = runner.sessionId
       runner.emitState(true)

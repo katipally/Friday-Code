@@ -102,11 +102,28 @@ export class SessionStore {
   }
 
   create(roots: string[], id: string, now: number, title = "new session"): SessionRow {
-    const cwd = roots[0]!
+    const row = this.buildRow(roots, id, now, title)
+    this.persist(row)
+    return row
+  }
+
+  /** A session row in memory WITHOUT touching the DB. Pair with ensure() to persist it lazily — new,
+   * empty sessions stay out of history until their first message, so opening chats never duplicates rows. */
+  buildRow(roots: string[], id: string, now: number, title = "new session"): SessionRow {
+    return { id, title, cwd: roots[0]!, roots, createdAt: now, updatedAt: now }
+  }
+
+  /** Insert a session row if it isn't already stored (idempotent). Called on the first message. */
+  ensure(row: SessionRow): void {
+    this.db
+      .query("INSERT OR IGNORE INTO sessions (id, title, cwd, roots, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(row.id, row.title, row.cwd, JSON.stringify(row.roots), row.createdAt, row.updatedAt)
+  }
+
+  private persist(row: SessionRow): void {
     this.db
       .query("INSERT INTO sessions (id, title, cwd, roots, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(id, title, cwd, JSON.stringify(roots), now, now)
-    return { id, title, cwd, roots, createdAt: now, updatedAt: now }
+      .run(row.id, row.title, row.cwd, JSON.stringify(row.roots), row.createdAt, row.updatedAt)
   }
 
   get(id: string): SessionRow | undefined {
