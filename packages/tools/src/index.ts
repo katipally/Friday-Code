@@ -2,6 +2,7 @@ import type { ToolDef } from "@friday/shared"
 import { skillTool, taskTool, todoWriteTool } from "./builtin/agent.ts"
 import { askUserTool } from "./builtin/ask.ts"
 import { bashTool } from "./builtin/bash.ts"
+import { BROWSER_TOOL_LIST } from "./builtin/browser.ts"
 import { editTool, lsTool, multiEditTool, readTool, writeTool } from "./builtin/file.ts"
 import { lspDefinitionTool, lspHoverTool, lspSymbolsTool } from "./builtin/lsp.ts"
 import { memoryTool } from "./builtin/memory.ts"
@@ -17,6 +18,7 @@ import { type Tool, toToolDef } from "./tool.ts"
 
 export { SKILL_TOOL, TASK_TOOL, TODO_WRITE } from "./builtin/agent.ts"
 export { ASK_USER } from "./builtin/ask.ts"
+export { BROWSER_TOOLS, closeBrowser, findBrowser, startBrowser } from "./builtin/browser.ts"
 export { LSP_DEFINITION, LSP_HOVER, LSP_SYMBOLS, LSP_TOOLS } from "./builtin/lsp.ts"
 export { MEMORY_TOOL } from "./builtin/memory.ts"
 export { EXIT_PLAN } from "./builtin/plan.ts"
@@ -61,6 +63,7 @@ export const BUILTIN_TOOLS: Tool[] = [
   toolSearchTool,
   ...TASK_BG_TOOL_LIST,
   ...WORKTREE_TOOL_LIST,
+  ...BROWSER_TOOL_LIST,
   memoryTool,
   notebookEditTool,
 ]

@@ -28,6 +28,8 @@ export interface FridayConfig {
   outputStyle?: string
   /** auto-format touched files after edit/write; false disables. Default: auto-detect. */
   formatter?: boolean
+  /** browser automation: override the binary, CDP port, or profile dir (defaults: auto-detect, 9333, ~/.friday/chrome-profile) */
+  browser?: { binary?: string; port?: number; userDataDir?: string }
 }
 
 export function loadConfig(): FridayConfig {

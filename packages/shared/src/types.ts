@@ -100,7 +100,7 @@ export type ProviderEvent =
   | { type: "done"; stopReason: string }
 
 /** Tool permission categories, matched against a mode's PermissionPolicy. */
-export type PermissionCategory = "read" | "edit" | "bash" | "network"
+export type PermissionCategory = "read" | "edit" | "bash" | "network" | "browser" | "computer"
 
 /** A single item in the agent's live task list (maintained via the todo_write tool). */
 export type TodoStatus = "pending" | "active" | "done"

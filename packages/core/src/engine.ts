@@ -20,7 +20,7 @@ import {
   type ProviderInfo,
   type UICommand,
 } from "@friday/shared"
-import { BUILTIN_TOOLS, buildRegistry, type Tool } from "@friday/tools"
+import { BUILTIN_TOOLS, buildRegistry, closeBrowser, findBrowser, startBrowser, type Tool } from "@friday/tools"
 import { type CustomCommand, loadCommands } from "./commands.ts"
 import { loadConfig, saveConfig } from "./config.ts"
 import { type CronJob, loadCron, parseInterval, saveCron } from "./cron.ts"
@@ -224,6 +224,18 @@ export class Engine {
   /** Fan out a list of subtasks as parallel background agents; returns their ids. */
   spawnAgents(jobs: { description: string; prompt: string; worktree?: string }[]): string[] {
     return jobs.map((j) => this.spawnTask(j.prompt, j.description, j.worktree?.trim() || undefined))
+  }
+  /** Launch / connect the user's browser for CDP automation (the /chrome command). */
+  async startBrowser(): Promise<string> {
+    if (!findBrowser()) throw new Error("no Chrome/Brave/Edge/Chromium found — install one first")
+    return startBrowser(loadConfig().browser)
+  }
+  closeBrowser(): void {
+    closeBrowser()
+  }
+  /** Whether an automatable browser binary is installed (for /doctor). */
+  browserAvailable(): boolean {
+    return !!findBrowser()
   }
   /** Open a viewer window per running task (tmux pane / OS terminal); returns the chosen backend. */
   openFleet(): { ok: boolean; backend: string; opened: number } {

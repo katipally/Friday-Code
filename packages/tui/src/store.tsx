@@ -634,6 +634,7 @@ export function createAppStore(engine: Engine, version = "dev") {
     { name: "stats", description: "show token + cost usage this session" },
     { name: "doctor", description: "check model, provider & environment health" },
     { name: "fleet", description: "open a window per running background agent" },
+    { name: "chrome", description: "launch the browser for automation (/chrome close to stop)" },
     { name: "review", description: "review the current changes" },
     { name: "security-review", description: "audit the current changes for security issues" },
     { name: "permissions", description: "view / clear remembered approvals" },
@@ -777,12 +778,27 @@ export function createAppStore(engine: Engine, version = "dev") {
         )
         return true
       }
+      case "chrome": {
+        const a = args.trim().toLowerCase()
+        if (a === "close" || a === "stop") {
+          engine.closeBrowser()
+          pushToast("browser closed", "done")
+          return true
+        }
+        pushToast("launching browser…", "input")
+        engine
+          .startBrowser()
+          .then((m) => pushToast(m, "done"))
+          .catch((e) => pushToast(`browser: ${e?.message ?? e}`, "error"))
+        return true
+      }
       case "doctor": {
         const sid = activeSession()
         const lines = [
           model() && providerId() ? `✓ model: ${model()} (${providerId()})` : "✗ no model — run /model",
           `✓ mode: ${mode()} · effort: ${effort()}${reasoningModel() ? "" : " (model has no reasoning channel)"}`,
           `✓ output style: ${engine.selection().outputStyle ?? "concise"}`,
+          engine.browserAvailable() ? "✓ browser: available (/chrome)" : "✗ browser: none found (install Chrome/Brave/Edge)",
           `✓ platform: ${process.platform}`,
         ]
         appendItem(sid, { kind: "notice", id: nextLocalId(), text: lines.join("\n") })
