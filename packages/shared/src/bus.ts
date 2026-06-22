@@ -5,7 +5,7 @@
 
 import type { MascotState } from "./mascot.ts"
 import type { ModeId } from "./modes.ts"
-import type { Message, TodoItem } from "./types.ts"
+import type { ImagePart, Message, TodoItem } from "./types.ts"
 
 /**
  * The event payloads. Every event is additionally tagged with the `sessionId` it
@@ -88,6 +88,9 @@ export type EngineEventBody =
       } | null
     }
   | { type: "error"; message: string }
+  // A /add note (id correlates with the optimistic UI item) has been folded into the agent's context
+  // at a step boundary — the UI flips its "pending" chip to "attached".
+  | { type: "inject-attached"; id: string }
 
 /**
  * One selectable choice in an ask_user question — a short label, an optional explanation, and an
@@ -114,6 +117,12 @@ export type EngineEvent = EngineEventBody & { sessionId: string }
 export type UICommand =
   | { type: "prompt"; text: string }
   | { type: "abort" }
+  // Steer a running agent without stopping it: `inject` folds a user note in at the next loop
+  // step; `inject-pause` makes the agent idle at the next step boundary while the user composes;
+  // `inject-resume` releases that pause (used by the modal's cancel path).
+  | { type: "inject"; id?: string; text: string; images?: ImagePart[] }
+  | { type: "inject-pause" }
+  | { type: "inject-resume" }
   | { type: "set-mode"; mode: ModeId }
   | { type: "set-model"; model: string }
   | { type: "set-effort"; effort: string }

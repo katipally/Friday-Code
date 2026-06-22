@@ -209,6 +209,47 @@ function ErrorBubble(props: { item: Extract<ViewItem, { kind: "error" }> }) {
   )
 }
 
+/** HH:MM clock for an injected note's timestamp. */
+function clock(ms: number): string {
+  const d = new Date(ms)
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+}
+
+/**
+ * A /add note injected mid-task. Two states, rendered as a centered pill flanked by rules (like the
+ * plan breaker) so it reads as an interleaved insertion into the flow:
+ *   • pending  — sent, about to be folded in at the next step. Warm, *pulsing* so the user sees it's
+ *                in flight ("⏳ adding to context…").
+ *   • attached — now part of the agent's context, stamped with the time it landed ("✓ added · HH:MM").
+ * The note text is shown as a quoted subtitle so the user sees exactly what was added.
+ */
+function InjectRow(props: { item: Extract<ViewItem, { kind: "inject" }> }) {
+  const pending = () => props.item.state === "pending"
+  // Pulse while pending (shimmerAccent reads the shared phase → re-renders each tick); solid once attached.
+  const tint = () => (pending() ? shimmerAccent(theme.warning) : theme.success)
+  const label = () =>
+    pending() ? "⏳ adding to context…" : `✓ added to context · ${clock(props.item.attachedAt ?? props.item.at)}`
+  const rule = "─".repeat(240)
+  return (
+    <box flexDirection="column" alignItems="center" marginTop={1} marginBottom={1}>
+      <box flexDirection="row" alignItems="center" gap={1} width="100%">
+        <box flexGrow={1} flexBasis={0} minWidth={0} height={1} overflow="hidden">
+          <text fg={tint()}>{rule}</text>
+        </box>
+        <box border borderStyle="single" borderColor={tint()} paddingLeft={1} paddingRight={1} flexShrink={0}>
+          <text fg={tint()}>{label()}</text>
+        </box>
+        <box flexGrow={1} flexBasis={0} minWidth={0} height={1} overflow="hidden">
+          <text fg={tint()}>{rule}</text>
+        </box>
+      </box>
+      <box maxWidth="80%">
+        <text fg={theme.textMuted}>“{props.item.text}”</text>
+      </box>
+    </box>
+  )
+}
+
 export function Chat(props: { pad?: number }) {
   const app = useApp()
   const pad = () => props.pad ?? 1
@@ -271,6 +312,9 @@ export function Chat(props: { pad?: number }) {
                   </Match>
                   <Match when={item.kind === "breaker"}>
                     <BreakerRow item={item as any} />
+                  </Match>
+                  <Match when={item.kind === "inject"}>
+                    <InjectRow item={item as any} />
                   </Match>
                 </Switch>
               )

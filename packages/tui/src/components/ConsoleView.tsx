@@ -34,6 +34,8 @@ export function line(it: ViewItem): { text: string; c: string } {
       return { text: it.text, c: theme.textFaint }
     case "breaker":
       return { text: `— ${it.label} —`, c: theme.textFaint }
+    case "inject":
+      return { text: `＋ ${it.text}`, c: theme.textFaint }
   }
 }
 

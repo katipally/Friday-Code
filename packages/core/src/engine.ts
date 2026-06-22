@@ -931,6 +931,15 @@ export class Engine {
       case "abort":
         this.focused().abortRun()
         break
+      case "inject":
+        void this.focused().injectMessage(cmd.text, cmd.images, cmd.id)
+        break
+      case "inject-pause":
+        this.focused().armInjectPause()
+        break
+      case "inject-resume":
+        this.focused().resumeInject()
+        break
       case "set-mode":
         this.mode = cmd.mode
         saveConfig({ mode: cmd.mode })

@@ -56,6 +56,9 @@ export type ViewItem =
   /** a flow divider shown when a plan is accepted ("running · <mode>") or refined ("refining plan");
    * tinted by the relevant mode. `note` is an optional quoted subtitle (e.g. the refinement text). */
   | { kind: "breaker"; id: string; mode: ModeId; label: string; note?: string }
+  /** a /add note injected mid-task: "pending" (sent, about to be folded in at the next step) then
+   * "attached" (now part of the agent's context). `at` is when sent; `attachedAt` when it landed. */
+  | { kind: "inject"; id: string; text: string; state: "pending" | "attached"; at: number; attachedAt?: number }
 
 export type PendingPermission = { requestId: string; tool: string; summary: string; detail?: string; risk?: string }
 export type PendingAsk = { requestId: string; questions: AskQuestion[] }
@@ -246,6 +249,7 @@ export function createAppStore(engine: Engine, version = "dev") {
   const [roots, setRoots] = createSignal<string[]>(engine.currentRoots())
   const [historyOpen, setHistoryOpen] = createSignal(false)
   const [dirModalOpen, setDirModalOpen] = createSignal(false)
+  const [addModalOpen, setAddModalOpen] = createSignal(false)
   const [mcpModalOpen, setMcpModalOpen] = createSignal(false)
   const [checkpointsOpen, setCheckpointsOpen] = createSignal(false)
   const [forkOpen, setForkOpen] = createSignal(false)
@@ -285,6 +289,7 @@ export function createAppStore(engine: Engine, version = "dev") {
     paletteOpen() ||
     historyOpen() ||
     dirModalOpen() ||
+    addModalOpen() ||
     mcpModalOpen() ||
     checkpointsOpen() ||
     forkOpen() ||
@@ -627,6 +632,15 @@ export function createAppStore(engine: Engine, version = "dev") {
         appendItem(sid, { kind: "error", id: nextLocalId(), text: e.message })
         setKey(setSessionBusy, sid, false)
         break
+      case "inject-attached":
+        // The /add note just landed in the agent's context — flip its chip pending → attached.
+        patchItemIn(sid, e.id, (it) => {
+          if (it.kind === "inject") {
+            it.state = "attached"
+            it.attachedAt = Date.now()
+          }
+        })
+        break
       case "session-changed":
         // Metadata/list refresh — NOT a focus change (that's session-loaded).
         if (focused) {
@@ -804,6 +818,7 @@ export function createAppStore(engine: Engine, version = "dev") {
     { name: "resume", description: "resume or switch to another session" },
     { name: "fork", description: "branch a session from a past turn" },
     { name: "dir", description: "change or add a working directory" },
+    { name: "add", description: "add info to the running agent without stopping it" },
     { name: "mic", description: "talk to Friday — on-device speech-to-text (Ctrl+R)" },
     { name: "mcp", description: "view / add / remove MCP servers" },
     { name: "compact", description: "summarize old context to free space" },
@@ -867,6 +882,17 @@ export function createAppStore(engine: Engine, version = "dev") {
       case "dir":
         setDirModalOpen(true)
         return true
+      case "add": {
+        // Steer the running agent without stopping it. `/add <text>` folds the note in at the next
+        // step; bare `/add` soft-pauses (if busy) and opens a composer modal. When idle it's a prompt.
+        const note = args.trim()
+        if (note) injectNote(note)
+        else {
+          if (busy()) engine.send({ type: "inject-pause" })
+          setAddModalOpen(true)
+        }
+        return true
+      }
       case "mcp":
         setMcpModalOpen(true)
         return true
@@ -1153,6 +1179,30 @@ export function createAppStore(engine: Engine, version = "dev") {
     // Interrupting means "stop" — discard staged prompts rather than firing them after the abort.
     setSessionQueue((m) => ({ ...m, [activeSession()]: [] }))
     engine.send({ type: "abort" })
+  }
+
+  /** Steer the running agent with a note. While busy it shows an interleaved "pending" chip in the
+   * transcript (id correlates with the engine's inject-attached event, which flips it to "attached").
+   * When idle it's just a normal prompt. */
+  function injectNote(text: string) {
+    const t = text.trim()
+    if (!t) return
+    const sid = activeSession()
+    if (!sessionBusy()[sid]) return submitRaw(t) // idle → ordinary prompt (shows as a user bubble)
+    const id = nextLocalId()
+    appendItem(sid, { kind: "inject", id, text: t, state: "pending", at: Date.now() })
+    engine.send({ type: "inject", id, text: t })
+  }
+  /** /add modal submit: inject the composed note, or release the soft-pause if empty. */
+  function addInject(text: string) {
+    setAddModalOpen(false)
+    if (text.trim()) injectNote(text)
+    else engine.send({ type: "inject-resume" }) // empty send still releases a soft-pause
+  }
+  /** /add modal cancel: release the soft-pause without adding anything. */
+  function addCancel() {
+    setAddModalOpen(false)
+    engine.send({ type: "inject-resume" })
   }
 
   function replyPermission(decision: "allow-once" | "allow-always" | "deny") {
@@ -1527,6 +1577,10 @@ export function createAppStore(engine: Engine, version = "dev") {
     setHistoryOpen,
     dirModalOpen,
     setDirModalOpen,
+    addModalOpen,
+    setAddModalOpen,
+    addInject,
+    addCancel,
     mcpModalOpen,
     setMcpModalOpen,
     mcpConfig,

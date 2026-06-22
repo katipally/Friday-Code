@@ -2,6 +2,7 @@ import type { Engine } from "@friday/core"
 import { theme } from "@friday/shared"
 import { useKeyboard, useRenderer, useSelectionHandler, useTerminalDimensions } from "@opentui/solid"
 import { createEffect, createMemo, createSignal, Match, onMount, Show, Switch, untrack } from "solid-js"
+import { AddModal } from "./components/AddModal.tsx"
 import { AskCard } from "./components/AskCard.tsx"
 import { Chat } from "./components/Chat.tsx"
 import { CheckpointHistory } from "./components/CheckpointHistory.tsx"
@@ -186,6 +187,9 @@ function Shell() {
       </Show>
       <Show when={app.dirModalOpen()}>
         <DirectoryModal />
+      </Show>
+      <Show when={app.addModalOpen()}>
+        <AddModal />
       </Show>
       <Show when={app.mcpModalOpen()}>
         <McpModal />

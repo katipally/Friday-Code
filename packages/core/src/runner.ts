@@ -8,6 +8,7 @@ import {
   type Effort,
   type EngineEventBody,
   getMode,
+  type ImagePart,
   type Message,
   type ModeId,
   type PermissionCategory,
@@ -362,6 +363,12 @@ export class SessionRunner {
   needsInput = false
   private pending = new Map<string, Pending>()
   private pendingAsk = new Map<string, (answers: Record<string, string>) => void>()
+  /** Notes the user injected mid-task via /add — drained into history at the top of the next loop step.
+   * `id` correlates with the optimistic UI chip so it flips pending → attached once folded in. */
+  private pendingInjections: { id?: string; msg: Message }[] = []
+  /** Set while the agent is soft-paused at a step boundary waiting for the /add modal; resolving it resumes the loop. */
+  private injectResume?: () => void
+  private injectPauseArmed = false
   private sessionAllow = new Set<PermissionCategory>()
   /** Deferred tools the model has activated via tool_search this session (their schemas are then sent). */
   private activatedTools = new Set<string>()
@@ -676,12 +683,25 @@ export class SessionRunner {
   /** Release any in-flight permission/ask awaits (deny / no-answer) so the agent loop unwinds on
    * abort instead of hanging forever on a promise the user will never answer. */
   private settleInputWaiters(): void {
+    // Release a soft-pause too, so aborting while the /add modal is open unwinds the loop instead of hanging.
+    this.injectPauseArmed = false
+    this.injectResume?.()
+    this.injectResume = undefined
     if (this.pending.size === 0 && this.pendingAsk.size === 0) return
     for (const p of this.pending.values()) p.resolve("deny")
     this.pending.clear()
     for (const r of this.pendingAsk.values()) r({})
     this.pendingAsk.clear()
     this.needsInput = false
+  }
+  /** Append injected /add notes to history as user messages. */
+  private drainInjections(): void {
+    if (this.pendingInjections.length === 0) return
+    for (const { id, msg } of this.pendingInjections) {
+      this.addMessage(msg)
+      if (id) this.emit({ type: "inject-attached", id })
+    }
+    this.pendingInjections = []
   }
   handlePermissionReply(requestId: string, decision: "allow-once" | "allow-always" | "deny"): boolean {
     const p = this.pending.get(requestId)
@@ -703,6 +723,32 @@ export class SessionRunner {
     this.needsInput = this.pending.size > 0 || this.pendingAsk.size > 0
     r(answers)
     return true
+  }
+
+  // ---- /add: steer a running agent without stopping it ----
+  /** Fold a user note into the conversation. If the agent is idle, it's just a normal prompt; if busy,
+   * it's queued and drained as a user message at the top of the next loop step (and releases a soft-pause). */
+  async injectMessage(text: string, images?: ImagePart[], id?: string): Promise<void> {
+    if (!this.busy) {
+      // Idle: it's just a normal prompt. Resolve the UI chip (if any) since runPrompt adds it to context.
+      if (id) this.emit({ type: "inject-attached", id })
+      void this.runPrompt(text)
+      return
+    }
+    const { text: expanded, files } = expandMentions(text, this.roots)
+    const promptText = await this.augmentSymbols(text, expanded, files)
+    const mentioned = collectImages(text, this.roots)
+    const all = [...(images ?? []), ...mentioned]
+    this.pendingInjections.push({ id, msg: { role: "user", text: promptText, images: all.length ? all : undefined } })
+    this.injectResume?.()
+  }
+  /** Make the agent idle at the next step boundary so the user can compose a note in the /add modal. */
+  armInjectPause(): void {
+    if (this.busy) this.injectPauseArmed = true
+  }
+  /** Release a soft-pause (the modal's cancel path) without adding anything. */
+  resumeInject(): void {
+    this.injectResume?.()
   }
 
   /** Persist this session's row if it isn't stored yet (new, empty sessions stay out of history until
@@ -1113,6 +1159,18 @@ export class SessionRunner {
 
     for (let step = 0; step < MAX_STEPS; step++) {
       if (signal.aborted) return
+      // /add: fold any injected notes into history before building the next request. They land at the
+      // END of the conversation, so the cached prefix is preserved — the model sees them on this step.
+      this.drainInjections()
+      if (this.injectPauseArmed) {
+        this.injectPauseArmed = false
+        this.emit({ type: "mascot", state: "idle" })
+        this.emit({ type: "status", text: "waiting for you…" })
+        await new Promise<void>((res) => (this.injectResume = res))
+        this.injectResume = undefined
+        if (signal.aborted) return
+        this.drainInjections()
+      }
       const id = this.host.nextId()
       this.activeAssistantId = id
       this.emit({ type: "message-start", role: "assistant", id, mode: sel.mode })
