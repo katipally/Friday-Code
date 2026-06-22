@@ -717,7 +717,7 @@ export class Engine {
   stats(): SessionStats {
     return this.focused().stats()
   }
-  listCheckpoints(): { id: string; label: string; createdAt: number; files: number }[] {
+  listCheckpoints(): { id: string; label: string; createdAt: number; files: number; added: number; removed: number }[] {
     return this.focused().listCheckpoints()
   }
   hasRedo(): boolean {

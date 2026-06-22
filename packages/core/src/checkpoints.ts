@@ -1,7 +1,13 @@
 import fs from "node:fs"
 import path from "node:path"
+import type { TodoItem } from "@friday/shared"
+import type { PlanRow } from "./sessions.ts"
 
-/** A per-turn checkpoint: the conversation length + prior content of files the turn touched. */
+/**
+ * A per-turn checkpoint: the conversation length + prior content of files the turn touched, PLUS the
+ * pre-turn todo list and plans. Rewinding to a checkpoint restores everything Friday did since —
+ * files, conversation, todos and plans — not just the chat.
+ */
 export interface Checkpoint {
   id: string
   label: string
@@ -10,6 +16,10 @@ export interface Checkpoint {
   messageSeq: number
   /** absolute path -> prior content (null = the file did not exist) */
   files: Map<string, string | null>
+  /** todo list as it was BEFORE this turn — restore reverts to it */
+  todos?: TodoItem[]
+  /** plans as they were BEFORE this turn — restore reverts to them */
+  plans?: PlanRow[]
 }
 
 /** JSON-friendly checkpoint (the `files` Map flattened to entries) for SQLite persistence. */
@@ -19,6 +29,8 @@ interface SerializedCheckpoint {
   createdAt: number
   messageSeq: number
   files: [string, string | null][]
+  todos?: TodoItem[]
+  plans?: PlanRow[]
 }
 
 export function serializeCheckpoints(cps: Checkpoint[]): string {
@@ -28,6 +40,8 @@ export function serializeCheckpoints(cps: Checkpoint[]): string {
     createdAt: c.createdAt,
     messageSeq: c.messageSeq,
     files: [...c.files.entries()],
+    todos: c.todos,
+    plans: c.plans,
   }))
   return JSON.stringify(flat)
 }
@@ -40,6 +54,30 @@ export function deserializeCheckpoints(json: string): Checkpoint[] {
   } catch {
     return []
   }
+}
+
+/**
+ * Line-level change counts (added/removed) between two file versions, via an LCS so inserts/deletes
+ * are counted honestly (not just positional mismatches). Used to tell the user how much code a
+ * rewind would revert.
+ */
+export function lineDelta(before: string | null, after: string | null): { added: number; removed: number } {
+  if (before === after) return { added: 0, removed: 0 }
+  const a = before === null ? [] : before.split("\n")
+  const b = after === null ? [] : after.split("\n")
+  // ponytail: LCS is O(n·m); cap large files with a coarse full-rewrite count rather than stalling.
+  if (a.length > 5000 || b.length > 5000) return { added: b.length, removed: a.length }
+  const m = a.length
+  const n = b.length
+  // dp[i][j] = LCS length of a[i:] and b[j:]
+  const dp: Int32Array[] = Array.from({ length: m + 1 }, () => new Int32Array(n + 1))
+  for (let i = m - 1; i >= 0; i--) {
+    for (let j = n - 1; j >= 0; j--) {
+      dp[i]![j] = a[i] === b[j] ? dp[i + 1]![j + 1]! + 1 : Math.max(dp[i + 1]![j]!, dp[i]![j + 1]!)
+    }
+  }
+  const lcs = dp[0]![0]!
+  return { added: n - lcs, removed: m - lcs }
 }
 
 export function readOrNull(file: string): string | null {

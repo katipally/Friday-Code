@@ -47,7 +47,11 @@ export function CheckpointHistory() {
 
   return (
     <Scrim onClose={() => app.setCheckpointsOpen(false)}>
-      <Overlay title="checkpoints" hint="rewind code, conversation, or both" width={Math.min(68, dims().width - 4)}>
+      <Overlay
+        title="checkpoints"
+        hint="rewind code, conversation, todos & plans — or both"
+        width={Math.min(68, dims().width - 4)}
+      >
         <Show
           when={checkpoints().length}
           fallback={<text fg={theme.textFaint}>no checkpoints yet — send a prompt first</text>}
@@ -70,6 +74,13 @@ export function CheckpointHistory() {
                     <box flexGrow={1}>
                       <text fg={on() ? theme.textOnAccent : theme.textMuted}>{c.label}</text>
                     </box>
+                    {/* How much code rewinding here reverts — so the user knows what they're undoing. */}
+                    <Show when={c.added > 0}>
+                      <text fg={on() ? theme.textOnAccent : theme.success}>+{c.added}</text>
+                    </Show>
+                    <Show when={c.removed > 0}>
+                      <text fg={on() ? theme.textOnAccent : theme.error}>-{c.removed}</text>
+                    </Show>
                     <text fg={on() ? theme.textOnAccent : theme.textFaint}>
                       {c.files > 0 ? `${c.files} file${c.files === 1 ? "" : "s"} · ` : ""}
                       {ago(c.createdAt)}

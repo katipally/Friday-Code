@@ -59,6 +59,7 @@ import {
   applyFiles,
   type Checkpoint,
   deserializeCheckpoints,
+  lineDelta,
   readOrNull,
   serializeCheckpoints,
   snapshotFile,
@@ -391,7 +392,7 @@ export class SessionRunner {
 
   private checkpoints: Checkpoint[] = []
   private currentCheckpoint?: Checkpoint
-  private redoState?: { files: Map<string, string | null>; messages: Message[] }
+  private redoState?: { files: Map<string, string | null>; messages: Message[]; todos: TodoItem[]; plans: PlanRow[] }
 
   private todos: TodoItem[] = []
   private plans: PlanRow[] = []
@@ -569,9 +570,27 @@ export class SessionRunner {
     const messages = this.messages.filter((m) => m.role === "user" || m.role === "assistant").length
     return { messages, tokens: this.totalTokens, durationMs: now() - this.startedAt }
   }
-  listCheckpoints(): { id: string; label: string; createdAt: number; files: number }[] {
+  listCheckpoints(): { id: string; label: string; createdAt: number; files: number; added: number; removed: number }[] {
     // Chronological: oldest first, newest last (the UI focuses the newest at the bottom).
-    return this.checkpoints.map((c) => ({ id: c.id, label: c.label, createdAt: c.createdAt, files: c.files.size }))
+    // `added`/`removed` = how much code rewinding to this checkpoint would REVERT (its turn + every
+    // turn after), so the user can see what they're dealing with before rewinding. Computed on demand
+    // (modal open), so the per-checkpoint tail scan + line diff is fine. ponytail: O(n²·files) here.
+    return this.checkpoints.map((c, idx) => {
+      const tail = this.checkpoints.slice(idx)
+      // Earliest prior content per file across the tail = the file as it was BEFORE this checkpoint.
+      const prior = new Map<string, string | null>()
+      for (const t of tail) for (const [p, before] of t.files) if (!prior.has(p)) prior.set(p, before)
+      let added = 0
+      let removed = 0
+      let files = 0
+      for (const [p, before] of prior) {
+        const d = lineDelta(before, readOrNull(p))
+        if (d.added || d.removed) files++
+        added += d.added
+        removed += d.removed
+      }
+      return { id: c.id, label: c.label, createdAt: c.createdAt, files, added, removed }
+    })
   }
   hasRedo(): boolean {
     return !!this.redoState
@@ -832,10 +851,10 @@ export class SessionRunner {
     const cp = this.checkpoints[idx]!
     const tail = this.checkpoints.slice(idx)
 
-    // Always snapshot current state first so the rewind itself can be redone.
+    // Always snapshot current state first so the rewind itself can be redone (files + todos + plans).
     const redoFiles = new Map<string, string | null>()
     for (const c of tail) for (const p of c.files.keys()) if (!redoFiles.has(p)) redoFiles.set(p, readOrNull(p))
-    this.redoState = { files: redoFiles, messages: [...this.messages] }
+    this.redoState = { files: redoFiles, messages: [...this.messages], todos: [...this.todos], plans: [...this.plans] }
 
     if (scope !== "conversation") {
       const restore = new Map<string, string | null>()
@@ -847,6 +866,13 @@ export class SessionRunner {
       this.messages = this.messages.slice(0, cp.messageSeq)
       this.seq = cp.messageSeq
       this.host.store.truncateMessages(this.sessionId, cp.messageSeq)
+      // Revert todos + plans to their pre-turn snapshot so the whole workspace rewinds, not just chat.
+      this.todos = [...(cp.todos ?? [])]
+      this.plans = [...(cp.plans ?? [])]
+      this.host.store.setTodos(this.sessionId, this.todos)
+      this.host.store.setPlans(this.sessionId, this.plans)
+      this.emit({ type: "todos", items: this.todos })
+      this.emit({ type: "plans", items: this.plans })
       this.checkpoints = this.checkpoints.slice(0, idx)
       this.currentCheckpoint = undefined
       // Drop any compaction summary — its throughIndex points into the now-truncated history and
@@ -877,6 +903,13 @@ export class SessionRunner {
     this.messages.forEach((m, i) => {
       this.host.store.appendMessage(this.sessionId, i, m)
     })
+    // Restore the todos/plans that were live before the rewind, too.
+    this.todos = [...this.redoState.todos]
+    this.plans = [...this.redoState.plans]
+    this.host.store.setTodos(this.sessionId, this.todos)
+    this.host.store.setPlans(this.sessionId, this.plans)
+    this.emit({ type: "todos", items: this.todos })
+    this.emit({ type: "plans", items: this.plans })
     this.redoState = undefined
     this.emit({ type: "status", text: "redone" })
     this.emit({
@@ -919,6 +952,9 @@ export class SessionRunner {
       createdAt: now(),
       messageSeq: this.messages.length,
       files: new Map(),
+      // Snapshot pre-turn todos/plans so a rewind reverts them too — not just files + chat.
+      todos: [...this.todos],
+      plans: [...this.plans],
     }
     this.checkpoints.push(this.currentCheckpoint)
     this.redoState = undefined
