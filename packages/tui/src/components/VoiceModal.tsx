@@ -34,21 +34,25 @@ export function VoiceModal() {
           paddingBottom={1}
           gap={1}
         >
-          <text fg={theme.info}>🎙 listening — speak now</text>
+          <text fg={app.voiceError() ? theme.error : theme.info}>
+            {app.voiceError() ? "⚠ voice unavailable" : "🎙 listening — speak now"}
+          </text>
           <box
             border
             borderStyle="single"
-            borderColor={theme.border}
+            borderColor={app.voiceError() ? theme.error : theme.border}
             backgroundColor={theme.bgComposer}
             paddingLeft={1}
             paddingRight={1}
             minHeight={3}
           >
-            <text fg={theme.text} selectable>
-              {app.voicePartial() || "…"}
+            <text fg={app.voiceError() ? theme.error : theme.text} selectable>
+              {app.voiceError() || app.voicePartial() || "…"}
             </text>
           </box>
-          <text fg={theme.textFaint}>⏎/esc stop & insert · transcribes live, on-device</text>
+          <text fg={theme.textFaint}>
+            {app.voiceError() ? "esc close" : "⏎/esc stop & insert · transcribes live, on-device"}
+          </text>
         </box>
       </Scrim>
     </Show>

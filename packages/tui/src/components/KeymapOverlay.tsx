@@ -9,6 +9,7 @@ const KEYS: { keys: string; label: string }[] = [
   { keys: "Shift+Tab", label: "cycle mode (plan → default → yolo)" },
   { keys: "Ctrl+B", label: "toggle context panel" },
   { keys: "Ctrl+K", label: "command palette" },
+  { keys: "Ctrl+T", label: "agent-team console (j/k · v visit · s stop · o pop-out)" },
   { keys: "/effort", label: "reasoning-effort slider (←/→ · click · enter)" },
   { keys: "Ctrl+Y", label: "session history (all directories)" },
   { keys: "Ctrl+1-9", label: "switch working session" },

@@ -8,6 +8,7 @@ import { CheckpointHistory } from "./components/CheckpointHistory.tsx"
 import { CommandPalette } from "./components/CommandPalette.tsx"
 import { CompactionCard, CompactionSummary } from "./components/CompactionCard.tsx"
 import { Composer } from "./components/Composer.tsx"
+import { ConsoleView } from "./components/ConsoleView.tsx"
 import { ContextPanel } from "./components/ContextPanel.tsx"
 import { DirectoryModal } from "./components/DirectoryModal.tsx"
 import { CollapseTab, GripDivider } from "./components/Divider.tsx"
@@ -20,14 +21,14 @@ import { McpModal } from "./components/McpModal.tsx"
 import { ModelModal } from "./components/ModelModal.tsx"
 import { Onboarding } from "./components/Onboarding.tsx"
 import { PermissionCard } from "./components/PermissionCard.tsx"
-import { VoiceModal } from "./components/VoiceModal.tsx"
-import { YoloConfirm } from "./components/YoloConfirm.tsx"
 import { PlanCard } from "./components/PlanCard.tsx"
 import { SessionHistory } from "./components/SessionHistory.tsx"
 import { Splash } from "./components/Splash.tsx"
 import { StatusStrip } from "./components/StatusStrip.tsx"
 import { Toasts } from "./components/Toasts.tsx"
 import { TopBar } from "./components/TopBar.tsx"
+import { VoiceModal } from "./components/VoiceModal.tsx"
+import { YoloConfirm } from "./components/YoloConfirm.tsx"
 import { AppProvider, createAppStore, useApp } from "./store.tsx"
 
 function Shell() {
@@ -208,6 +209,11 @@ function AppRoot() {
       if (["return", "enter", "space", "escape"].includes(key.name)) app.setView("shell")
       return
     }
+    if (app.view() === "console") {
+      // ConsoleView owns its keys; only the toggle is global so it can close from here too.
+      if (key.ctrl && key.name === "t") return app.toggleConsole()
+      return
+    }
     // KeymapOverlay has no useKeyboard of its own — close it on Esc here.
     if (app.overlayOpen()) {
       if (key.name === "escape") app.setOverlayOpen(false)
@@ -223,6 +229,7 @@ function AppRoot() {
     }
     if (key.ctrl && /^[1-9]$/.test(key.name)) return app.switchSessionByIndex(Number(key.name) - 1)
     if (key.ctrl && key.name === "k") return app.setPaletteOpen(true)
+    if (key.ctrl && key.name === "t") return app.toggleConsole()
     if (key.ctrl && key.name === "y") return app.setHistoryOpen(true)
     if (key.name?.toLowerCase() === "f1" || (key.ctrl && key.name === "/")) return app.setOverlayOpen(true)
     // `?` opens the keymap, but only when the composer is empty so it never eats a literal "?".
@@ -269,6 +276,9 @@ function AppRoot() {
       </Match>
       <Match when={app.view() === "shell"}>
         <Shell />
+      </Match>
+      <Match when={app.view() === "console"}>
+        <ConsoleView />
       </Match>
     </Switch>
   )

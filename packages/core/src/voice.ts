@@ -219,47 +219,75 @@ export function nativeLiveAvailable(): boolean {
   return process.platform === "darwin" && (fs.existsSync(helperBin()) || !!Bun.which("swiftc"))
 }
 
+/** Map a raw helper error token to actionable, human-readable guidance. */
+function explainVoiceError(raw: string): string {
+  const e = raw.toLowerCase()
+  if (e.includes("not authorized") || e.includes("authoriz"))
+    return "mic/Speech not authorized — enable your terminal app in System Settings → Privacy & Security → Microphone AND → Speech Recognition, then retry"
+  if (e.includes("recognizer unavailable")) return "speech recognizer unavailable on this Mac"
+  if (e.includes("audio start")) return "could not start the microphone (another app may be using it)"
+  return raw.trim() || "voice helper exited unexpectedly"
+}
+
 class LiveVoiceSession {
   private proc?: ReturnType<typeof Bun.spawn>
   private last = ""
   private final?: string
+  private gotResult = false
   running = false
 
-  async start(onPartial: (text: string) => void): Promise<void> {
+  async start(onPartial: (text: string) => void, onError?: (msg: string) => void): Promise<void> {
     if (this.running) return
     const bin = ensureSpeechHelper()
     if (!bin) throw new Error("native speech unavailable (needs macOS + Xcode `swiftc`)")
-    this.proc = Bun.spawn([bin], { stdin: "pipe", stdout: "pipe", stderr: "ignore" })
+    this.proc = Bun.spawn([bin], { stdin: "pipe", stdout: "pipe", stderr: "pipe" })
     this.running = true
-    void this.readLoop(onPartial)
+    this.gotResult = false
+    void this.readLoop(onPartial, onError)
   }
 
-  private async readLoop(onPartial: (text: string) => void): Promise<void> {
+  private async readLoop(onPartial: (text: string) => void, onError?: (msg: string) => void): Promise<void> {
     if (!this.proc?.stdout) return
     const decoder = new TextDecoder()
     let buf = ""
-    for await (const chunk of this.proc.stdout as ReadableStream<Uint8Array>) {
-      buf += decoder.decode(chunk, { stream: true })
-      const lines = buf.split("\n")
-      buf = lines.pop() ?? ""
-      for (const line of lines) {
-        if (!line.trim()) continue
-        let msg: any
-        try {
-          msg = JSON.parse(line)
-        } catch {
-          continue
-        }
-        if (typeof msg.partial === "string") {
-          this.last = msg.partial
-          onPartial(msg.partial)
-        } else if (typeof msg.final === "string") {
-          this.final = msg.final
-          onPartial(msg.final)
-        } else if (msg.error) {
-          this.final = this.final ?? ""
+    try {
+      for await (const chunk of this.proc.stdout as ReadableStream<Uint8Array>) {
+        buf += decoder.decode(chunk, { stream: true })
+        const lines = buf.split("\n")
+        buf = lines.pop() ?? ""
+        for (const line of lines) {
+          if (!line.trim()) continue
+          let msg: any
+          try {
+            msg = JSON.parse(line)
+          } catch {
+            continue
+          }
+          if (typeof msg.partial === "string") {
+            this.gotResult = true
+            this.last = msg.partial
+            onPartial(msg.partial)
+          } else if (typeof msg.final === "string") {
+            this.gotResult = true
+            this.final = msg.final
+            onPartial(msg.final)
+          } else if (msg.error) {
+            this.final = this.final ?? ""
+            onError?.(explainVoiceError(String(msg.error)))
+          }
         }
       }
+    } catch (e: any) {
+      onError?.(explainVoiceError(String(e?.message ?? e)))
+    }
+    // Stream closed with no transcript and no error reported → surface stderr / exit reason.
+    if (!this.gotResult && this.running) {
+      let err = ""
+      try {
+        const se = this.proc?.stderr
+        if (se && typeof se !== "number") err = await new Response(se as ReadableStream<Uint8Array>).text()
+      } catch {}
+      onError?.(explainVoiceError(err))
     }
   }
 
@@ -289,9 +317,12 @@ let live: LiveVoiceSession | undefined
 export function liveRecording(): boolean {
   return !!live?.running
 }
-export async function startLiveVoice(onPartial: (text: string) => void): Promise<void> {
+export async function startLiveVoice(
+  onPartial: (text: string) => void,
+  onError?: (msg: string) => void,
+): Promise<void> {
   if (!live) live = new LiveVoiceSession()
-  await live.start(onPartial)
+  await live.start(onPartial, onError)
 }
 export async function stopLiveVoice(): Promise<string> {
   return live ? live.stop() : ""

@@ -63,6 +63,24 @@ export type PlanEntry = { id: string; title: string; text: string }
 export type SessionItem = { id: string; title: string; cwd: string; roots: string[] }
 export type ChangedFile = { path: string; status: string; added: number; removed: number; kind?: "file" | "dir" }
 export type TaskRow = { id: string; title: string; description: string; status: "running" | "done"; summary?: string }
+export type TeamMember = { sessionId: string; role: string; status: string; activity: string }
+export type TeamPost = {
+  id: number
+  sessionId: string
+  role: string
+  kind: string
+  toRole?: string
+  text: string
+  createdAt: number
+}
+export type TeamState = {
+  teamId: string
+  goal: string
+  status: string
+  members: TeamMember[]
+  posts: TeamPost[]
+  claims: { path: string; sessionId: string }[]
+}
 
 /** Prefix of the synthetic prompt sent when a plan is accepted — recognized so history replay renders
  * it as a flow breaker instead of a user bubble (keeps plan execution looking continuous). */
@@ -106,7 +124,7 @@ function messagesToItems(messages: Message[]): ViewItem[] {
 }
 
 export function createAppStore(engine: Engine, version = "dev") {
-  const [view, setView] = createSignal<"splash" | "shell" | "exit">("splash")
+  const [view, setView] = createSignal<"splash" | "shell" | "console" | "exit">("splash")
   const [mode, setModeSig] = createSignal<ModeId>(engine.selection().mode ?? DEFAULT_MODE)
   const [effort, setEffortSig] = createSignal<Effort>(engine.selection().effort ?? "medium")
   const [model, setModel] = createSignal<string>(engine.selection().model ?? "no model — open /model")
@@ -127,6 +145,7 @@ export function createAppStore(engine: Engine, version = "dev") {
   const [yoloConfirmOpen, setYoloConfirmOpen] = createSignal(false)
   const [voiceModalOpen, setVoiceModalOpen] = createSignal(false)
   const [voicePartial, setVoicePartial] = createSignal("")
+  const [voiceError, setVoiceError] = createSignal("")
   const [onboardingOpen, setOnboardingOpen] = createSignal(false)
 
   const [paletteOpen, setPaletteOpen] = createSignal(false)
@@ -176,6 +195,8 @@ export function createAppStore(engine: Engine, version = "dev") {
   const [compactionView, setCompactionView] = createSignal<string | null>(null)
   // Background tasks (agent-spawned async sessions) — global, not per focused session.
   const [tasks, setTasks] = createSignal<TaskRow[]>([])
+  // Active agent team (orchestrator + shared board) — drives the console view. Null when no team.
+  const [team, setTeam] = createSignal<TeamState | null>(engine.teamSnapshot() as TeamState | null)
   // Optional usage budget (tokens/$) — drives a warning in the context panel when exceeded.
   const [budget, setBudget] = createSignal<{ tokens?: number; usd?: number } | null>(engine.userConfig().budget ?? null)
   // Per-session unread marker: the item count last seen while focused on a session.
@@ -565,6 +586,10 @@ export function createAppStore(engine: Engine, version = "dev") {
         // Global (not per-session): the agent-spawned background tasks panel.
         setTasks(e.items)
         break
+      case "team":
+        // Global: the agent-team shared board, feeds the console view.
+        setTeam(e.team as TeamState | null)
+        break
       case "compaction-start":
         setKey(setSessionCompacting, sid, true)
         setKey(setSessionCompactPct, sid, { before: e.pctBefore, after: e.pctBefore })
@@ -667,9 +692,12 @@ export function createAppStore(engine: Engine, version = "dev") {
     { name: "usage", description: "show token + cost usage this session" },
     { name: "stats", description: "show token + cost usage this session" },
     { name: "doctor", description: "check model, provider & environment health" },
+    { name: "console", description: "open the agent-team console / dashboard (Ctrl+T)" },
     { name: "fleet", description: "open a window per running background agent" },
-    { name: "chrome", description: "launch the browser for automation (/chrome close to stop)" },
+    { name: "browser", description: "launch the browser + activate browser tools (/browser close to stop)" },
+    { name: "chrome", description: "alias for /browser" },
     { name: "voice", description: "press-to-talk: start, then /voice again to transcribe" },
+    { name: "computer", description: "activate desktop-control tools (install first via /computer-use install)" },
     { name: "computer-use", description: "install/uninstall desktop control (mouse/keyboard/screen)" },
     { name: "review", description: "review the current changes" },
     { name: "security-review", description: "audit the current changes for security issues" },
@@ -801,6 +829,10 @@ export function createAppStore(engine: Engine, version = "dev") {
         appendItem(sid, { kind: "notice", id: nextLocalId(), text: parts.join(" · ") })
         return true
       }
+      case "console": {
+        toggleConsole()
+        return true
+      }
       case "fleet": {
         const running = tasks().filter((t) => t.status === "running").length
         if (!running) {
@@ -814,11 +846,15 @@ export function createAppStore(engine: Engine, version = "dev") {
         )
         return true
       }
+      case "computer":
       case "computer-use": {
         const a = args.trim().toLowerCase()
         const installed = engine.computerInstalled()
         if (a === "uninstall" || a === "remove") {
-          pushToast(engine.uninstallComputerUse() ? "computer-use uninstalled" : "uninstall failed", installed ? "done" : "input")
+          pushToast(
+            engine.uninstallComputerUse() ? "computer-use uninstalled" : "uninstall failed",
+            installed ? "done" : "input",
+          )
           return true
         }
         if (a === "install") {
@@ -830,29 +866,46 @@ export function createAppStore(engine: Engine, version = "dev") {
           engine
             .installComputerUse()
             .then((r) =>
-              pushToast(r.ok ? "computer-use installed — desktop tools active" : "install failed (see logs)", r.ok ? "done" : "error"),
+              pushToast(
+                r.ok ? "computer-use installed — desktop tools active" : "install failed (see logs)",
+                r.ok ? "done" : "error",
+              ),
             )
             .catch((e) => pushToast(`install error: ${e?.message ?? e}`, "error"))
           return true
         }
-        appendItem(activeSession(), {
-          kind: "notice",
-          id: nextLocalId(),
-          text: installed
-            ? "computer-use is INSTALLED — desktop control tools (screenshot/click/type/key/scroll) are active.\n/computer-use uninstall to remove it."
-            : "computer-use is NOT installed. It enables desktop control (mouse/keyboard/screenshot) via nut.js.\n/computer-use install to add it (opt-in, removable anytime).",
-        })
+        // Bare /computer or /computer-use: if installed, activate the tools for Friday; else prompt to install.
+        if (installed) {
+          const n = engine.activateTools("computer_")
+          appendItem(activeSession(), {
+            kind: "notice",
+            id: nextLocalId(),
+            text: `computer-use is INSTALLED — ${n} desktop tool(s) (screenshot/move/click/type/key/scroll) are now active for Friday.\n/computer-use uninstall to remove it.`,
+          })
+        } else {
+          appendItem(activeSession(), {
+            kind: "notice",
+            id: nextLocalId(),
+            text: "computer-use is NOT installed. It enables desktop control (mouse/keyboard/screenshot) via nut.js.\n/computer-use install to add it (opt-in, removable anytime).",
+          })
+        }
         return true
       }
       case "voice": {
         // Native live transcription (macOS): open a modal that streams text as you speak.
         if (engine.voiceLiveAvailable()) {
           setVoicePartial("")
+          setVoiceError("")
           setVoiceModalOpen(true)
-          engine.startVoiceLive((t) => setVoicePartial(t)).catch((e) => {
-            setVoiceModalOpen(false)
-            pushToast(`voice: ${e?.message ?? e}`, "error")
-          })
+          engine
+            .startVoiceLive(
+              (t) => setVoicePartial(t),
+              (msg) => setVoiceError(msg),
+            )
+            .catch((e) => {
+              setVoiceModalOpen(false)
+              pushToast(`voice: ${e?.message ?? e}`, "error")
+            })
           return true
         }
         // Fallback: press-to-talk batch (cloud Whisper).
@@ -882,6 +935,7 @@ export function createAppStore(engine: Engine, version = "dev") {
         }
         return true
       }
+      case "browser":
       case "chrome": {
         const a = args.trim().toLowerCase()
         if (a === "close" || a === "stop") {
@@ -889,7 +943,9 @@ export function createAppStore(engine: Engine, version = "dev") {
           pushToast("browser closed", "done")
           return true
         }
-        pushToast("launching browser…", "input")
+        // Activate the browser_* tools for this session so Friday can use them without tool_search.
+        engine.activateTools("browser_")
+        pushToast("launching browser… (browser tools active for Friday)", "input")
         engine
           .startBrowser()
           .then((m) => pushToast(m, "done"))
@@ -902,7 +958,9 @@ export function createAppStore(engine: Engine, version = "dev") {
           model() && providerId() ? `✓ model: ${model()} (${providerId()})` : "✗ no model — run /model",
           `✓ mode: ${mode()} · effort: ${effort()}${reasoningModel() ? "" : " (model has no reasoning channel)"}`,
           `✓ output style: ${engine.selection().outputStyle ?? "concise"}`,
-          engine.browserAvailable() ? "✓ browser: available (/chrome)" : "✗ browser: none found (install Chrome/Brave/Edge)",
+          engine.browserAvailable()
+            ? "✓ browser: available (/browser)"
+            : "✗ browser: none found (install Chrome/Brave/Edge)",
           (() => {
             const v = engine.voiceStatus()
             return v.ok ? "✓ voice: ready (/voice)" : `✗ voice: ${v.reason}`
@@ -1143,6 +1201,23 @@ export function createAppStore(engine: Engine, version = "dev") {
     const s = sessions()[i]
     if (s) switchSession(s.id)
   }
+  // ---- console / agent-team actions ----
+  function toggleConsole() {
+    setView(view() === "console" ? "shell" : "console")
+  }
+  /** Focus an agent's session and drop back into the chat shell. */
+  function visitAgent(sessionId: string) {
+    switchSession(sessionId)
+    setView("shell")
+  }
+  function stopAgent(sessionId: string) {
+    engine.stopTask(sessionId)
+    pushToast("stopped agent", "input")
+  }
+  function popoutAgent(sessionId: string) {
+    const r = engine.popoutAgent(sessionId)
+    pushToast(r.ok ? `opened agent window via ${r.backend}` : "no terminal backend available", r.ok ? "done" : "input")
+  }
   function deleteSession(id: string) {
     engine.deleteSession(id)
     seeded.delete(id)
@@ -1269,6 +1344,7 @@ export function createAppStore(engine: Engine, version = "dev") {
     cancelYolo,
     voiceModalOpen,
     voicePartial,
+    voiceError,
     stopVoiceModal,
     onboardingOpen,
     setOnboardingOpen,
@@ -1365,6 +1441,12 @@ export function createAppStore(engine: Engine, version = "dev") {
     todos,
     changedFiles,
     tasks,
+    team,
+    sessionItems,
+    toggleConsole,
+    visitAgent,
+    stopAgent,
+    popoutAgent,
     budget,
     diagnostics,
     cost,

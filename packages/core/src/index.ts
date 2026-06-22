@@ -1,5 +1,6 @@
 export type { McpServerConfig } from "@friday/mcp"
 export { type AgentDef, loadAgents } from "./agents.ts"
+export { TeamBoard, type TeamSnapshot } from "./board.ts"
 export { type CustomCommand, loadCommands } from "./commands.ts"
 export { type FridayConfig, loadConfig, saveConfig } from "./config.ts"
 export { loadProjectContext, type ProjectContext } from "./context.ts"

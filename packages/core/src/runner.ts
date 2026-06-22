@@ -18,6 +18,10 @@ import {
 } from "@friday/shared"
 import {
   ASK_USER,
+  BOARD_CLAIM,
+  BOARD_POST,
+  BOARD_READ,
+  BOARD_RELEASE,
   CRON_CREATE,
   CRON_DELETE,
   CRON_LIST,
@@ -32,8 +36,9 @@ import {
   MEMORY_TOOL,
   SEND_TO_TASK,
   SKILL_TOOL,
-  searchTools,
   SPAWN_AGENTS,
+  SPAWN_TEAM,
+  searchTools,
   TASK_CREATE,
   TASK_LIST,
   TASK_STATUS,
@@ -48,6 +53,7 @@ import {
   WORKTREE_LIST,
 } from "@friday/tools"
 import { type AgentDef, loadAgents } from "./agents.ts"
+import type { PostKind as BoardPostKind, TeamSnapshot as BoardSnapshot } from "./board.ts"
 import {
   applyFiles,
   type Checkpoint,
@@ -304,6 +310,20 @@ export interface RunnerHost {
   cronList: () => { id: string; description: string; everyMs: number; nextRun: number }[]
   /** delete a scheduled task */
   cronDelete: (id: string) => void
+  /** launch a coordinated team of agents toward `goal` (orchestrator = the calling session); returns the team id */
+  spawnTeam: (
+    orchestrator: string,
+    goal: string,
+    roles: { role: string; prompt: string; worktree?: string }[],
+  ) => string
+  /** post to the caller's team board (no-op / false if not in a team) */
+  boardPost: (sessionId: string, kind: BoardPostKind, text: string, toRole?: string) => boolean
+  /** read the caller's team board (null if not in a team) */
+  boardRead: (sessionId: string, since?: number, role?: string) => BoardSnapshot | null
+  /** advisory file claim on the caller's team board (null if not in a team) */
+  boardClaim: (sessionId: string, path: string, ttlMs: number) => { ok: boolean; heldBy?: string } | null
+  /** release a file claim (false if not in a team) */
+  boardRelease: (sessionId: string, path: string) => boolean
 }
 
 /**
@@ -343,6 +363,19 @@ export class SessionRunner {
   private sessionAllow = new Set<PermissionCategory>()
   /** Deferred tools the model has activated via tool_search this session (their schemas are then sent). */
   private activatedTools = new Set<string>()
+
+  /** Force-activate deferred tools whose name starts with `prefix` (e.g. "browser_"), so the model can
+   * use them without first calling tool_search. Returns how many tools were activated. */
+  activateTools(prefix: string): number {
+    let n = 0
+    for (const t of this.host.registry().list) {
+      if (t.deferred && t.name.startsWith(prefix) && !this.activatedTools.has(t.name)) {
+        this.activatedTools.add(t.name)
+        n++
+      }
+    }
+    return n
+  }
 
   private checkpoints: Checkpoint[] = []
   private currentCheckpoint?: Checkpoint
@@ -1285,7 +1318,13 @@ export class SessionRunner {
             ? `Spawned ${ids.length} parallel agent(s):\n${ids.map((id, i) => `- ${id} — “${clip(jobs[i]!.description)}”`).join("\n")}\nCheck them with task_status / task_list.`
             : "No agents spawned (each job needs a prompt)."
           this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output, isError: !ids.length })
-          this.emit({ type: "tool-result", callId: tc.id, ok: !!ids.length, output, title: `spawn_agents ×${ids.length}` })
+          this.emit({
+            type: "tool-result",
+            callId: tc.id,
+            ok: !!ids.length,
+            output,
+            title: `spawn_agents ×${ids.length}`,
+          })
           continue
         }
         if (tc.name === SEND_TO_TASK) {
@@ -1294,6 +1333,82 @@ export class SessionRunner {
           const output = ok ? `Delivered to task ${a.id}.` : `Could not deliver to task ${a.id ?? "(missing id)"}.`
           this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output, isError: !ok })
           this.emit({ type: "tool-result", callId: tc.id, ok, output, title: `send_to_task ${a.id ?? ""}` })
+          continue
+        }
+
+        if (tc.name === SPAWN_TEAM) {
+          const a = safeParse(tc.arguments) as {
+            goal?: string
+            roles?: { role?: string; prompt?: string; worktree?: string }[]
+          }
+          const roles = (a.roles ?? [])
+            .filter((r) => r?.prompt && r?.role)
+            .map((r) => ({ role: r.role!, prompt: r.prompt!, worktree: r.worktree?.trim() || undefined }))
+          if (!a.goal || !roles.length) {
+            const output = "spawn_team needs a goal and at least one role with a prompt."
+            this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output, isError: true })
+            this.emit({ type: "tool-result", callId: tc.id, ok: false, output, title: "spawn_team" })
+            continue
+          }
+          const teamId = this.host.spawnTeam(this.sessionId, a.goal, roles)
+          const output = `Launched team ${teamId} for “${clip(a.goal)}” with ${roles.length} member(s):\n${roles
+            .map((r) => `- ${r.role}`)
+            .join(
+              "\n",
+            )}\nThey post to the shared board as they work; you'll be re-prompted with a digest when all finish. Inspect progress anytime with board_read.`
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output })
+          this.emit({ type: "tool-result", callId: tc.id, ok: true, output, title: `spawn_team ×${roles.length}` })
+          continue
+        }
+        if (tc.name === BOARD_POST) {
+          const a = safeParse(tc.arguments) as { kind?: BoardPostKind; text?: string; to_role?: string }
+          const ok = a.kind && a.text ? this.host.boardPost(this.sessionId, a.kind, a.text, a.to_role) : false
+          const output = ok ? `Posted to the team board (${a.kind}).` : "Not part of a team (or missing kind/text)."
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output, isError: !ok })
+          this.emit({ type: "tool-result", callId: tc.id, ok, output, title: `board_post ${a.kind ?? ""}` })
+          continue
+        }
+        if (tc.name === BOARD_READ) {
+          const a = safeParse(tc.arguments) as { since?: number; role?: string }
+          const snap = this.host.boardRead(this.sessionId, a.since, a.role)
+          let output: string
+          if (!snap) output = "You are not part of a team."
+          else {
+            const roster = snap.members
+              .map((m) => `- ${m.role} [${m.status}]${m.activity ? ` — ${m.activity}` : ""}`)
+              .join("\n")
+            const posts = snap.posts.length
+              ? snap.posts
+                  .map((p) => `[${p.id}] ${p.role} ${p.kind}${p.toRole ? `→${p.toRole}` : ""}: ${p.text}`)
+                  .join("\n")
+              : "(no posts yet)"
+            const claims = snap.claims.length ? `\nClaimed files: ${snap.claims.map((c) => c.path).join(", ")}` : ""
+            output = `Team “${snap.goal}” [${snap.status}]\nMembers:\n${roster}\n\nBoard:\n${posts}${claims}`
+          }
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output })
+          this.emit({ type: "tool-result", callId: tc.id, ok: true, output, title: "board_read" })
+          continue
+        }
+        if (tc.name === BOARD_CLAIM) {
+          const a = safeParse(tc.arguments) as { path?: string; ttl_minutes?: number }
+          const res = a.path
+            ? this.host.boardClaim(this.sessionId, a.path, Math.max(1, a.ttl_minutes ?? 10) * 60_000)
+            : null
+          const output = !res
+            ? "Not part of a team (or missing path)."
+            : res.ok
+              ? `Claimed ${a.path} — safe to edit.`
+              : `${a.path} is currently claimed by another agent (${res.heldBy}); pick a different file or coordinate via board_post.`
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output, isError: !!res && !res.ok })
+          this.emit({ type: "tool-result", callId: tc.id, ok: !!res?.ok, output, title: `board_claim ${a.path ?? ""}` })
+          continue
+        }
+        if (tc.name === BOARD_RELEASE) {
+          const a = safeParse(tc.arguments) as { path?: string }
+          const ok = a.path ? this.host.boardRelease(this.sessionId, a.path) : false
+          const output = ok ? `Released ${a.path}.` : "Not part of a team (or missing path)."
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output })
+          this.emit({ type: "tool-result", callId: tc.id, ok, output, title: `board_release ${a.path ?? ""}` })
           continue
         }
 
