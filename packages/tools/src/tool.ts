@@ -15,6 +15,10 @@ export interface ToolResult {
   title?: string
   /** unified diff for edit-like tools */
   diff?: string
+  /** images to feed BACK to the model in the tool result (e.g. a screenshot) — the vision loop that
+   *  lets computer-use actually see the screen. Carried on Anthropic; ignored by providers without
+   *  image-in-tool-result support. */
+  images?: import("@friday/shared").ImagePart[]
 }
 
 export interface Tool {

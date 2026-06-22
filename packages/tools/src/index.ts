@@ -32,6 +32,7 @@ export { BROWSER_TOOLS, closeBrowser, findBrowser, startBrowser } from "./builti
 export {
   COMPUTER_TOOLS,
   computerInstalled,
+  computerSupport,
   installComputerUse,
   uninstallComputerUse,
 } from "./builtin/computer.ts"

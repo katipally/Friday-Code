@@ -259,6 +259,30 @@ export function createAppStore(engine: Engine, version = "dev") {
   // Which mode the /add modal was opened in: true = bare /add (interrupt now), false = bare /add! (next step).
   const [addModalInterrupt, setAddModalInterrupt] = createSignal(true)
   const [mcpModalOpen, setMcpModalOpen] = createSignal(false)
+  const [computerModalOpen, setComputerModalOpen] = createSignal(false)
+  // Computer-use backend state, mirrored reactively for the modal (engine.computerInstalled() is a
+  // plain fs check, not reactive).
+  const [computerReady, setComputerReady] = createSignal(engine.computerInstalled())
+  const [computerInstalling, setComputerInstalling] = createSignal(false)
+  const [computerInstallLog, setComputerInstallLog] = createSignal("")
+  function installComputer() {
+    if (computerInstalling() || engine.computerInstalled()) return
+    setComputerInstalling(true)
+    setComputerInstallLog("")
+    engine
+      .installComputerUse()
+      .then((r) => {
+        setComputerInstallLog(r.log)
+        setComputerReady(r.ok)
+        if (r.ok) engine.activateTools("computer_") // make the desktop tools available this session
+      })
+      .catch((e) => setComputerInstallLog(String(e?.message ?? e)))
+      .finally(() => setComputerInstalling(false))
+  }
+  function uninstallComputer() {
+    engine.uninstallComputerUse()
+    setComputerReady(engine.computerInstalled())
+  }
   const [checkpointsOpen, setCheckpointsOpen] = createSignal(false)
   const [forkOpen, setForkOpen] = createSignal(false)
 
@@ -299,6 +323,7 @@ export function createAppStore(engine: Engine, version = "dev") {
     dirModalOpen() ||
     addModalOpen() ||
     mcpModalOpen() ||
+    computerModalOpen() ||
     checkpointsOpen() ||
     forkOpen() ||
     compacting() ||
@@ -841,7 +866,7 @@ export function createAppStore(engine: Engine, version = "dev") {
     { name: "fleet", description: "swarm: open an external window per running agent (inline view: Ctrl+O)" },
     { name: "browser", description: "launch the browser + activate browser tools (/browser close to stop)" },
     { name: "chrome", description: "alias for /browser" },
-    { name: "computer", description: "desktop control — /computer install · /computer uninstall" },
+    { name: "computer", description: "desktop control — open the install / device-support panel" },
     { name: "review", description: "review the current changes" },
     { name: "security-review", description: "audit the current changes for security issues" },
     { name: "permissions", description: "view / clear remembered approvals" },
@@ -1014,47 +1039,12 @@ export function createAppStore(engine: Engine, version = "dev") {
       }
       case "computer":
       case "computer-use": {
+        // All install/uninstall/status/device-support lives in the modal now (one place the user can
+        // see what's supported, install/remove, and grant-permission guidance).
         const a = args.trim().toLowerCase()
-        const installed = engine.computerInstalled()
-        if (a === "uninstall" || a === "remove") {
-          pushToast(
-            engine.uninstallComputerUse() ? "computer-use uninstalled" : "uninstall failed",
-            installed ? "done" : "input",
-          )
-          return true
-        }
-        if (a === "install") {
-          if (installed) {
-            pushToast("computer-use already installed", "input")
-            return true
-          }
-          pushToast("installing computer-use (nut.js)… this can take a minute", "input")
-          engine
-            .installComputerUse()
-            .then((r) =>
-              pushToast(
-                r.ok ? "computer-use installed — desktop tools active" : "install failed (see logs)",
-                r.ok ? "done" : "error",
-              ),
-            )
-            .catch((e) => pushToast(`install error: ${e?.message ?? e}`, "error"))
-          return true
-        }
-        // Bare /computer or /computer-use: if installed, activate the tools for Friday; else prompt to install.
-        if (installed) {
-          const n = engine.activateTools("computer_")
-          appendItem(activeSession(), {
-            kind: "notice",
-            id: nextLocalId(),
-            text: `computer-use is INSTALLED — ${n} desktop tool(s) (screenshot/move/click/type/key/scroll) are now active for Friday.\n/computer-use uninstall to remove it.`,
-          })
-        } else {
-          appendItem(activeSession(), {
-            kind: "notice",
-            id: nextLocalId(),
-            text: "computer-use is NOT installed. It enables desktop control (mouse/keyboard/screenshot) via nut.js.\n/computer-use install to add it (opt-in, removable anytime).",
-          })
-        }
+        if (a === "install") installComputer()
+        else if (a === "uninstall" || a === "remove") uninstallComputer()
+        setComputerModalOpen(true)
         return true
       }
       case "voice":
@@ -1094,8 +1084,8 @@ export function createAppStore(engine: Engine, version = "dev") {
             return v.ok ? "✓ mic: ready (Ctrl+R · on-device whisper)" : `✗ mic: ${v.reason}`
           })(),
           engine.computerInstalled()
-            ? "✓ computer-use: installed"
-            : "· computer-use: not installed (/computer-use install)",
+            ? "✓ computer-use: installed (/computer to manage)"
+            : "· computer-use: not installed (/computer to set up)",
           `✓ platform: ${process.platform}`,
         ]
         appendItem(sid, { kind: "notice", id: nextLocalId(), text: lines.join("\n") })
@@ -1611,6 +1601,13 @@ export function createAppStore(engine: Engine, version = "dev") {
     addInject,
     addCancel,
     mcpModalOpen,
+    computerModalOpen,
+    setComputerModalOpen,
+    computerReady,
+    computerInstalling,
+    computerInstallLog,
+    installComputer,
+    uninstallComputer,
     setMcpModalOpen,
     mcpConfig,
     refreshMcp,

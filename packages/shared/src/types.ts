@@ -36,7 +36,7 @@ export type Message =
   | { role: "system"; text: string }
   | { role: "user"; text: string; images?: ImagePart[] }
   | { role: "assistant"; text?: string; reasoning?: string; reasoningSignature?: string; toolCalls?: ToolCall[] }
-  | { role: "tool"; callId: string; name: string; result: string; isError?: boolean }
+  | { role: "tool"; callId: string; name: string; result: string; isError?: boolean; images?: ImagePart[] }
 
 /** Tool description handed to the model (JSON-Schema parameters). */
 export interface ToolDef {

@@ -9,6 +9,7 @@ import { CheckpointHistory } from "./components/CheckpointHistory.tsx"
 import { CommandPalette } from "./components/CommandPalette.tsx"
 import { CompactionCard, CompactionSummary } from "./components/CompactionCard.tsx"
 import { Composer } from "./components/Composer.tsx"
+import { ComputerModal } from "./components/ComputerModal.tsx"
 import { ConsoleView } from "./components/ConsoleView.tsx"
 import { ContextPanel } from "./components/ContextPanel.tsx"
 import { Dashboard } from "./components/Dashboard.tsx"
@@ -192,6 +193,9 @@ function Shell() {
       </Show>
       <Show when={app.mcpModalOpen()}>
         <McpModal />
+      </Show>
+      <Show when={app.computerModalOpen()}>
+        <ComputerModal />
       </Show>
       <Show when={app.checkpointsOpen()}>
         <CheckpointHistory />

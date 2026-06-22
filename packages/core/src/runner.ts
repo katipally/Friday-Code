@@ -1782,7 +1782,14 @@ export class SessionRunner {
         }
 
         void this.hook("PostToolUse", { tool_name: tc.name, tool_input: args, tool_response: result.output }, tc.name)
-        this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: result.output, isError: result.isError })
+        this.addMessage({
+          role: "tool",
+          callId: tc.id,
+          name: tc.name,
+          result: result.output,
+          isError: result.isError,
+          images: result.images, // vision loop: e.g. a screenshot fed back to the model
+        })
         this.emit({
           type: "tool-result",
           callId: tc.id,
@@ -1881,7 +1888,14 @@ export class SessionRunner {
             )
           }
         }
-        messages.push({ role: "tool", callId: tc.id, name: tc.name, result: result.output, isError: result.isError })
+        messages.push({
+          role: "tool",
+          callId: tc.id,
+          name: tc.name,
+          result: result.output,
+          isError: result.isError,
+          images: result.images,
+        })
       }
     }
     return lastText || "(subagent reached its step limit)"

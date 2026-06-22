@@ -30,9 +30,21 @@ function toAnthropic(messages: Message[]): { system?: string; messages: unknown[
       // (some providers reject `{type:"text",text:""}`).
       if (content.length) out.push({ role: "assistant", content })
     } else if (m.role === "tool") {
+      // Tool results are normally a plain string, but when a tool returns images (e.g. a
+      // computer-use screenshot) we send a content array of [text, image…] so the model can SEE
+      // the result — the vision loop that makes screen control actually work.
+      const trContent: unknown = m.images?.length
+        ? [
+            { type: "text", text: m.result },
+            ...m.images.map((img) => ({
+              type: "image",
+              source: { type: "base64", media_type: img.mime, data: img.data },
+            })),
+          ]
+        : m.result
       out.push({
         role: "user",
-        content: [{ type: "tool_result", tool_use_id: m.callId, content: m.result, is_error: m.isError ?? false }],
+        content: [{ type: "tool_result", tool_use_id: m.callId, content: trContent, is_error: m.isError ?? false }],
       })
     }
   }

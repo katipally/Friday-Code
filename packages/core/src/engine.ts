@@ -25,6 +25,7 @@ import {
   buildRegistry,
   closeBrowser,
   computerInstalled,
+  computerSupport,
   findBrowser,
   installComputerUse,
   startBrowser,
@@ -493,6 +494,10 @@ export class Engine {
   // ---- computer use (opt-in native backend) ----
   computerInstalled(): boolean {
     return computerInstalled()
+  }
+  /** Whether the current OS/session can drive the desktop, with a human-readable note. */
+  computerSupport(): { ok: boolean; platform: string; note: string } {
+    return computerSupport()
   }
   installComputerUse(): Promise<{ ok: boolean; log: string }> {
     return installComputerUse()

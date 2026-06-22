@@ -17,6 +17,33 @@ import { obj, type Tool } from "../tool.ts"
 const COMPUTER = "computer" as const
 const PKG = "@nut-tree-fork/nut-js"
 
+/**
+ * Which platforms can actually drive the desktop. nut.js supports macOS, Windows and Linux/X11.
+ * On Linux/Wayland the compositor blocks synthetic input + screen capture, so we report it as
+ * unsupported rather than letting actions silently no-op (the old "claims it worked" bug).
+ */
+export function computerSupport(): { ok: boolean; platform: string; note: string } {
+  const p = process.platform
+  if (p === "darwin")
+    return {
+      ok: true,
+      platform: "macOS",
+      note: "Grant Friday's terminal Accessibility AND Screen Recording in System Settings → Privacy & Security, or actions/screenshots silently do nothing.",
+    }
+  if (p === "win32") return { ok: true, platform: "Windows", note: "No extra permissions needed." }
+  if (p === "linux") {
+    const wayland = !!process.env.WAYLAND_DISPLAY || (process.env.XDG_SESSION_TYPE ?? "").toLowerCase() === "wayland"
+    if (wayland)
+      return {
+        ok: false,
+        platform: "Linux/Wayland",
+        note: "Wayland blocks synthetic input + screen capture. Log into an X11/Xorg session to use computer-use.",
+      }
+    return { ok: true, platform: "Linux/X11", note: "Requires an X11 session (Xorg)." }
+  }
+  return { ok: false, platform: p, note: "Computer-use is supported on macOS, Windows and Linux/X11." }
+}
+
 function homeDir(): string {
   return path.join(os.homedir(), ".friday", "computer-use")
 }
@@ -55,18 +82,22 @@ let nut: any
 async function loadNut(): Promise<any> {
   if (nut) return nut
   if (!computerInstalled())
-    throw new Error("computer-use is not installed — ask the user to run /computer-use install in Friday")
+    throw new Error("computer-use is not installed — ask the user to run /computer in Friday and install the backend")
   nut = await import(modulePath())
   return nut
 }
 
-async function withNut<T>(fn: (n: any) => Promise<T>): Promise<{ output: string }> {
+/** Run a nut.js action, gating on device support and reporting failures HONESTLY (isError) so the
+ *  model can't mistake a swallowed error / unsupported platform for success. */
+async function withNut(fn: (n: any) => Promise<string>): Promise<{ output: string; isError?: boolean }> {
+  const sup = computerSupport()
+  if (!sup.ok) return { output: `Error: computer-use unavailable on ${sup.platform}. ${sup.note}`, isError: true }
   try {
     const n = await loadNut()
     const out = await fn(n)
     return { output: String(out ?? "ok") }
   } catch (e: any) {
-    return { output: `Error: ${e?.message ?? e}` }
+    return { output: `Error: ${e?.message ?? e}`, isError: true }
   }
 }
 
@@ -96,15 +127,26 @@ const screenshotTool: Tool = {
   parameters: obj({ path: { type: "string", description: "output file path (defaults to ./friday-screen.png)" } }),
   async execute(input: any, ctx) {
     const out = path.resolve(ctx.cwd, String(input.path || "friday-screen.png"))
-    return withNut(async (n) => {
+    const sup = computerSupport()
+    if (!sup.ok) return { output: `Error: screenshots unavailable on ${sup.platform}. ${sup.note}`, isError: true }
+    try {
+      const n = await loadNut()
       const w = await n.screen.width()
       const h = await n.screen.height()
-      // nut.js writes <name>.png into a dir; capture then move into place.
+      // nut.js writes <name>.png into a dir; capture then read it back so we can hand the IMAGE to
+      // the model (the vision loop) — not just a path it can't see.
       const dir = path.dirname(out)
       const base = path.basename(out).replace(/\.png$/i, "")
       const written = await n.screen.capture(base, n.FileType.PNG, dir)
-      return `saved ${written} (${w}×${h})`
-    })
+      const abs = path.isAbsolute(written) ? written : path.join(dir, written)
+      const data = fs.readFileSync(abs).toString("base64")
+      return {
+        output: `Screen captured (${w}×${h}px), saved ${abs}. The image is attached below — read the pixels to locate UI elements before clicking.`,
+        images: [{ mime: "image/png", data }],
+      }
+    } catch (e: any) {
+      return { output: `Error: ${e?.message ?? e}`, isError: true }
+    }
   },
 }
 
