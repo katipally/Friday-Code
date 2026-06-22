@@ -1,16 +1,14 @@
 import { expect, test } from "bun:test"
 import { applyTheme, theme, themeNames } from "../src/theme.ts"
 
-test("applyTheme layers a preset and resets back to default", () => {
+test("applyTheme resets back to the default palette", () => {
   const defaultBg = theme.bg
-  applyTheme("light")
-  expect(theme.bg).toBe("#ffffff")
-  applyTheme("nord")
-  expect(theme.bg).toBe("#2e3440")
+  applyTheme("dark")
+  expect(theme.bg).toBe(defaultBg)
   applyTheme() // reset to default
   expect(theme.bg).toBe(defaultBg)
 })
 
-test("themeNames includes the presets", () => {
-  expect(themeNames()).toEqual(expect.arrayContaining(["dark", "light", "nord"]))
+test("themeNames includes the dark preset (Friday is dark-only)", () => {
+  expect(themeNames()).toEqual(["dark"])
 })
