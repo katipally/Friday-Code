@@ -50,6 +50,7 @@ import {
   stopLiveVoice,
   stopVoice,
   voiceRecording,
+  voiceSetupSteps,
   voiceStatus,
 } from "./voice.ts"
 
@@ -431,6 +432,10 @@ export class Engine {
   // ---- voice (speech-to-text) ----
   voiceStatus(): { ok: boolean; reason: string } {
     return voiceStatus(loadConfig().voice)
+  }
+  /** OS-aware enablement checklist for the voice setup screen. */
+  voiceSetupSteps(): { ready: boolean; lines: string[] } {
+    return voiceSetupSteps(loadConfig().voice)
   }
   voiceRecording(): boolean {
     return voiceRecording()

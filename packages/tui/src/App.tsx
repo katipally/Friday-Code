@@ -18,6 +18,7 @@ import { FooterHints } from "./components/FooterHints.tsx"
 import { ForkPicker } from "./components/ForkPicker.tsx"
 import { KeymapOverlay } from "./components/KeymapOverlay.tsx"
 import { McpModal } from "./components/McpModal.tsx"
+import { MissionControl } from "./components/MissionControl.tsx"
 import { ModelModal } from "./components/ModelModal.tsx"
 import { Onboarding } from "./components/Onboarding.tsx"
 import { PermissionCard } from "./components/PermissionCard.tsx"
@@ -214,6 +215,11 @@ function AppRoot() {
       if (key.ctrl && key.name === "t") return app.toggleConsole()
       return
     }
+    if (app.view() === "mission") {
+      // MissionControl owns its keys; only the toggle is global so it can close from here too.
+      if (key.ctrl && key.name === "o") return app.toggleMission()
+      return
+    }
     // KeymapOverlay has no useKeyboard of its own — close it on Esc here.
     if (app.overlayOpen()) {
       if (key.name === "escape") app.setOverlayOpen(false)
@@ -229,7 +235,9 @@ function AppRoot() {
     }
     if (key.ctrl && /^[1-9]$/.test(key.name)) return app.switchSessionByIndex(Number(key.name) - 1)
     if (key.ctrl && key.name === "k") return app.setPaletteOpen(true)
+    if (key.ctrl && key.name === "r") return app.toggleVoice()
     if (key.ctrl && key.name === "t") return app.toggleConsole()
+    if (key.ctrl && key.name === "o") return app.toggleMission()
     if (key.ctrl && key.name === "y") return app.setHistoryOpen(true)
     if (key.name?.toLowerCase() === "f1" || (key.ctrl && key.name === "/")) return app.setOverlayOpen(true)
     // `?` opens the keymap, but only when the composer is empty so it never eats a literal "?".
@@ -279,6 +287,9 @@ function AppRoot() {
       </Match>
       <Match when={app.view() === "console"}>
         <ConsoleView />
+      </Match>
+      <Match when={app.view() === "mission"}>
+        <MissionControl />
       </Match>
     </Switch>
   )

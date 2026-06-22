@@ -282,11 +282,18 @@ class LiveVoiceSession {
     }
     // Stream closed with no transcript and no error reported → surface stderr / exit reason.
     if (!this.gotResult && this.running) {
+      const code = await (this.proc?.exited ?? Promise.resolve(0)).catch(() => 1)
       let err = ""
       try {
         const se = this.proc?.stderr
         if (se && typeof se !== "number") err = await new Response(se as ReadableStream<Uint8Array>).text()
       } catch {}
+      // A non-zero / signal exit with no JSON and no stderr is the classic macOS TCC abort: a CLI
+      // helper can't satisfy the Speech/Microphone usage-description check, so the OS kills it before
+      // it can report anything. Point the user at the path that actually works from a terminal: cloud.
+      if (!err.trim() && code !== 0)
+        err =
+          "macOS blocked the native speech helper (privacy/TCC) — on-device Speech isn't reachable from a terminal CLI on this Mac. Use cloud transcription instead: set GROQ_API_KEY or OPENAI_API_KEY (a mic recorder like ffmpeg/sox must also be installed)."
       onError?.(explainVoiceError(err))
     }
   }
@@ -338,6 +345,39 @@ export function voiceStatus(cfg?: VoiceConfig): { ok: boolean; reason: string } 
   if (resolveEngine(cfg).kind === "none")
     return { ok: false, reason: "no speech engine (set GROQ_API_KEY or OPENAI_API_KEY)" }
   return { ok: true, reason: "ready (cloud Whisper)" }
+}
+
+/**
+ * OS-aware enablement checklist. Each line is prefixed ✓ (satisfied) or • (todo) so the user sees
+ * exactly what's missing for voice to work on their platform. `ready` mirrors voiceStatus().ok.
+ */
+export function voiceSetupSteps(cfg?: VoiceConfig): { ready: boolean; lines: string[] } {
+  const ok = (done: boolean, text: string) => `${done ? "✓" : "•"} ${text}`
+  const hasRec = !!findRecorder(cfg?.recorder)
+  const hasKey = resolveEngine(cfg).kind !== "none"
+  if (process.platform === "darwin") {
+    const native = nativeLiveAvailable()
+    return {
+      ready: native || (hasRec && hasKey),
+      lines: [
+        "macOS — on-device live transcription (no API key, nothing bundled):",
+        ok(native, "Xcode command-line tools (`swiftc`) — install with: xcode-select --install"),
+        "• Grant your terminal app Microphone AND Speech Recognition in",
+        "  System Settings → Privacy & Security (you'll be prompted on first use)",
+        "Then press Ctrl+R again.",
+      ],
+    }
+  }
+  const recHint = process.platform === "linux" ? "sox (`rec`), ffmpeg, or arecord" : "ffmpeg (add it to PATH)"
+  return {
+    ready: hasRec && hasKey,
+    lines: [
+      `${process.platform === "win32" ? "Windows" : "Linux"} — cloud transcription (Whisper):`,
+      ok(hasRec, `Install a mic recorder: ${recHint}`),
+      ok(hasKey, "Set GROQ_API_KEY or OPENAI_API_KEY in your environment"),
+      "Then press Ctrl+R again.",
+    ],
+  }
 }
 
 export function voiceRecording(): boolean {

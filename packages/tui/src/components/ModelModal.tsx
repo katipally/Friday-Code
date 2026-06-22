@@ -240,7 +240,7 @@ export function ModelModal() {
                 <box
                   border
                   borderStyle="single"
-                  borderColor={keyField() === "key" ? accent() : theme.border}
+                  borderColor={keyField() === "key" ? theme.borderActive : theme.border}
                   paddingLeft={1}
                   paddingRight={1}
                 >
@@ -264,7 +264,7 @@ export function ModelModal() {
                 <box
                   border
                   borderStyle="single"
-                  borderColor={keyField() === "url" ? accent() : theme.border}
+                  borderColor={keyField() === "url" ? theme.borderActive : theme.border}
                   paddingLeft={1}
                   paddingRight={1}
                 >

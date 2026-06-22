@@ -260,6 +260,12 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
 
             <text fg={theme.borderMuted}>{"─".repeat(innerW())}</text>
 
+            {/* Quick actions — same as the Ctrl+R / Ctrl+O shortcuts, clickable for mouse users. */}
+            <box flexDirection="row" gap={1}>
+              <Pressable label="🎙 voice" onClick={() => app.toggleVoice()} />
+              <Pressable label="▣ mission" onClick={() => app.toggleMission()} />
+            </box>
+
             {/* Plans proposed this session — click one to re-open the full plan + execute gate. */}
             <Section
               label="plans"

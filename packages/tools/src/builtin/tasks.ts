@@ -66,7 +66,7 @@ export const taskStopTool: Tool = {
 export const spawnAgentsTool: Tool = {
   name: SPAWN_AGENTS,
   description:
-    "Fan out several subtasks as parallel background agents in one call — the coordinator pattern. Each runs independently and returns a task id; collect results later with task_status. Pass `worktree: true` on a job to isolate its edits in a git worktree (recommended when several agents write code at once).",
+    "SWARM: fan out several INDEPENDENT background agents on different tasks in one call. They do NOT coordinate or talk — each runs to completion alone and returns a task id; YOU collect results later with task_status. For one shared goal where workers must coordinate and be merged, use spawn_team instead. Pass `worktree: true` on a job to isolate its edits in a git worktree (recommended when several agents write code at once).",
   permission: "bash",
   deferred: true,
   parameters: obj(

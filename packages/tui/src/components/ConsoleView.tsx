@@ -4,7 +4,7 @@ import { createSignal, For, Show } from "solid-js"
 import { type TeamMember, useApp, type ViewItem } from "../store.tsx"
 
 /** Status → dot glyph + color. */
-function dot(status: string): { g: string; c: string } {
+export function dot(status: string): { g: string; c: string } {
   switch (status) {
     case "running":
       return { g: "●", c: theme.info }
@@ -20,7 +20,7 @@ function dot(status: string): { g: string; c: string } {
 }
 
 /** Flatten a transcript item to a short one-liner for the watch tail. */
-function line(it: ViewItem): { text: string; c: string } {
+export function line(it: ViewItem): { text: string; c: string } {
   switch (it.kind) {
     case "user":
       return { text: `› ${it.display ?? it.text}`, c: theme.user }

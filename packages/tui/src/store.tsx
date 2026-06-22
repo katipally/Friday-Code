@@ -124,7 +124,7 @@ function messagesToItems(messages: Message[]): ViewItem[] {
 }
 
 export function createAppStore(engine: Engine, version = "dev") {
-  const [view, setView] = createSignal<"splash" | "shell" | "console" | "exit">("splash")
+  const [view, setView] = createSignal<"splash" | "shell" | "console" | "mission" | "exit">("splash")
   const [mode, setModeSig] = createSignal<ModeId>(engine.selection().mode ?? DEFAULT_MODE)
   const [effort, setEffortSig] = createSignal<Effort>(engine.selection().effort ?? "medium")
   const [model, setModel] = createSignal<string>(engine.selection().model ?? "no model — open /model")
@@ -146,6 +146,8 @@ export function createAppStore(engine: Engine, version = "dev") {
   const [voiceModalOpen, setVoiceModalOpen] = createSignal(false)
   const [voicePartial, setVoicePartial] = createSignal("")
   const [voiceError, setVoiceError] = createSignal("")
+  // Non-empty → the modal is showing the OS-aware setup checklist instead of a live session.
+  const [voiceSetup, setVoiceSetup] = createSignal<string[]>([])
   const [onboardingOpen, setOnboardingOpen] = createSignal(false)
 
   const [paletteOpen, setPaletteOpen] = createSignal(false)
@@ -661,7 +663,11 @@ export function createAppStore(engine: Engine, version = "dev") {
   }
   /** Stop the live voice modal: finalize the transcript into the composer. */
   function stopVoiceModal() {
+    const wasSetup = voiceSetup().length > 0 || !!voiceError()
     setVoiceModalOpen(false)
+    setVoiceSetup([])
+    setVoiceError("")
+    if (wasSetup) return // setup checklist or failed session — nothing to finalize
     engine
       .stopVoiceLive()
       .then((text) => {
@@ -671,6 +677,60 @@ export function createAppStore(engine: Engine, version = "dev") {
         } else pushToast("nothing heard", "input")
       })
       .catch((e) => pushToast(`voice: ${e?.message ?? e}`, "error"))
+  }
+  /**
+   * Voice toggle (Ctrl+R). Routes to the best available path: native live modal (macOS),
+   * else cloud press-to-talk, else opens the modal showing an OS-aware setup checklist.
+   */
+  function toggleVoice() {
+    if (voiceModalOpen()) return stopVoiceModal() // live modal open → stop & insert
+    if (engine.voiceRecording()) {
+      // cloud press-to-talk in progress → stop & transcribe
+      pushToast("transcribing…", "input")
+      engine
+        .stopVoice()
+        .then((text) => {
+          if (text) {
+            setComposerText(text)
+            pushToast("transcribed — edit & press Enter to send", "done")
+          } else pushToast("nothing heard", "input")
+        })
+        .catch((e) => pushToast(`voice: ${e?.message ?? e}`, "error"))
+      return
+    }
+    if (engine.voiceLiveAvailable()) {
+      setVoicePartial("")
+      setVoiceError("")
+      setVoiceSetup([])
+      setVoiceModalOpen(true)
+      // On any failure, KEEP the modal open and show the error + the OS remedy checklist, so the user
+      // sees what went wrong and how to fix it (instead of a toast that vanishes).
+      const fail = (msg: string) => {
+        setVoiceError(msg)
+        setVoiceSetup(engine.voiceSetupSteps().lines)
+      }
+      engine
+        .startVoiceLive(
+          (t) => setVoicePartial(t),
+          (msg) => fail(msg),
+        )
+        .catch((e) => fail(e?.message ?? String(e)))
+      return
+    }
+    if (engine.voiceStatus().ok) {
+      try {
+        engine.startVoice()
+        pushToast("🎙 recording — Ctrl+R to stop & transcribe", "input")
+      } catch (e: any) {
+        pushToast(`voice: ${e?.message ?? e}`, "error")
+      }
+      return
+    }
+    // Not set up on this OS — show the actionable checklist.
+    setVoicePartial("")
+    setVoiceError("")
+    setVoiceSetup(engine.voiceSetupSteps().lines)
+    setVoiceModalOpen(true)
   }
   function setEffort(e: Effort) {
     setEffortSig(e)
@@ -692,11 +752,11 @@ export function createAppStore(engine: Engine, version = "dev") {
     { name: "usage", description: "show token + cost usage this session" },
     { name: "stats", description: "show token + cost usage this session" },
     { name: "doctor", description: "check model, provider & environment health" },
+    { name: "mission", description: "mission control — Sessions · Teams · Swarm (Ctrl+O)" },
     { name: "console", description: "open the agent-team console / dashboard (Ctrl+T)" },
-    { name: "fleet", description: "open a window per running background agent" },
+    { name: "fleet", description: "swarm: open an external window per running agent (inline view: Ctrl+O)" },
     { name: "browser", description: "launch the browser + activate browser tools (/browser close to stop)" },
     { name: "chrome", description: "alias for /browser" },
-    { name: "voice", description: "press-to-talk: start, then /voice again to transcribe" },
     { name: "computer", description: "activate desktop-control tools (install first via /computer-use install)" },
     { name: "computer-use", description: "install/uninstall desktop control (mouse/keyboard/screen)" },
     { name: "review", description: "review the current changes" },
@@ -829,6 +889,10 @@ export function createAppStore(engine: Engine, version = "dev") {
         appendItem(sid, { kind: "notice", id: nextLocalId(), text: parts.join(" · ") })
         return true
       }
+      case "mission": {
+        toggleMission()
+        return true
+      }
       case "console": {
         toggleConsole()
         return true
@@ -892,47 +956,8 @@ export function createAppStore(engine: Engine, version = "dev") {
         return true
       }
       case "voice": {
-        // Native live transcription (macOS): open a modal that streams text as you speak.
-        if (engine.voiceLiveAvailable()) {
-          setVoicePartial("")
-          setVoiceError("")
-          setVoiceModalOpen(true)
-          engine
-            .startVoiceLive(
-              (t) => setVoicePartial(t),
-              (msg) => setVoiceError(msg),
-            )
-            .catch((e) => {
-              setVoiceModalOpen(false)
-              pushToast(`voice: ${e?.message ?? e}`, "error")
-            })
-          return true
-        }
-        // Fallback: press-to-talk batch (cloud Whisper).
-        if (engine.voiceRecording()) {
-          pushToast("transcribing…", "input")
-          engine
-            .stopVoice()
-            .then((text) => {
-              if (text) {
-                setComposerText(text)
-                pushToast("transcribed — edit & press Enter to send", "done")
-              } else pushToast("nothing heard", "input")
-            })
-            .catch((e) => pushToast(`voice: ${e?.message ?? e}`, "error"))
-          return true
-        }
-        const st = engine.voiceStatus()
-        if (!st.ok) {
-          pushToast(`voice unavailable — ${st.reason}`, "error")
-          return true
-        }
-        try {
-          engine.startVoice()
-          pushToast("🎙 recording — /voice again to stop & transcribe", "input")
-        } catch (e: any) {
-          pushToast(`voice: ${e?.message ?? e}`, "error")
-        }
+        // Voice is bound to Ctrl+R; this hidden alias just delegates.
+        toggleVoice()
         return true
       }
       case "browser":
@@ -1205,6 +1230,9 @@ export function createAppStore(engine: Engine, version = "dev") {
   function toggleConsole() {
     setView(view() === "console" ? "shell" : "console")
   }
+  function toggleMission() {
+    setView(view() === "mission" ? "shell" : "mission")
+  }
   /** Focus an agent's session and drop back into the chat shell. */
   function visitAgent(sessionId: string) {
     switchSession(sessionId)
@@ -1345,7 +1373,9 @@ export function createAppStore(engine: Engine, version = "dev") {
     voiceModalOpen,
     voicePartial,
     voiceError,
+    voiceSetup,
     stopVoiceModal,
+    toggleVoice,
     onboardingOpen,
     setOnboardingOpen,
     mascot,
@@ -1444,6 +1474,7 @@ export function createAppStore(engine: Engine, version = "dev") {
     team,
     sessionItems,
     toggleConsole,
+    toggleMission,
     visitAgent,
     stopAgent,
     popoutAgent,
