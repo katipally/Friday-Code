@@ -15,27 +15,27 @@ export const theme = {
   brand: "#ffaf00", // exact xterm-256 cube member (214)
   brandDim: "#a6731f", // resting brand where full amber would shout
   // selection — a neutral grey fill band, clearly brighter than bgHover, distinct from brand.
-  bgSelected: "#34353d",
+  bgSelected: "#3a3c45",
   textOnAccent: "#ffffff", // bright text drawn ON a selection / colored fill band (high contrast)
 
-  // surfaces — true-black canvas (like opencode) with neutral grey layers stepped far
-  // enough apart to survive 256-color quantization (Terminal.app has no truecolor).
+  // surfaces — true-black canvas (like opencode) with neutral grey layers stepped far enough apart
+  // to read clearly against black AND survive 256-color quantization (Terminal.app has no truecolor).
   bg: "#000000", // chat / base canvas — true black
-  bgComposer: "#0d0d0f", // the input box — first step above black
-  bgPanel: "#0d0d0f", // side panels — distinct from canvas
-  bgElevated: "#161618", // cards / modals — a clear step up
-  bgHover: "#1f1f23", // selection / hover — readable without shouting
+  bgComposer: "#141518", // the input box — a clear, visible step above black
+  bgPanel: "#141518", // side panels — distinct from canvas
+  bgElevated: "#1f2025", // cards / modals — a clear step up again
+  bgHover: "#2b2c33", // selection / hover — readable without shouting
 
   // text — high contrast, but never harsh
   text: "#f2f3f5",
   textMuted: "#9aa0a8", // secondary info
   textFaint: "#7a818c", // tertiary info, still legible
 
-  // lines — borders are visible enough to define panels but not noisy
-  border: "#2a2a2e", // panel / card edges
-  borderMuted: "#1f1f23",
+  // lines — borders are bright enough to clearly define panels/cards against the dark surfaces
+  border: "#3a3c44", // panel / card edges — visible
+  borderMuted: "#26272d",
   /** hover / active edge — brighter than `border` for clear affordance */
-  borderActive: "#3a3a42",
+  borderActive: "#50525d",
 
   // roles
   user: "#9aa5ce", // user message accent (calm)
@@ -95,14 +95,14 @@ export const THEMES: Record<string, Partial<Theme>> = {
  * only when the terminal lacks truecolor AND the default dark theme is active.
  */
 const COARSE_DARK: Partial<Theme> = {
-  bgComposer: "#121212", // 233
-  bgPanel: "#121212",
-  bgElevated: "#1c1c1c", // 234
-  bgHover: "#303030", // 236
-  borderMuted: "#262626", // 235
-  border: "#444444", // 238
-  borderActive: "#585858", // 240
-  bgSelected: "#4e4e4e", // 239 — selection band stays clearly above bgHover (236) on 256-color
+  bgComposer: "#1c1c1c", // 234 — clearly above black
+  bgPanel: "#1c1c1c",
+  bgElevated: "#262626", // 235 — cards / modals step up
+  bgHover: "#3a3a3a", // 237
+  borderMuted: "#303030", // 236
+  border: "#585858", // 240 — visible panel edges
+  borderActive: "#6c6c6c", // 242
+  bgSelected: "#4e4e4e", // 239 — selection band stays clearly above bgHover (237) on 256-color
 }
 
 /**
