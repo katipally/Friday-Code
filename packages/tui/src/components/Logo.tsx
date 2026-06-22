@@ -25,11 +25,13 @@ const GLYPHS: Record<string, string[]> = {
 
 const WORD = "FRIDAY"
 // Three full-width rows; letters joined by a single-column gap.
-const ROWS: string[] = [0, 1, 2].map((r) =>
+// Exported so the plain-stdout exit screen prints the IDENTICAL wordmark (App.tsx) — one source.
+export const WORDMARK_ROWS: string[] = [0, 1, 2].map((r) =>
   WORD.split("")
     .map((c) => GLYPHS[c]![r]!)
     .join(" "),
 )
+const ROWS = WORDMARK_ROWS
 const WIDTH = ROWS[0]!.length
 
 // Sweep tuning (lively): a soft gaussian highlight travels across the mark each cycle.

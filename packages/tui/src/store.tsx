@@ -167,6 +167,8 @@ export function createAppStore(engine: Engine, version = "dev") {
   const [paletteOpen, setPaletteOpen] = createSignal(false)
   // First Esc while busy "arms" the stop; a second Esc within the window actually aborts.
   const [stopArmed, setStopArmed] = createSignal(false)
+  // First Ctrl+C "arms" the quit; a second within the window actually exits (footer hint shows it).
+  const [quitArmed, setQuitArmed] = createSignal(false)
   // Highlighted action in the permission card (0 allow-once · 1 allow-always · 2 deny).
   const [permSel, setPermSel] = createSignal(0)
   // Transient toasts (e.g. a background session finished or needs input).
@@ -1633,6 +1635,8 @@ export function createAppStore(engine: Engine, version = "dev") {
     paletteOpen,
     setPaletteOpen,
     stopArmed,
+    quitArmed,
+    setQuitArmed,
     setStopArmed,
     permSel,
     setPermSel,

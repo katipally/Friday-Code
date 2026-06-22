@@ -18,12 +18,16 @@ export function FooterHints() {
   return (
     <box flexDirection="row" height={1} paddingLeft={1} paddingRight={1} gap={2} alignItems="center">
       <For each={HINTS}>
-        {(h) => (
-          <box flexDirection="row" gap={1}>
-            <text fg={theme.text}>{h.keys}</text>
-            <text fg={theme.textFaint}>{h.label}</text>
-          </box>
-        )}
+        {(h) => {
+          // The quit hint flips to an armed warning once Ctrl+C is pressed once (gated exit).
+          const armed = () => h.keys === "ctrl+c" && app.quitArmed()
+          return (
+            <box flexDirection="row" gap={1}>
+              <text fg={armed() ? theme.warning : theme.text}>{h.keys}</text>
+              <text fg={armed() ? theme.warning : theme.textFaint}>{armed() ? "press again to exit" : h.label}</text>
+            </box>
+          )
+        }}
       </For>
       <box flexGrow={1} />
       <box flexDirection="row" gap={1} onMouseDown={() => app.setOverlayOpen(true)}>

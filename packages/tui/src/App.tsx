@@ -18,6 +18,7 @@ import { EffortSlider } from "./components/EffortSlider.tsx"
 import { FooterHints } from "./components/FooterHints.tsx"
 import { ForkPicker } from "./components/ForkPicker.tsx"
 import { KeymapOverlay } from "./components/KeymapOverlay.tsx"
+import { WORDMARK_ROWS } from "./components/Logo.tsx"
 import { McpModal } from "./components/McpModal.tsx"
 import { MicModal } from "./components/MicModal.tsx"
 import { ModelModal } from "./components/ModelModal.tsx"
@@ -39,14 +40,12 @@ function fmtDuration(ms: number): string {
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`
 }
 
-// Plain-text wordmark left in the terminal on exit (the TUI subpixel logo can't render to stdout).
-const EXIT_LOGO = [
-  "  ███████ ██████  ██ ██████   █████  ██    ██",
-  "  ██      ██   ██ ██ ██   ██ ██   ██  ██  ██ ",
-  "  █████   ██████  ██ ██   ██ ███████   ████  ",
-  "  ██      ██   ██ ██ ██   ██ ██   ██    ██   ",
-  "  ██      ██   ██ ██ ██████  ██   ██    ██   ",
-].join("\n")
+// Wordmark left in the terminal on exit — the SAME half-block glyphs as the empty-state Logo
+// (shared WORDMARK_ROWS), printed statically in brand amber (xterm-256 #214). The live logo's
+// per-column shimmer can't render to stdout, but the glyph rows themselves print fine.
+const AMBER = "\x1b[38;5;214m"
+const RESET = "\x1b[0m"
+const EXIT_LOGO = WORDMARK_ROWS.map((r) => `  ${AMBER}${r}${RESET}`).join("\n")
 
 function Shell() {
   const app = useApp()
@@ -220,9 +219,24 @@ function AppRoot() {
 
   let lastEsc = 0
   let stopArmedAt = 0
+  let quitArmedAt = 0
   useKeyboard((key) => {
     if (app.view() === "exit") return // exit is finalizing; ignore keys
-    if (key.ctrl && key.name === "c") return app.quit()
+    if (key.ctrl && key.name === "c") {
+      // Gated quit: first Ctrl+C arms (footer shows "press again to exit"), a second within 2s
+      // actually exits. Prevents a stray Ctrl+C from dropping the user out of a long session.
+      const t = Date.now()
+      if (app.quitArmed() && t - quitArmedAt < 2000) {
+        app.setQuitArmed(false)
+        return app.quit()
+      }
+      quitArmedAt = t
+      app.setQuitArmed(true)
+      setTimeout(() => {
+        if (Date.now() - quitArmedAt >= 1950) app.setQuitArmed(false)
+      }, 2000)
+      return
+    }
     if (app.view() === "console") {
       // ConsoleView owns its keys; only the toggle is global so it can close from here too.
       if (key.ctrl && key.name === "t") return app.toggleConsole()
