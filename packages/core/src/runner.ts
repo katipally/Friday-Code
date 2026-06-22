@@ -1097,8 +1097,9 @@ export class SessionRunner {
         tools: registry.defs.filter((d) => {
           const t = registry.get(d.name)
           if (t?.deferred && !this.activatedTools.has(d.name)) return false
-          if (sel.mode === "plan")
-            return !t || !["edit", "bash", "browser", "computer"].includes(t.permission)
+          // Plan mode is read-only for the filesystem/shell, but browser & computer actions are
+          // permitted with a prompt (they ask in plan), so only edit/bash are hidden here.
+          if (sel.mode === "plan") return !t || (t.permission !== "edit" && t.permission !== "bash")
           return d.name !== EXIT_PLAN
         }),
         effort: sel.reasoning ? sel.effort : undefined,

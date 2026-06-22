@@ -20,6 +20,7 @@ import { McpModal } from "./components/McpModal.tsx"
 import { ModelModal } from "./components/ModelModal.tsx"
 import { Onboarding } from "./components/Onboarding.tsx"
 import { PermissionCard } from "./components/PermissionCard.tsx"
+import { YoloConfirm } from "./components/YoloConfirm.tsx"
 import { PlanCard } from "./components/PlanCard.tsx"
 import { SessionHistory } from "./components/SessionHistory.tsx"
 import { Splash } from "./components/Splash.tsx"
@@ -149,6 +150,9 @@ function Shell() {
       </Show>
       <Show when={app.modelModalOpen()}>
         <ModelModal />
+      </Show>
+      <Show when={app.yoloConfirmOpen()}>
+        <YoloConfirm />
       </Show>
       <Show when={app.effortOpen()}>
         <EffortSlider />

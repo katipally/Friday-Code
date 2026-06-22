@@ -124,6 +124,7 @@ export function createAppStore(engine: Engine, version = "dev") {
   const [rightWidth, setRightWidth] = createSignal(28)
   const [overlayOpen, setOverlayOpen] = createSignal(false)
   const [modelModalOpen, setModelModalOpen] = createSignal(false)
+  const [yoloConfirmOpen, setYoloConfirmOpen] = createSignal(false)
   const [onboardingOpen, setOnboardingOpen] = createSignal(false)
 
   const [paletteOpen, setPaletteOpen] = createSignal(false)
@@ -245,6 +246,7 @@ export function createAppStore(engine: Engine, version = "dev") {
   const anyModalOpen = () =>
     overlayOpen() ||
     modelModalOpen() ||
+    yoloConfirmOpen() ||
     onboardingOpen() ||
     effortOpen() ||
     paletteOpen() ||
@@ -607,11 +609,27 @@ export function createAppStore(engine: Engine, version = "dev") {
   })
 
   // ---- actions ----
-  function toggleMode(dir: 1 | -1 = 1) {
-    const next = cycleMode(mode(), dir)
+  function applyMode(next: ModeId) {
     setModeSig(next)
     engine.setMode(next)
     engine.send({ type: "set-mode", mode: next })
+  }
+  function toggleMode(dir: 1 | -1 = 1) {
+    const next = cycleMode(mode(), dir)
+    // Entering yolo grants blanket approval (edits, shell, browser, computer) with no prompts —
+    // gate it behind an explicit confirmation so nobody lands here by accidentally cycling modes.
+    if (next === "yolo" && mode() !== "yolo") {
+      setYoloConfirmOpen(true)
+      return
+    }
+    applyMode(next)
+  }
+  function confirmYolo() {
+    setYoloConfirmOpen(false)
+    applyMode("yolo")
+  }
+  function cancelYolo() {
+    setYoloConfirmOpen(false)
   }
   function setEffort(e: Effort) {
     setEffortSig(e)
@@ -1219,6 +1237,9 @@ export function createAppStore(engine: Engine, version = "dev") {
     setOverlayOpen,
     modelModalOpen,
     setModelModalOpen,
+    yoloConfirmOpen,
+    confirmYolo,
+    cancelYolo,
     onboardingOpen,
     setOnboardingOpen,
     mascot,

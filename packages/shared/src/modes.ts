@@ -43,7 +43,7 @@ export const MODES: readonly Mode[] = [
     glyph: "◐",
     accent: "#5fafff", // cyan/blue — exact xterm-256 cube member (75)
     hint: "read-only · proposes a plan you review, then run",
-    policy: { edit: "deny", bash: "ask", network: "ask", browser: "deny", computer: "deny" },
+    policy: { edit: "deny", bash: "ask", network: "ask", browser: "ask", computer: "ask" },
   },
   {
     id: "yolo",

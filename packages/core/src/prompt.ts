@@ -90,6 +90,7 @@ export function systemPrompt(opts: {
     "- ask_user: pause and ask the user clarifying question(s) with selectable { label, description } options when you need a decision; a free-text answer is always offered too.",
     "- todo_write: for any task with 3+ steps, maintain a live task list. Pass the FULL list each call; keep one item 'active', mark items 'done' as you finish. This keeps the user oriented.",
     "- Language server (when available): lsp_hover / lsp_definition / lsp_symbols give real type info, jump-to-def, and symbol search. After you edit a file, its compiler diagnostics are appended to the tool result automatically — read them and fix real errors before moving on.",
+    "- For web/UI work you can drive the user's real browser: load the browser_* tools via tool_search, then browser_navigate + browser_snapshot to inspect a page and browser_click/browser_type to act. For OS-level control (only when the task truly needs it) the computer_* tools exist if the user has installed that backend. Use them on your own judgement when a task calls for it; they prompt for permission unless the user is in yolo mode.",
     opts.memory
       ? `\n# Memory\nDurable facts you saved previously (use them; update via the memory tool when they change):\n${opts.memory}`
       : "",
