@@ -52,6 +52,8 @@ export type ViewItem =
       title?: string
       diff?: string
       open: boolean
+      /** second gate: once `open`, output shows a head+tail digest until `full` reveals everything. */
+      full?: boolean
     }
   | { kind: "error"; id: string; text: string }
   | { kind: "notice"; id: string; text: string; summary?: string }
@@ -1337,7 +1339,17 @@ export function createAppStore(engine: Engine, version = "dev") {
     patchItem(id, (it) => it.kind === "assistant" && (it.thinkingOpen = !it.thinkingOpen))
   }
   function toggleToolOpen(id: string) {
-    patchItem(id, (it) => it.kind === "tool" && (it.open = !it.open))
+    // Collapsing also resets the second gate, so reopening always starts at the digest (head+tail).
+    patchItem(id, (it) => {
+      if (it.kind !== "tool") return false
+      it.open = !it.open
+      if (!it.open) it.full = false
+      return true
+    })
+  }
+  /** Second gate: reveal the complete tool output instead of the head+tail digest. */
+  function toggleToolFull(id: string) {
+    patchItem(id, (it) => it.kind === "tool" && (it.full = !it.full))
   }
 
   function newSession() {
@@ -1577,6 +1589,7 @@ export function createAppStore(engine: Engine, version = "dev") {
     connectAndSelect,
     toggleThinking,
     toggleToolOpen,
+    toggleToolFull,
     newSession,
     switchSession,
     switchSessionByIndex,
