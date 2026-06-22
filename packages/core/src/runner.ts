@@ -369,6 +369,9 @@ export class SessionRunner {
   /** Set while the agent is soft-paused at a step boundary waiting for the /add modal; resolving it resumes the loop. */
   private injectResume?: () => void
   private injectPauseArmed = false
+  /** Per-step aborter for /add! interrupt-steer: cancels ONLY the current model generation (not the run,
+   * not a running tool) so the loop can keep the partial reply, fold in the note, and regenerate. */
+  private stepAbort?: AbortController
   private sessionAllow = new Set<PermissionCategory>()
   /** Deferred tools the model has activated via tool_search this session (their schemas are then sent). */
   private activatedTools = new Set<string>()
@@ -728,7 +731,7 @@ export class SessionRunner {
   // ---- /add: steer a running agent without stopping it ----
   /** Fold a user note into the conversation. If the agent is idle, it's just a normal prompt; if busy,
    * it's queued and drained as a user message at the top of the next loop step (and releases a soft-pause). */
-  async injectMessage(text: string, images?: ImagePart[], id?: string): Promise<void> {
+  async injectMessage(text: string, images?: ImagePart[], id?: string, interrupt = false): Promise<void> {
     if (!this.busy) {
       // Idle: it's just a normal prompt. Resolve the UI chip (if any) since runPrompt adds it to context.
       if (id) this.emit({ type: "inject-attached", id })
@@ -740,14 +743,26 @@ export class SessionRunner {
     const mentioned = collectImages(text, this.roots)
     const all = [...(images ?? []), ...mentioned]
     this.pendingInjections.push({ id, msg: { role: "user", text: promptText, images: all.length ? all : undefined } })
+    // The note has arrived → disarm any pending soft-pause (no reason to idle-wait) and release the loop
+    // if it's already parked. Disarming is what prevents a deadlock when the note is sent BEFORE the loop
+    // reached the pause point (it would otherwise park later with no one left to resume it).
+    this.injectPauseArmed = false
     this.injectResume?.()
+    // /add: cut the in-flight generation NOW so the note lands this step instead of the next. Aborts only
+    // the model stream (stepAbort) — a running tool keeps its run-level signal and finishes untouched.
+    if (interrupt) this.stepAbort?.abort()
   }
-  /** Make the agent idle at the next step boundary so the user can compose a note in the /add modal. */
-  armInjectPause(): void {
-    if (this.busy) this.injectPauseArmed = true
+  /** Make the agent idle at the next step boundary so the user can compose a note in the /add modal.
+   * `interrupt` (bare /add) also cuts the in-flight generation now so it parks immediately rather than
+   * after the current step finishes. */
+  armInjectPause(interrupt = false): void {
+    if (!this.busy) return
+    this.injectPauseArmed = true
+    if (interrupt) this.stepAbort?.abort()
   }
   /** Release a soft-pause (the modal's cancel path) without adding anything. */
   resumeInject(): void {
+    this.injectPauseArmed = false
     this.injectResume?.()
   }
 
@@ -960,39 +975,45 @@ export class SessionRunner {
     let reasoning = ""
     let reasoningSignature = ""
     const calls = new Map<number, { id: string; name: string; args: string }>()
-    for await (const ev of gen) {
-      if (signal.aborted) break
-      switch (ev.type) {
-        case "text":
-          text += ev.delta
-          on.text?.(ev.delta)
-          break
-        case "reasoning":
-          reasoning += ev.delta
-          on.reasoning?.(ev.delta)
-          break
-        case "reasoning_signature":
-          reasoningSignature += ev.signature
-          break
-        case "tool_start": {
-          const c = calls.get(ev.index) ?? { id: "", name: "", args: "" }
-          if (ev.id) c.id = ev.id
-          if (ev.name) c.name = ev.name
-          calls.set(ev.index, c)
-          break
+    try {
+      for await (const ev of gen) {
+        if (signal.aborted) break
+        switch (ev.type) {
+          case "text":
+            text += ev.delta
+            on.text?.(ev.delta)
+            break
+          case "reasoning":
+            reasoning += ev.delta
+            on.reasoning?.(ev.delta)
+            break
+          case "reasoning_signature":
+            reasoningSignature += ev.signature
+            break
+          case "tool_start": {
+            const c = calls.get(ev.index) ?? { id: "", name: "", args: "" }
+            if (ev.id) c.id = ev.id
+            if (ev.name) c.name = ev.name
+            calls.set(ev.index, c)
+            break
+          }
+          case "tool_delta": {
+            const c = calls.get(ev.index) ?? { id: "", name: "", args: "" }
+            if (c.args.length + ev.argsDelta.length > MAX_TOOL_ARGS)
+              throw new Error("tool arguments exceeded the size limit")
+            c.args += ev.argsDelta
+            calls.set(ev.index, c)
+            break
+          }
+          case "usage":
+            on.usage?.(ev.input, ev.output)
+            break
         }
-        case "tool_delta": {
-          const c = calls.get(ev.index) ?? { id: "", name: "", args: "" }
-          if (c.args.length + ev.argsDelta.length > MAX_TOOL_ARGS)
-            throw new Error("tool arguments exceeded the size limit")
-          c.args += ev.argsDelta
-          calls.set(ev.index, c)
-          break
-        }
-        case "usage":
-          on.usage?.(ev.input, ev.output)
-          break
       }
+    } catch (e) {
+      // Aborting the stream (true Stop or /add! interrupt) rejects the underlying fetch read mid-await.
+      // That's expected — return whatever streamed so far so the caller can keep the partial reply.
+      if (!signal.aborted) throw e
     }
     const toolCalls: ToolCall[] = [...calls.values()]
       .filter((c) => c.name)
@@ -1250,21 +1271,39 @@ export class SessionRunner {
           this.emit({ type: "usage", input: inTok, output: outTok, costUsd: cost })
         },
       }
+      // Per-step aborter for /add! interrupt-steer. The model stream listens to BOTH the run-level
+      // signal (true Stop) and this step signal (interrupt); tool execution below keeps `signal` only,
+      // so an interrupt cuts generation without killing a running tool.
+      const stepAbort = new AbortController()
+      this.stepAbort = stepAbort
+      const genSignal = AbortSignal.any([signal, stepAbort.signal])
       let turn: { text: string; reasoning: string; reasoningSignature: string; toolCalls: ToolCall[] }
       try {
-        turn = await this.collectTurn(this.host.streamFn(provider, apiKey, req, signal), signal, handlers)
+        turn = await this.collectTurn(this.host.streamFn(provider, apiKey, req, genSignal), genSignal, handlers)
       } catch (e) {
         // Reactive compaction: a proactive trigger can under-estimate (a huge tool result, a bad
         // estimate) and the request overflows the window. Compact once and retry the same step —
         // nothing streamed yet on an overflow, so re-running the handlers is safe.
-        if (signal.aborted || !isOverflowError(e) || streamedText || streamedReasoning) throw e
+        if (genSignal.aborted || !isOverflowError(e) || streamedText || streamedReasoning) throw e
         this.emit({ type: "status", text: "context overflow — compacting…", elapsedMs: now() - start })
         await this.maybeCompact(provider, apiKey, signal, true)
         req.messages = [req.messages[0]!, ...this.sendMessages()]
-        turn = await this.collectTurn(this.host.streamFn(provider, apiKey, req, signal), signal, handlers)
+        turn = await this.collectTurn(this.host.streamFn(provider, apiKey, req, genSignal), genSignal, handlers)
       }
+      this.stepAbort = undefined
       const { text, reasoning, reasoningSignature, toolCalls } = turn
-      if (signal.aborted) return
+      if (signal.aborted) return // true Stop: discard the partial turn (history stays clean)
+
+      // /add! interrupt-steer: the user cut this generation mid-stream. Keep the partial reply as a
+      // clean text-only assistant message (drop reasoning/signature + any incomplete tool calls so the
+      // next request stays valid), then continue — the loop top folds in the queued note and the step
+      // regenerates with both the truncated reply and the note in view.
+      if (stepAbort.signal.aborted) {
+        if (text.trim()) this.addMessage({ role: "assistant", text })
+        this.emit({ type: "message-stop", id, intermediate: true, interrupted: true })
+        this.activeAssistantId = undefined
+        continue
+      }
 
       this.addMessage({
         role: "assistant",

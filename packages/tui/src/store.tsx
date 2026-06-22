@@ -39,6 +39,8 @@ export type ViewItem =
       outputTokens?: number
       /** the mode this reply ran in — colors its ⏺ marker so you can tell at a glance */
       mode?: ModeId
+      /** cut short by a /add pause-steer — renders a "⏸ paused" tag */
+      interrupted?: boolean
     }
   | {
       kind: "tool"
@@ -250,6 +252,8 @@ export function createAppStore(engine: Engine, version = "dev") {
   const [historyOpen, setHistoryOpen] = createSignal(false)
   const [dirModalOpen, setDirModalOpen] = createSignal(false)
   const [addModalOpen, setAddModalOpen] = createSignal(false)
+  // Which mode the /add modal was opened in: true = bare /add (interrupt now), false = bare /add! (next step).
+  const [addModalInterrupt, setAddModalInterrupt] = createSignal(true)
   const [mcpModalOpen, setMcpModalOpen] = createSignal(false)
   const [checkpointsOpen, setCheckpointsOpen] = createSignal(false)
   const [forkOpen, setForkOpen] = createSignal(false)
@@ -563,6 +567,7 @@ export function createAppStore(engine: Engine, version = "dev") {
           it.intermediate = true
           it.thinkingOpen = false
           it.durationMs = Date.now() - it.startedAt
+          if (e.interrupted) it.interrupted = true
         })
         break
       case "usage":
@@ -818,7 +823,8 @@ export function createAppStore(engine: Engine, version = "dev") {
     { name: "resume", description: "resume or switch to another session" },
     { name: "fork", description: "branch a session from a past turn" },
     { name: "dir", description: "change or add a working directory" },
-    { name: "add", description: "add info to the running agent without stopping it" },
+    { name: "add", description: "pause the agent now & steer — cut the current generation, fold in your note" },
+    { name: "add!", description: "add info at the next step — let the current generation finish first" },
     { name: "mic", description: "talk to Friday — on-device speech-to-text (Ctrl+R)" },
     { name: "mcp", description: "view / add / remove MCP servers" },
     { name: "compact", description: "summarize old context to free space" },
@@ -882,13 +888,19 @@ export function createAppStore(engine: Engine, version = "dev") {
       case "dir":
         setDirModalOpen(true)
         return true
-      case "add": {
-        // Steer the running agent without stopping it. `/add <text>` folds the note in at the next
-        // step; bare `/add` soft-pauses (if busy) and opens a composer modal. When idle it's a prompt.
+      case "add":
+      case "add!": {
+        // Steer the running agent without stopping it. `/add <text>` interrupts the current generation
+        // and folds the note in NOW; `/add! <text>` lets the current step finish, then folds it in at
+        // the next step; bare `/add` soft-pauses (if busy) and opens a composer modal. Idle = a prompt.
+        const interrupt = name === "add"
         const note = args.trim()
-        if (note) injectNote(note)
+        if (note) injectNote(note, interrupt)
         else {
-          if (busy()) engine.send({ type: "inject-pause" })
+          // Bare /add interrupts the current generation the moment the modal opens (so the agent stops
+          // racing ahead while you compose); bare /add! just soft-pauses at the next step boundary.
+          setAddModalInterrupt(interrupt)
+          if (busy()) engine.send({ type: "inject-pause", interrupt })
           setAddModalOpen(true)
         }
         return true
@@ -1184,19 +1196,20 @@ export function createAppStore(engine: Engine, version = "dev") {
   /** Steer the running agent with a note. While busy it shows an interleaved "pending" chip in the
    * transcript (id correlates with the engine's inject-attached event, which flips it to "attached").
    * When idle it's just a normal prompt. */
-  function injectNote(text: string) {
+  function injectNote(text: string, interrupt = false) {
     const t = text.trim()
     if (!t) return
     const sid = activeSession()
     if (!sessionBusy()[sid]) return submitRaw(t) // idle → ordinary prompt (shows as a user bubble)
     const id = nextLocalId()
     appendItem(sid, { kind: "inject", id, text: t, state: "pending", at: Date.now() })
-    engine.send({ type: "inject", id, text: t })
+    engine.send({ type: "inject", id, text: t, interrupt })
   }
-  /** /add modal submit: inject the composed note, or release the soft-pause if empty. */
-  function addInject(text: string) {
+  /** /add modal submit: inject the composed note (interrupt = cut the current generation now), or
+   * release the soft-pause if empty. */
+  function addInject(text: string, interrupt = false) {
     setAddModalOpen(false)
-    if (text.trim()) injectNote(text)
+    if (text.trim()) injectNote(text, interrupt)
     else engine.send({ type: "inject-resume" }) // empty send still releases a soft-pause
   }
   /** /add modal cancel: release the soft-pause without adding anything. */
@@ -1579,6 +1592,7 @@ export function createAppStore(engine: Engine, version = "dev") {
     setDirModalOpen,
     addModalOpen,
     setAddModalOpen,
+    addModalInterrupt,
     addInject,
     addCancel,
     mcpModalOpen,

@@ -25,7 +25,7 @@ export type EngineEventBody =
   | { type: "turn-done"; id: string }
   /** Finalize an intermediate assistant bubble (one that ended in tool calls) mid-turn: stops its
    * streaming caret without ending the turn (busy stays true; usage stays on the final bubble). */
-  | { type: "message-stop"; id: string; intermediate: boolean }
+  | { type: "message-stop"; id: string; intermediate: boolean; interrupted?: boolean }
   /** A plan-mode turn finished with a proposed plan; the UI offers an execute/keep-planning gate. */
   | { type: "plan-ready"; plan: string }
   | { type: "usage"; input: number; output: number; costUsd?: number }
@@ -120,8 +120,8 @@ export type UICommand =
   // Steer a running agent without stopping it: `inject` folds a user note in at the next loop
   // step; `inject-pause` makes the agent idle at the next step boundary while the user composes;
   // `inject-resume` releases that pause (used by the modal's cancel path).
-  | { type: "inject"; id?: string; text: string; images?: ImagePart[] }
-  | { type: "inject-pause" }
+  | { type: "inject"; id?: string; text: string; images?: ImagePart[]; interrupt?: boolean }
+  | { type: "inject-pause"; interrupt?: boolean }
   | { type: "inject-resume" }
   | { type: "set-mode"; mode: ModeId }
   | { type: "set-model"; model: string }

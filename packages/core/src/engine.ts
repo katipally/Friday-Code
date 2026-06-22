@@ -932,10 +932,10 @@ export class Engine {
         this.focused().abortRun()
         break
       case "inject":
-        void this.focused().injectMessage(cmd.text, cmd.images, cmd.id)
+        void this.focused().injectMessage(cmd.text, cmd.images, cmd.id, cmd.interrupt)
         break
       case "inject-pause":
-        this.focused().armInjectPause()
+        this.focused().armInjectPause(cmd.interrupt)
         break
       case "inject-resume":
         this.focused().resumeInject()

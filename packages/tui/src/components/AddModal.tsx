@@ -19,9 +19,9 @@ export function AddModal() {
   const pastes = new Map<string, string>()
   let pasteN = 0
 
-  function send() {
+  function send(interrupt = false) {
     const raw: string = ta?.plainText ?? ""
-    app.addInject(expandTokens(raw, pastes)) // paste tokens → full content; runner expands @mentions/images
+    app.addInject(expandTokens(raw, pastes), interrupt) // paste tokens → full content; runner expands @mentions/images
   }
 
   // Big/multi-line pastes collapse to a placeholder, expanded back on send (same as the main composer).
@@ -59,8 +59,12 @@ export function AddModal() {
         gap={1}
       >
         <box flexDirection="row" gap={1}>
-          <text fg={theme.textMuted}>/add</text>
-          <text fg={theme.textFaint}>· steer the agent — it keeps working and folds this in next step</text>
+          <text fg={theme.textMuted}>{app.addModalInterrupt() ? "/add" : "/add!"}</text>
+          <text fg={theme.textFaint}>
+            {app.addModalInterrupt()
+              ? "· paused — agent is waiting; send to steer it"
+              : "· folds in at the next step — agent keeps working"}
+          </text>
         </box>
 
         <box
@@ -76,7 +80,7 @@ export function AddModal() {
               ta = r
               if (r) r.onPaste = onPaste
             }}
-            onSubmit={send}
+            onSubmit={() => send(app.addModalInterrupt())}
             keyBindings={[
               { name: "return", action: "submit" },
               { name: "return", shift: true, action: "newline" },
@@ -91,7 +95,33 @@ export function AddModal() {
           />
         </box>
 
-        <text fg={theme.textFaint}>⏎ send · esc cancel (resumes the agent)</text>
+        <box flexDirection="row" gap={2} alignItems="center">
+          <box
+            border
+            borderStyle="single"
+            borderColor={theme.warning}
+            paddingLeft={1}
+            paddingRight={1}
+            onMouseDown={() => send(true)}
+          >
+            <text fg={theme.warning}>⏸ pause now</text>
+            <text fg={theme.textFaint}> (cut current reply)</text>
+          </box>
+          <box
+            border
+            borderStyle="single"
+            borderColor={theme.success}
+            paddingLeft={1}
+            paddingRight={1}
+            onMouseDown={() => send(false)}
+          >
+            <text fg={theme.success}>＋ next step</text>
+            <text fg={theme.textFaint}> (let it finish)</text>
+          </box>
+        </box>
+        <text fg={theme.textFaint}>
+          ⏎ {app.addModalInterrupt() ? "steer now" : "fold in next step"} · esc cancel (resumes the agent)
+        </text>
       </box>
     </Scrim>
   )
