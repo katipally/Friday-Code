@@ -633,6 +633,7 @@ export function createAppStore(engine: Engine, version = "dev") {
     { name: "usage", description: "show token + cost usage this session" },
     { name: "stats", description: "show token + cost usage this session" },
     { name: "doctor", description: "check model, provider & environment health" },
+    { name: "fleet", description: "open a window per running background agent" },
     { name: "review", description: "review the current changes" },
     { name: "security-review", description: "audit the current changes for security issues" },
     { name: "permissions", description: "view / clear remembered approvals" },
@@ -761,6 +762,19 @@ export function createAppStore(engine: Engine, version = "dev") {
           `mode: ${mode()}`,
         ].filter(Boolean)
         appendItem(sid, { kind: "notice", id: nextLocalId(), text: parts.join(" · ") })
+        return true
+      }
+      case "fleet": {
+        const running = tasks().filter((t) => t.status === "running").length
+        if (!running) {
+          pushToast("no running agents to open — spawn some with spawn_agents / task_create", "input")
+          return true
+        }
+        const r = engine.openFleet()
+        pushToast(
+          r.ok ? `opened ${r.opened} agent window(s) via ${r.backend}` : "no terminal backend — see the Tasks panel",
+          r.ok ? "done" : "input",
+        )
         return true
       }
       case "doctor": {

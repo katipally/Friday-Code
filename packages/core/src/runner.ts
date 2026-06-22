@@ -30,8 +30,10 @@ import {
   LSP_SYMBOLS,
   LSP_TOOLS,
   MEMORY_TOOL,
+  SEND_TO_TASK,
   SKILL_TOOL,
   searchTools,
+  SPAWN_AGENTS,
   TASK_CREATE,
   TASK_LIST,
   TASK_STATUS,
@@ -288,6 +290,10 @@ export interface RunnerHost {
   persistPermission: (root: string, rule: { category: PermissionCategory; command?: string }) => void
   /** spawn a detached background task (agent-driven session); optional isolated worktree; returns its id */
   spawnTask: (prompt: string, description: string, worktree?: string) => string
+  /** fan out several subtasks as parallel background agents; returns their ids */
+  spawnAgents: (jobs: { description: string; prompt: string; worktree?: string }[]) => string[]
+  /** inject a follow-up prompt into a background task (queued if it's mid-turn) */
+  sendToTask: (id: string, text: string) => boolean
   /** list background tasks with status */
   taskList: () => { id: string; title: string; description: string; status: "running" | "done"; summary?: string }[]
   /** stop a running background task */
@@ -1263,6 +1269,29 @@ export class SessionRunner {
           const output = `Stopped task ${a.id}.`
           this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output })
           this.emit({ type: "tool-result", callId: tc.id, ok: true, output, title: `task_stop ${a.id ?? ""}` })
+          continue
+        }
+        if (tc.name === SPAWN_AGENTS) {
+          const a = safeParse(tc.arguments) as {
+            jobs?: { description?: string; prompt?: string; worktree?: string }[]
+          }
+          const jobs = (a.jobs ?? [])
+            .filter((j) => j?.prompt)
+            .map((j) => ({ description: j.description ?? "agent", prompt: j.prompt!, worktree: j.worktree }))
+          const ids = jobs.length ? this.host.spawnAgents(jobs) : []
+          const output = ids.length
+            ? `Spawned ${ids.length} parallel agent(s):\n${ids.map((id, i) => `- ${id} — “${clip(jobs[i]!.description)}”`).join("\n")}\nCheck them with task_status / task_list.`
+            : "No agents spawned (each job needs a prompt)."
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output, isError: !ids.length })
+          this.emit({ type: "tool-result", callId: tc.id, ok: !!ids.length, output, title: `spawn_agents ×${ids.length}` })
+          continue
+        }
+        if (tc.name === SEND_TO_TASK) {
+          const a = safeParse(tc.arguments) as { id?: string; text?: string }
+          const ok = a.id && a.text ? this.host.sendToTask(a.id, a.text) : false
+          const output = ok ? `Delivered to task ${a.id}.` : `Could not deliver to task ${a.id ?? "(missing id)"}.`
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output, isError: !ok })
+          this.emit({ type: "tool-result", callId: tc.id, ok, output, title: `send_to_task ${a.id ?? ""}` })
           continue
         }
 

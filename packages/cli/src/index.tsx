@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { Engine } from "@friday/core"
+import { Engine, SessionStore } from "@friday/core"
 import { start } from "@friday/tui"
 
 // Stamped at compile time by scripts/build.ts via --define; "dev" when run from source.
@@ -35,6 +35,7 @@ Usage:
   friday -s, --session <id>   Resume a specific session by id
   friday run "<prompt>"       Run one turn headless and print the result
   friday run "<prompt>" --json  Headless, emit JSON ({ "text": ... })
+  friday attach <id>          Watch a background/fleet session (read-only)
 
 Options:
   -v, --version               Print the version and exit
@@ -56,6 +57,8 @@ if (argv[0] === "-v" || argv[0] === "--version") {
   process.exit(0)
 } else if (argv[0] === "run") {
   await runHeadless(argv.slice(1))
+} else if (argv[0] === "attach") {
+  await attachSession(argv[1])
 } else {
   let resumeId: string | undefined
   let continueLast = false
@@ -108,4 +111,38 @@ async function runHeadless(args: string[]): Promise<void> {
   }
   process.stdout.write(json ? `${JSON.stringify({ text: text.trim() })}\n` : `${text.trim()}\n`)
   process.exit(0)
+}
+
+// `friday attach <id>` — a read-only viewer that tails one session's transcript from the shared
+// store, so a spawned fleet window can watch an agent without any IPC. Polls for newly-appended
+// messages (background runners persist each message as it completes).
+// ponytail: poll-tail at 1s, turn-granular (not token-stream). Upgrade to a socket only if the
+// lag is ever a problem in practice.
+async function attachSession(id?: string): Promise<void> {
+  if (!id) {
+    process.stderr.write("Usage: friday attach <session-id>\n")
+    process.exit(2)
+  }
+  const store = new SessionStore()
+  const row = store.get(id)
+  if (!row) {
+    process.stderr.write(`No session ${id}.\n`)
+    process.exit(1)
+  }
+  process.stdout.write(`\x1b[1m▸ ${row.title || id}\x1b[0m  (attached, read-only — Ctrl-C to detach)\n\n`)
+  let seen = 0
+  const render = () => {
+    const msgs = store.loadMessages(id)
+    for (const m of msgs.slice(seen)) {
+      if (m.role === "user") process.stdout.write(`\x1b[36m❯ ${m.text}\x1b[0m\n\n`)
+      else if (m.role === "assistant" && m.text) process.stdout.write(`${m.text}\n\n`)
+      else if (m.role === "tool") process.stdout.write(`\x1b[90m· ${m.name}\x1b[0m\n`)
+    }
+    seen = msgs.length
+  }
+  render()
+  // Re-open the DB each tick is unnecessary; the same connection sees committed writes from the
+  // other process. Just re-query.
+  setInterval(render, 1000)
+  await new Promise(() => {}) // run until Ctrl-C
 }

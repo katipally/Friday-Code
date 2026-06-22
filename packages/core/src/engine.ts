@@ -24,6 +24,7 @@ import { BUILTIN_TOOLS, buildRegistry, type Tool } from "@friday/tools"
 import { type CustomCommand, loadCommands } from "./commands.ts"
 import { loadConfig, saveConfig } from "./config.ts"
 import { type CronJob, loadCron, parseInterval, saveCron } from "./cron.ts"
+import { openFleetWindows } from "./fleet.ts"
 import { notify } from "./notify.ts"
 import { persistPermission, projectPermissions, revokeProjectPermissions } from "./permissions.ts"
 import { type RunnerHost, SessionRunner, type SessionStats } from "./runner.ts"
@@ -72,6 +73,8 @@ export class Engine {
   private runners = new Map<string, SessionRunner>()
   /** sessionIds that are agent-spawned background tasks (vs user sessions), with their description. */
   private taskMeta = new Map<string, { description: string; createdAt: number }>()
+  /** follow-up prompts queued for a background task while it was busy; drained when it goes idle */
+  private taskQueue = new Map<string, string[]>()
   private focusedId!: string
 
   private host: RunnerHost = {
@@ -97,6 +100,8 @@ export class Engine {
     projectPermissions: (root) => projectPermissions(root),
     persistPermission: (root, rule) => persistPermission(root, rule),
     spawnTask: (prompt, description, worktree) => this.spawnTask(prompt, description, worktree),
+    spawnAgents: (jobs) => this.spawnAgents(jobs),
+    sendToTask: (id, text) => this.sendToTask(id, text),
     taskList: () => this.taskList(),
     stopTask: (id) => this.stopTask(id),
     cronCreate: (description, prompt, every) => this.cronCreate(description, prompt, every),
@@ -147,9 +152,13 @@ export class Engine {
         notify("Friday", `“${label}” needs your input`)
     }
     this.emit({ ...body, sessionId } as EngineEvent)
-    // When a background task finishes (or errors), refresh the Tasks panel once `busy` has settled.
+    // When a background task finishes (or errors), refresh the Tasks panel once `busy` has settled
+    // and drain any queued follow-up prompts for it.
     if (this.taskMeta.has(sessionId) && (body.type === "turn-done" || body.type === "error")) {
-      setTimeout(() => this.emitTasks(), 0)
+      setTimeout(() => {
+        this.emitTasks()
+        this.drainTask(sessionId)
+      }, 0)
     }
   }
 
@@ -188,6 +197,41 @@ export class Engine {
   stopTask(id: string): void {
     this.runners.get(id)?.abortRun()
     this.emitTasks()
+  }
+  /** Inject a follow-up prompt into a background task. Queues it if the task is mid-turn. */
+  sendToTask(id: string, text: string): boolean {
+    const r = this.runners.get(id)
+    if (!r) return false
+    if (r.busy) {
+      const q = this.taskQueue.get(id) ?? []
+      q.push(text)
+      this.taskQueue.set(id, q)
+      return true
+    }
+    void r.runPrompt(text)
+    this.emitTasks()
+    return true
+  }
+  private drainTask(id: string): void {
+    const r = this.runners.get(id)
+    if (!r || r.busy) return
+    const q = this.taskQueue.get(id)
+    if (!q?.length) return
+    const next = q.shift()!
+    if (!q.length) this.taskQueue.delete(id)
+    void r.runPrompt(next)
+  }
+  /** Fan out a list of subtasks as parallel background agents; returns their ids. */
+  spawnAgents(jobs: { description: string; prompt: string; worktree?: string }[]): string[] {
+    return jobs.map((j) => this.spawnTask(j.prompt, j.description, j.worktree?.trim() || undefined))
+  }
+  /** Open a viewer window per running task (tmux pane / OS terminal); returns the chosen backend. */
+  openFleet(): { ok: boolean; backend: string; opened: number } {
+    const ids = this.taskList()
+      .filter((t) => t.status === "running")
+      .map((t) => t.id)
+    if (!ids.length) return { ok: false, backend: "none", opened: 0 }
+    return openFleetWindows(ids)
   }
   private emitTasks(): void {
     this.dispatch(this.focusedId, { type: "tasks", items: this.taskList() })
