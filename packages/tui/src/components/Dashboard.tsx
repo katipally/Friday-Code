@@ -1,10 +1,11 @@
-import { getMode, theme } from "@friday/shared"
+import { theme } from "@friday/shared"
 import { useKeyboard } from "@opentui/solid"
 import { createMemo, createSignal, For, type JSX, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { useHover } from "../motion/index.ts"
 import { useApp, type ViewItem } from "../store.tsx"
 import { groupSessionsByDir, homeDir } from "../util/sessions.ts"
 import { dot, line } from "./ConsoleView.tsx"
+import { SectionLabel } from "./ui.tsx"
 
 /**
  * Dashboard — one console over the three multi-agent surfaces plus history. Single mental model,
@@ -20,23 +21,21 @@ import { dot, line } from "./ConsoleView.tsx"
  */
 const TABS = ["Sessions", "Teams", "Swarm"] as const
 
-/** A small clickable button with hover feedback (bg tint + accent border + brighten). */
+/** A small clickable button that rests on the elevated surface (reads as a tappable block); the
+ * active/hovered state brightens the fill and tints the label brand amber. */
 function Btn(props: { label: string; onClick: () => void; accent?: string; active?: boolean }) {
-  const h = useHover({ base: theme.bgPanel, hover: theme.bgHover })
-  const accent = () => props.accent ?? theme.info
+  const h = useHover({ base: theme.bgElevated, hover: theme.bgHover })
+  const on = () => props.active || h.hovered()
   return (
     <box
       paddingLeft={1}
       paddingRight={1}
-      border
-      borderStyle="single"
-      borderColor={props.active || h.hovered() ? accent() : theme.border}
-      backgroundColor={h.bg()}
+      backgroundColor={props.active ? theme.bgHover : h.bg()}
       onMouseOver={h.onMouseOver}
       onMouseOut={h.onMouseOut}
       onMouseDown={props.onClick}
     >
-      <text fg={props.active || h.hovered() ? theme.text : theme.textMuted}>{props.label}</text>
+      <text fg={on() ? (props.accent ?? theme.brand) : theme.textMuted}>{props.label}</text>
     </box>
   )
 }
@@ -65,7 +64,7 @@ function Row(props: { selected: boolean; onSelect: () => void; onActivate?: () =
     <box
       flexDirection="row"
       gap={1}
-      backgroundColor={props.selected ? theme.bgHover : h.bg()}
+      backgroundColor={props.selected ? theme.bgSelected : h.bg()}
       onMouseOver={h.onMouseOver}
       onMouseOut={h.onMouseOut}
       onMouseDown={() => {
@@ -85,7 +84,8 @@ export function Dashboard() {
   // inline launcher input: "" (none) | "team" | "swarm"
   const [compose, setCompose] = createSignal<"" | "team" | "swarm">("")
   const [draft, setDraft] = createSignal("")
-  const accent = () => getMode(app.mode()).accent
+  // Chrome surface — brand amber, never the per-mode chat accent.
+  const accent = () => theme.brand
 
   // Live sessions grouped by workspace folder (same grouping as the /resume modal).
   const grouped = createMemo(() => groupSessionsByDir(app.sessions()))
@@ -160,7 +160,9 @@ export function Dashboard() {
     <box flexDirection="column" flexGrow={1} backgroundColor={theme.bgPanel} paddingLeft={2} paddingRight={2}>
       {/* header + clickable tabs */}
       <box flexDirection="row" gap={1} paddingTop={1} paddingBottom={1} alignItems="center">
-        <text fg={accent()}>▦ dashboard</text>
+        <text fg={accent()}>
+          <strong>▦ DASHBOARD</strong>
+        </text>
         <box flexGrow={0} paddingLeft={1} />
         <For each={TABS}>
           {(name, i) => (
@@ -179,15 +181,7 @@ export function Dashboard() {
       <Switch>
         {/* SESSIONS */}
         <Match when={tab() === 0}>
-          <box
-            flexDirection="column"
-            flexGrow={1}
-            borderStyle="single"
-            border
-            borderColor={theme.border}
-            paddingLeft={1}
-            paddingRight={1}
-          >
+          <box flexDirection="column" flexGrow={1} paddingLeft={1} paddingRight={1}>
             <box flexDirection="row" alignItems="center" paddingBottom={1}>
               <text fg={theme.textFaint}>live sessions this run — grouped by folder</text>
               <box flexGrow={1} />
@@ -236,15 +230,7 @@ export function Dashboard() {
 
         {/* TEAMS */}
         <Match when={tab() === 1}>
-          <box
-            flexDirection="column"
-            flexGrow={1}
-            borderStyle="single"
-            border
-            borderColor={theme.border}
-            paddingLeft={1}
-            paddingRight={1}
-          >
+          <box flexDirection="column" flexGrow={1} paddingLeft={1} paddingRight={1}>
             <box flexDirection="row" alignItems="center" paddingBottom={1}>
               <text fg={theme.textFaint}>Friday orchestrates workers on one goal (shared board)</text>
               <box flexGrow={1} />
@@ -258,7 +244,7 @@ export function Dashboard() {
             <Show when={compose() === "team"}>
               <box flexDirection="column" paddingBottom={1}>
                 <text fg={theme.textFaint}>goal — Friday picks the roles (⏎ launch · esc cancel)</text>
-                <box border borderStyle="single" borderColor={accent()} paddingLeft={1} paddingRight={1}>
+                <box backgroundColor={theme.bgComposer} paddingLeft={1} paddingRight={1}>
                   <input
                     value={draft()}
                     onInput={setDraft}
@@ -311,7 +297,7 @@ export function Dashboard() {
             <Show when={compose() === "swarm"}>
               <box flexDirection="column">
                 <text fg={theme.textFaint}>tasks separated by ; — one agent per task (⏎ launch · esc cancel)</text>
-                <box border borderStyle="single" borderColor={accent()} paddingLeft={1} paddingRight={1}>
+                <box backgroundColor={theme.bgComposer} paddingLeft={1} paddingRight={1}>
                   <input
                     value={draft()}
                     onInput={setDraft}
@@ -327,13 +313,11 @@ export function Dashboard() {
               <box
                 flexDirection="column"
                 width={38}
-                borderStyle="single"
-                border
-                borderColor={theme.border}
+                backgroundColor={theme.bgElevated}
                 paddingLeft={1}
                 paddingRight={1}
               >
-                <text fg={theme.textFaint}>agents ({swarm().length})</text>
+                <SectionLabel text={`AGENTS (${swarm().length})`} />
                 <Show when={swarm().length} fallback={<text fg={theme.textFaint}>(none — + new swarm)</text>}>
                   <For each={swarm()}>
                     {(t, i) => (
@@ -353,15 +337,7 @@ export function Dashboard() {
                   </For>
                 </Show>
               </box>
-              <box
-                flexDirection="column"
-                flexGrow={1}
-                borderStyle="single"
-                border
-                borderColor={theme.borderActive}
-                paddingLeft={1}
-                paddingRight={1}
-              >
+              <box flexDirection="column" flexGrow={1} paddingLeft={1} paddingRight={1}>
                 <text fg={theme.textFaint}>
                   watching: {swarm()[clampedSel()]?.title ?? "—"} (adopt = drive it here)
                 </text>

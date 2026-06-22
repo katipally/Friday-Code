@@ -1,8 +1,8 @@
 import { theme } from "@friday/shared"
 import { useKeyboard } from "@opentui/solid"
 import { Match, Show, Switch } from "solid-js"
-import { shimmerAccent } from "../motion/index.ts"
 import { useApp } from "../store.tsx"
+import { Overlay } from "./ui.tsx"
 import { Scrim } from "./Scrim.tsx"
 
 /**
@@ -32,22 +32,10 @@ export function MicModal() {
   return (
     <Show when={app.micModalOpen()}>
       <Scrim onClose={() => app.closeMic()}>
-        <box
-          flexDirection="column"
-          width={64}
-          border
-          borderStyle="single"
-          borderColor={shimmerAccent(theme.info)}
-          backgroundColor={theme.bgElevated}
-          paddingLeft={1}
-          paddingRight={1}
-          paddingTop={1}
-          paddingBottom={1}
-          gap={1}
-        >
+        <Overlay width={64}>
           <Switch>
             <Match when={app.micPhase() === "recording"}>
-              <text fg={theme.info}>🎙 recording — speak now</text>
+              <text fg={theme.error}>🎙 recording — speak now</text>
               <Show when={app.micDevices().length}>
                 <text fg={theme.textFaint}>
                   device: ▸ {app.micDevices()[app.micDevice()]?.label ?? "default"}
@@ -63,7 +51,7 @@ export function MicModal() {
             </Match>
 
             <Match when={app.micPhase() === "transcribing"}>
-              <text fg={theme.info}>⏳ transcribing on-device…</text>
+              <text fg={theme.brand}>⏳ transcribing on-device…</text>
               <box backgroundColor={theme.bgComposer} paddingLeft={1} paddingRight={1} minHeight={1}>
                 <text fg={theme.textFaint}>first run loads whisper-tiny.en (~40MB) — a moment, then instant</text>
               </box>
@@ -92,7 +80,7 @@ export function MicModal() {
               <text fg={theme.textFaint}>esc close · once fixed, press Ctrl+R again</text>
             </Match>
           </Switch>
-        </box>
+        </Overlay>
       </Scrim>
     </Show>
   )

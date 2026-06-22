@@ -1,4 +1,4 @@
-import { getMode, theme } from "@friday/shared"
+import { theme } from "@friday/shared"
 import { createEffect, createSignal, For, type JSX, Show } from "solid-js"
 import { Reveal, shimmerAccent, useHover, useTween } from "../motion/index.ts"
 import { useApp } from "../store.tsx"
@@ -6,6 +6,7 @@ import { G } from "../util/term.ts"
 import { CollapseTab } from "./Divider.tsx"
 import { CloseButton } from "./PanelChrome.tsx"
 import { Pressable } from "./Pressable.tsx"
+import { SectionLabel } from "./ui.tsx"
 
 function fmtTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
@@ -18,27 +19,26 @@ function truncate(s: string, n: number, fromStart = false): string {
 }
 
 /**
- * A prominent quick-action button with a clear hover animation: border lights up to the mode accent
- * and the label brightens on hover; bg tints. Used for the mic + dashboard launchers.
+ * A borderless quick-action button that rests on the elevated surface (so it reads as a tappable
+ * block against the panel) and brightens to bgHover with a brand-tinted label on hover.
+ * Used for the mic + dashboard launchers.
  */
 function QuickButton(props: { label: string; hint: string; onClick: () => void; accent: string }) {
-  const h = useHover({ base: theme.bgPanel, hover: theme.bgHover })
+  const h = useHover({ base: theme.bgElevated, hover: theme.bgHover })
   return (
     <box
       flexGrow={1}
       flexDirection="row"
       gap={1}
+      marginBottom={1}
       paddingLeft={1}
       paddingRight={1}
-      border
-      borderStyle="single"
-      borderColor={h.hovered() ? props.accent : theme.border}
       backgroundColor={h.bg()}
       onMouseOver={h.onMouseOver}
       onMouseOut={h.onMouseOut}
       onMouseDown={props.onClick}
     >
-      <text fg={h.hovered() ? theme.text : theme.textMuted}>{props.label}</text>
+      <text fg={h.hovered() ? props.accent : theme.textMuted}>{props.label}</text>
       <box flexGrow={1} />
       <text fg={theme.textFaint}>{props.hint}</text>
     </box>
@@ -66,7 +66,7 @@ function Section(props: {
         onMouseDown={props.onToggle}
       >
         <text fg={h.hovered() ? theme.text : theme.textMuted}>{props.open ? "▾" : "▸"}</text>
-        <text fg={h.hovered() ? theme.text : theme.textMuted}>{props.label}</text>
+        <text fg={h.hovered() ? theme.text : theme.textFaint}>{props.label.toUpperCase()}</text>
         <Show when={props.count != null}>
           <text fg={theme.textFaint}>({props.count})</text>
         </Show>
@@ -90,7 +90,8 @@ function Section(props: {
  */
 export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: number } = {}) {
   const app = useApp()
-  const accent = () => shimmerAccent(getMode(app.mode()).accent)
+  // Chrome panel — brand amber, never the per-mode chat accent.
+  const accent = () => shimmerAccent(theme.brand)
   const [todosOpen, setTodosOpen] = createSignal(true)
   const [todosNew, setTodosNew] = createSignal(false)
   const [filesOpen, setFilesOpen] = createSignal(false)
@@ -213,7 +214,7 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
         <box flexDirection="row" paddingRight={1} alignItems="center">
           <CloseButton hint="ctrl+b" onClose={() => app.setRightOpen(false)} />
           <box flexGrow={1} />
-          <text fg={theme.textMuted}>stats</text>
+          <SectionLabel text="STATS" />
         </box>
 
         <scrollbox flexGrow={1} minHeight={0} paddingLeft={1} paddingRight={1} paddingTop={1}>
@@ -314,7 +315,7 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
                       onMouseOut={() => setPlanHov(-1)}
                       onMouseDown={() => app.viewPlan(p)}
                     >
-                      <text fg={getMode("plan").accent}>{G.modePlan}</text>
+                      <text fg={theme.brand}>{G.modePlan}</text>
                       <text fg={planHov() === i() ? theme.text : theme.textMuted}>
                         {truncate(p.title, innerW() - 9)}
                       </text>

@@ -1,8 +1,9 @@
-import { getMode, theme } from "@friday/shared"
+import { theme } from "@friday/shared"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
+import { bandBg, Overlay } from "./ui.tsx"
 
 function ago(ms: number): string {
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000))
@@ -15,7 +16,6 @@ function ago(ms: number): string {
 export function CheckpointHistory() {
   const app = useApp()
   const dims = useTerminalDimensions()
-  const accent = () => getMode(app.mode()).accent
   const [sel, setSel] = createSignal(0)
   const checkpoints = createMemo(() => app.engine.listCheckpoints())
   let sb: { scrollTo?: (p: number | { x: number; y: number }) => void } | null = null
@@ -47,48 +47,36 @@ export function CheckpointHistory() {
 
   return (
     <Scrim onClose={() => app.setCheckpointsOpen(false)}>
-      <box
-        flexDirection="column"
-        width={Math.min(68, dims().width - 4)}
-        border
-        borderStyle="single"
-        borderColor={theme.border}
-        backgroundColor={theme.bgElevated}
-        paddingLeft={2}
-        paddingRight={2}
-        paddingTop={1}
-        paddingBottom={1}
-        gap={1}
-      >
-        <box flexDirection="row" gap={1}>
-          <text fg={theme.textMuted}>checkpoints</text>
-          <text fg={theme.textFaint}>· rewind code, conversation, or both</text>
-        </box>
+      <Overlay title="checkpoints" hint="rewind code, conversation, or both" width={Math.min(68, dims().width - 4)}>
         <Show
           when={checkpoints().length}
           fallback={<text fg={theme.textFaint}>no checkpoints yet — send a prompt first</text>}
         >
           <scrollbox ref={(r: any) => (sb = r)} maxHeight={14} stickyScroll stickyStart="bottom">
             <For each={checkpoints()}>
-              {(c, i) => (
-                <box
-                  flexDirection="row"
-                  gap={1}
-                  paddingLeft={1}
-                  backgroundColor={sel() === i() ? theme.bgHover : "transparent"}
-                  onMouseOver={() => setSel(i())}
-                  onMouseDown={() => app.restoreCheckpoint(c.id)}
-                >
-                  <text fg={sel() === i() ? accent() : theme.textFaint}>{sel() === i() ? "↺" : " "}</text>
-                  <box flexGrow={1}>
-                    <text fg={sel() === i() ? theme.text : theme.textMuted}>{c.label}</text>
+              {(c, i) => {
+                const on = () => sel() === i()
+                return (
+                  <box
+                    flexDirection="row"
+                    gap={1}
+                    paddingLeft={1}
+                    paddingRight={1}
+                    backgroundColor={bandBg(on())}
+                    onMouseOver={() => setSel(i())}
+                    onMouseDown={() => app.restoreCheckpoint(c.id)}
+                  >
+                    <text fg={on() ? theme.textOnAccent : theme.textFaint}>{on() ? "↺" : " "}</text>
+                    <box flexGrow={1}>
+                      <text fg={on() ? theme.textOnAccent : theme.textMuted}>{c.label}</text>
+                    </box>
+                    <text fg={on() ? theme.textOnAccent : theme.textFaint}>
+                      {c.files > 0 ? `${c.files} file${c.files === 1 ? "" : "s"} · ` : ""}
+                      {ago(c.createdAt)}
+                    </text>
                   </box>
-                  <text fg={theme.textFaint}>
-                    {c.files > 0 ? `${c.files} file${c.files === 1 ? "" : "s"} · ` : ""}
-                    {ago(c.createdAt)}
-                  </text>
-                </box>
-              )}
+                )
+              }}
             </For>
           </scrollbox>
         </Show>
@@ -98,7 +86,7 @@ export function CheckpointHistory() {
             <text fg={theme.info}>r redo</text>
           </Show>
         </box>
-      </box>
+      </Overlay>
     </Scrim>
   )
 }

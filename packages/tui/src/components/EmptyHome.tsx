@@ -3,6 +3,7 @@ import { createMemo, For, Show } from "solid-js"
 import { useApp } from "../store.tsx"
 import { Logo } from "./Logo.tsx"
 import { Pressable } from "./Pressable.tsx"
+import { SectionLabel } from "./ui.tsx"
 
 function home(p: string): string {
   const h = process.env.HOME
@@ -49,7 +50,7 @@ export function EmptyHome() {
       <Show when={recents().length > 0}>
         <box flexDirection="column" width={52} gap={0} marginTop={1}>
           <box paddingLeft={1}>
-            <text fg={theme.textMuted}>recent here</text>
+            <SectionLabel text="RECENT HERE" />
           </box>
           <For each={recents()}>
             {(s: any) => (

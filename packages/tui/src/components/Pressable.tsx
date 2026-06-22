@@ -1,11 +1,11 @@
-import { getMode, theme } from "@friday/shared"
+import { theme } from "@friday/shared"
 import { createSignal } from "solid-js"
 import { useHover } from "../motion/index.ts"
-import { useApp } from "../store.tsx"
 
 /**
  * A small clickable label with clear pointer feedback: it brightens + tints its background on
- * hover, and flashes the mode accent for ~150ms on click so you always know the press registered.
+ * hover, and flashes the Friday brand for ~150ms on click so you always know the press registered.
+ * (A generic chrome control — brand, not the per-mode accent.)
  */
 export function Pressable(props: {
   label: string
@@ -15,13 +15,11 @@ export function Pressable(props: {
   /** alignment of the label inside the hit box */
   grow?: boolean
 }) {
-  const app = useApp()
-  const accent = () => getMode(app.mode()).accent
   const h = useHover({ base: theme.bg, hover: theme.bgHover })
   const [pressed, setPressed] = createSignal(false)
   let t: ReturnType<typeof setTimeout> | undefined
 
-  const color = () => (pressed() ? accent() : h.hovered() ? theme.text : (props.fg ?? theme.textFaint))
+  const color = () => (pressed() ? theme.brand : h.hovered() ? theme.text : (props.fg ?? theme.textFaint))
 
   function down() {
     setPressed(true)

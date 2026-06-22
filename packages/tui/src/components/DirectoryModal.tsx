@@ -1,10 +1,11 @@
 import fs from "node:fs"
 import path from "node:path"
-import { getMode, theme } from "@friday/shared"
+import { theme } from "@friday/shared"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { createMemo, createSignal, For, Show } from "solid-js"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
+import { bandBg, Meta, Overlay, SectionLabel } from "./ui.tsx"
 
 function home(p: string): string {
   const h = process.env.HOME
@@ -18,7 +19,6 @@ function expand(v: string): string {
 export function DirectoryModal() {
   const app = useApp()
   const dims = useTerminalDimensions()
-  const accent = () => getMode(app.mode()).accent
   const [value, setValue] = createSignal("")
   const [error, setError] = createSignal("")
   const [sel, setSel] = createSignal(0)
@@ -100,26 +100,9 @@ export function DirectoryModal() {
 
   return (
     <Scrim onClose={() => app.setDirModalOpen(false)}>
-      <box
-        flexDirection="column"
-        width={Math.min(68, dims().width - 4)}
-        border
-        borderStyle="single"
-        borderColor={theme.border}
-        backgroundColor={theme.bgElevated}
-        paddingLeft={2}
-        paddingRight={2}
-        paddingTop={1}
-        paddingBottom={1}
-        gap={1}
-      >
-        <box flexDirection="row" gap={1}>
-          <text fg={theme.textMuted}>/dir</text>
-          <text fg={theme.textFaint}>· workspace directories</text>
-        </box>
-
+      <Overlay title="dir" hint="workspace directories" width={Math.min(68, dims().width - 4)}>
         <box flexDirection="column">
-          <text fg={theme.textMuted}>current roots</text>
+          <SectionLabel text="current roots" />
           <For each={app.roots()}>
             {(r, i) => (
               <text fg={i() === 0 ? theme.text : theme.textMuted}>
@@ -132,7 +115,7 @@ export function DirectoryModal() {
 
         <Show when={recent().length}>
           <box flexDirection="column">
-            <text fg={theme.textMuted}>recent</text>
+            <SectionLabel text="recent" />
             <For each={recent()}>
               {(r) => (
                 <box onMouseDown={() => openDir(r)}>
@@ -144,21 +127,19 @@ export function DirectoryModal() {
         </Show>
 
         <box flexDirection="column">
-          <text fg={theme.textFaint}>path</text>
-          <box border borderStyle="single" borderColor={theme.border} paddingLeft={1} paddingRight={1}>
-            <input
-              value={value()}
-              onInput={(v) => {
-                setValue(v)
-                setSel(0)
-                setError("")
-              }}
-              onSubmit={() => openDir()}
-              focused
-              placeholder="~/path/to/project · ⭾ to complete"
-              placeholderColor={theme.textFaint}
-            />
-          </box>
+          <SectionLabel text="path" />
+          <input
+            value={value()}
+            onInput={(v) => {
+              setValue(v)
+              setSel(0)
+              setError("")
+            }}
+            onSubmit={() => openDir()}
+            focused
+            placeholder="~/path/to/project · ⭾ to complete"
+            placeholderColor={theme.textFaint}
+          />
         </box>
 
         <Show when={suggestions().length}>
@@ -167,11 +148,12 @@ export function DirectoryModal() {
               {(d, i) => (
                 <box
                   paddingLeft={1}
-                  backgroundColor={sel() === i() ? theme.bgHover : "transparent"}
+                  paddingRight={1}
+                  backgroundColor={bandBg(sel() === i())}
                   onMouseOver={() => setSel(i())}
                   onMouseDown={() => setComposer(`${d}/`)}
                 >
-                  <text fg={sel() === i() ? accent() : theme.textMuted}> {home(d)}</text>
+                  <text fg={sel() === i() ? theme.textOnAccent : theme.textMuted}>{home(d)}</text>
                 </box>
               )}
             </For>
@@ -183,24 +165,17 @@ export function DirectoryModal() {
         </Show>
 
         <box flexDirection="row" gap={2}>
-          <box
-            border
-            borderStyle="single"
-            borderColor={theme.success}
-            paddingLeft={1}
-            paddingRight={1}
-            onMouseDown={() => openDir()}
-          >
+          <box onMouseDown={() => openDir()}>
             <text fg={theme.success}>open here ⏎</text>
             <text fg={theme.textFaint}> (new session)</text>
           </box>
-          <box border borderStyle="single" borderColor={theme.info} paddingLeft={1} paddingRight={1} onMouseDown={add}>
+          <box onMouseDown={add}>
             <text fg={theme.info}>+ add directory</text>
             <text fg={theme.textFaint}> (same session)</text>
           </box>
         </box>
-        <text fg={theme.textFaint}>↑↓ pick · ⭾ complete · ⏎ open · esc close</text>
-      </box>
+        <Meta text="↑↓ pick · ⭾ complete · ⏎ open · esc close" />
+      </Overlay>
     </Scrim>
   )
 }

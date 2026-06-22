@@ -7,6 +7,7 @@ import { useApp } from "../store.tsx"
 import { expandTokens, isBigPaste, makePasteToken } from "../util/attachments.ts"
 import { listProjectFiles } from "../util/files.ts"
 import { modeGlyph } from "../util/term.ts"
+import { bandBg } from "./ui.tsx"
 
 type Suggestion = { label: string; hint: string; apply: () => void; run?: () => void }
 
@@ -196,9 +197,6 @@ export function Composer() {
         <box
           flexDirection="column"
           flexShrink={0}
-          border
-          borderStyle="single"
-          borderColor={theme.border}
           backgroundColor={theme.bgElevated}
           paddingLeft={1}
           paddingRight={1}
@@ -211,12 +209,14 @@ export function Composer() {
                   id={`sg-${i()}`}
                   flexDirection="row"
                   gap={1}
-                  backgroundColor={sel() === i() ? theme.bgHover : "transparent"}
+                  paddingLeft={1}
+                  paddingRight={1}
+                  backgroundColor={bandBg(sel() === i())}
                 >
                   <box width={18} flexShrink={0}>
-                    <text fg={sel() === i() ? mode().accent : theme.text}>{truncate(s.label, 18)}</text>
+                    <text fg={sel() === i() ? theme.textOnAccent : theme.text}>{truncate(s.label, 18)}</text>
                   </box>
-                  <text fg={theme.textFaint}>{truncate(s.hint, 36)}</text>
+                  <text fg={sel() === i() ? theme.textOnAccent : theme.textFaint}>{truncate(s.hint, 36)}</text>
                 </box>
               )}
             </For>

@@ -1,4 +1,4 @@
-import { BRAND, getMode, theme } from "@friday/shared"
+import { BRAND, theme } from "@friday/shared"
 import { Show } from "solid-js"
 import { shimmerAccent } from "../motion/index.ts"
 import { useApp } from "../store.tsx"
@@ -12,7 +12,8 @@ function home(p: string): string {
 /** Top rail: a single clean row — the `friday code` wordmark + version + working directory. */
 export function TopBar() {
   const app = useApp()
-  const accent = () => shimmerAccent(getMode(app.mode()).accent)
+  // Chrome: the wordmark wears the Friday brand, not the per-mode accent.
+  const accent = () => shimmerAccent(theme.brand)
   const extra = () => app.roots().length - 1
 
   return (

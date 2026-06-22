@@ -2,6 +2,7 @@ import { MODES, theme } from "@friday/shared"
 import { For } from "solid-js"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
+import { SectionLabel } from "./ui.tsx"
 
 const KEYS: { keys: string; label: string }[] = [
   { keys: "Enter", label: "send message" },
@@ -29,9 +30,6 @@ export function KeymapOverlay() {
     <Scrim onClose={() => app.setOverlayOpen(false)}>
       <box
         flexDirection="column"
-        border
-        borderStyle="single"
-        borderColor={theme.border}
         backgroundColor={theme.bgElevated}
         paddingLeft={2}
         paddingRight={2}
@@ -39,7 +37,7 @@ export function KeymapOverlay() {
         paddingBottom={1}
         gap={1}
       >
-        <text fg={theme.textMuted}>keyboard</text>
+        <SectionLabel text="keyboard" />
         <box flexDirection="column">
           <For each={KEYS}>
             {(k) => (
@@ -47,13 +45,13 @@ export function KeymapOverlay() {
                 <box width={16}>
                   <text fg={theme.text}>{k.keys}</text>
                 </box>
-                <text fg={theme.textMuted}>{k.label}</text>
+                <text fg={theme.textFaint}>{k.label}</text>
               </box>
             )}
           </For>
         </box>
         <box height={1} />
-        <text fg={theme.textMuted}>modes</text>
+        <SectionLabel text="modes" />
         <box flexDirection="column">
           <For each={MODES}>
             {(m) => (
@@ -62,7 +60,7 @@ export function KeymapOverlay() {
                   <text fg={m.accent}>{m.glyph}</text>
                   <text fg={m.accent}>{m.label}</text>
                 </box>
-                <text fg={theme.textMuted}>{m.hint}</text>
+                <text fg={theme.textFaint}>{m.hint}</text>
               </box>
             )}
           </For>

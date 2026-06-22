@@ -4,6 +4,8 @@ import { For, Show } from "solid-js"
 import { shimmerAccent } from "../motion/index.ts"
 import { type PendingPermission, useApp } from "../store.tsx"
 import { G } from "../util/term.ts"
+import { bandBg } from "./ui.tsx"
+import { Overlay } from "./ui.tsx"
 import { Scrim } from "./Scrim.tsx"
 
 const DECISIONS = ["allow-once", "allow-always", "deny"] as const
@@ -46,39 +48,27 @@ export function PermissionCard() {
     <Show when={app.pending()}>
       {(p: () => PendingPermission) => (
         <Scrim onClose={() => {}}>
-          <box
-            flexDirection="column"
-            width={64}
-            border
-            borderStyle="single"
-            borderColor={shimmerAccent(theme.warning)}
-            backgroundColor={theme.bgElevated}
-            paddingLeft={1}
-            paddingRight={1}
-            paddingTop={1}
-            paddingBottom={1}
-            gap={1}
-          >
+          <Overlay width={64}>
+            {/* Semantic warning header — not brand amber, so no Overlay title. */}
             <box flexDirection="row" gap={1}>
-              <text fg={theme.warning}>{G.warn} permission</text>
+              <text fg={shimmerAccent(theme.warning)}>
+                <strong>{G.warn} PERMISSION</strong>
+              </text>
               <box flexGrow={1} />
               <text fg={theme.textFaint}>{p().tool}</text>
             </box>
 
             <text fg={theme.text}>{p().summary}</text>
 
-            {/* The exact command / path, in a bounded monospace block. */}
+            {/* The exact command / path, in a bounded monospace surface. */}
             <Show when={p().detail}>
               <box
-                border
-                borderStyle="single"
-                borderColor={p().risk ? theme.error : theme.border}
                 backgroundColor={theme.bgComposer}
                 paddingLeft={1}
                 paddingRight={1}
                 maxHeight={8}
               >
-                <text fg={theme.textMuted} selectable>
+                <text fg={p().risk ? theme.error : theme.textMuted} selectable>
                   {p().detail}
                 </text>
               </box>
@@ -90,7 +80,7 @@ export function PermissionCard() {
               </text>
             </Show>
 
-            {/* Inline button row — selected pill is filled; the hotkey letter is shown on each. */}
+            {/* Inline action row — selected pill bands with its semantic action color. */}
             <box flexDirection="row" gap={1}>
               <For each={ACTIONS}>
                 {(action, i) => {
@@ -99,14 +89,14 @@ export function PermissionCard() {
                     <box
                       paddingLeft={1}
                       paddingRight={1}
-                      backgroundColor={active() ? action.color : theme.bgComposer}
+                      backgroundColor={bandBg(active(), action.color)}
                       onMouseOver={() => app.setPermSel(i())}
                       onMouseDown={() => app.replyPermission(action.id)}
                     >
-                      <text fg={active() ? theme.bg : action.color}>
+                      <text fg={active() ? theme.textOnAccent : action.color}>
                         <strong>{action.key}</strong>
                       </text>
-                      <text fg={active() ? theme.bg : theme.textMuted}> {action.label}</text>
+                      <text fg={active() ? theme.textOnAccent : theme.textMuted}> {action.label}</text>
                     </box>
                   )
                 }}
@@ -114,7 +104,7 @@ export function PermissionCard() {
             </box>
 
             <text fg={theme.textFaint}>←→ / a·s·d move · ⏎ choose · esc deny</text>
-          </box>
+          </Overlay>
         </Scrim>
       )}
     </Show>

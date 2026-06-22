@@ -1,9 +1,10 @@
-import { allowedEfforts, getMode, type ProviderInfo, theme } from "@friday/shared"
+import { allowedEfforts, type ProviderInfo, theme } from "@friday/shared"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { createEffect, createMemo, createResource, createSignal, For, Match, Show, Switch } from "solid-js"
 import { useApp } from "../store.tsx"
 import { EffortGauge } from "./EffortSlider.tsx"
 import { Scrim } from "./Scrim.tsx"
+import { bandBg, Meta, Overlay } from "./ui.tsx"
 
 type Step = "provider" | "key" | "model" | "effort"
 
@@ -17,9 +18,9 @@ function fmtCost(c?: { input: number; output: number }): string {
   return `$${r(c.input)}/${r(c.output)}`
 }
 
+/** Custom selectable row with the full-width brand selection band (icons/extra columns). */
 function Row(props: {
   active: boolean
-  accent: string
   onClick: () => void
   onHover?: () => void
   children: any
@@ -32,11 +33,11 @@ function Row(props: {
       gap={1}
       paddingLeft={1}
       paddingRight={1}
-      backgroundColor={props.active ? theme.bgHover : "transparent"}
+      backgroundColor={bandBg(props.active)}
       onMouseOver={props.onHover}
       onMouseDown={props.onClick}
     >
-      <text fg={props.active ? props.accent : theme.textFaint}>{props.active ? "›" : " "}</text>
+      <text fg={props.active ? theme.textOnAccent : theme.textFaint}>{props.active ? "›" : " "}</text>
       {props.children}
     </box>
   )
@@ -45,7 +46,6 @@ function Row(props: {
 export function ModelModal() {
   const app = useApp()
   const dims = useTerminalDimensions()
-  const accent = () => getMode(app.mode()).accent
 
   const providers = app.engine.listProviders()
   const auth = app.engine.authState()
@@ -185,24 +185,7 @@ export function ModelModal() {
 
   return (
     <Scrim onClose={() => app.setModelModalOpen(false)}>
-      <box
-        flexDirection="column"
-        width={Math.min(64, dims().width - 4)}
-        border
-        borderStyle="single"
-        borderColor={theme.border}
-        backgroundColor={theme.bgElevated}
-        paddingLeft={2}
-        paddingRight={2}
-        paddingTop={1}
-        paddingBottom={1}
-        gap={1}
-      >
-        <box flexDirection="row" gap={1}>
-          <text fg={theme.textMuted}>/model</text>
-          <text fg={theme.textFaint}>· connect a provider and pick a model</text>
-        </box>
-
+      <Overlay title="model" hint="connect a provider and pick a model" width={Math.min(64, dims().width - 4)}>
         <Switch>
           <Match when={step() === "provider"}>
             <box flexDirection="column">
@@ -210,21 +193,28 @@ export function ModelModal() {
                 {(p, i) => (
                   <Row
                     active={pIndex() === i()}
-                    accent={accent()}
                     onHover={() => setPIndex(i())}
                     onClick={() => chooseProvider(p)}
                   >
                     <box width={26}>
-                      <text fg={pIndex() === i() ? theme.text : theme.textMuted}>{p.name}</text>
+                      <text fg={pIndex() === i() ? theme.textOnAccent : theme.textMuted}>{p.name}</text>
                     </box>
-                    <text fg={auth[p.id]?.hasKey || p.keyless ? theme.success : theme.textFaint}>
+                    <text
+                      fg={
+                        pIndex() === i()
+                          ? theme.textOnAccent
+                          : auth[p.id]?.hasKey || p.keyless
+                            ? theme.success
+                            : theme.textFaint
+                      }
+                    >
                       {p.keyless ? "local" : auth[p.id]?.hasKey ? "● connected" : "○ needs key"}
                     </text>
                   </Row>
                 )}
               </For>
             </box>
-            <text fg={theme.textFaint}>↑↓ move · ⏎ select · esc close</text>
+            <Meta text="↑↓ move · ⏎ select · esc close" />
           </Match>
 
           <Match when={step() === "key"}>
@@ -237,70 +227,40 @@ export function ModelModal() {
               </Show>
               <box flexDirection="column" onMouseDown={() => setKeyField("key")}>
                 <text fg={theme.textFaint}>API key</text>
-                <box
-                  border
-                  borderStyle="single"
-                  borderColor={keyField() === "key" ? theme.borderActive : theme.border}
-                  paddingLeft={1}
-                  paddingRight={1}
-                >
-                  <input
-                    value={apiKey()}
-                    onInput={(v: string) => {
-                      setApiKey(v)
-                      setKeyError("")
-                    }}
-                    onSubmit={confirmKey}
-                    focused={keyField() === "key"}
-                    placeholder={
-                      hasExistingKey() ? "enter to reuse current key, or paste a new one…" : "paste your API key…"
-                    }
-                    placeholderColor={theme.textFaint}
-                  />
-                </box>
+                <input
+                  value={apiKey()}
+                  onInput={(v: string) => {
+                    setApiKey(v)
+                    setKeyError("")
+                  }}
+                  onSubmit={confirmKey}
+                  focused={keyField() === "key"}
+                  placeholder={
+                    hasExistingKey() ? "enter to reuse current key, or paste a new one…" : "paste your API key…"
+                  }
+                  placeholderColor={theme.textFaint}
+                />
               </box>
               <box flexDirection="column" onMouseDown={() => setKeyField("url")}>
                 <text fg={theme.textFaint}>base URL (optional override · tab)</text>
-                <box
-                  border
-                  borderStyle="single"
-                  borderColor={keyField() === "url" ? theme.borderActive : theme.border}
-                  paddingLeft={1}
-                  paddingRight={1}
-                >
-                  <input
-                    value={baseURL()}
-                    onInput={setBaseURL}
-                    onSubmit={confirmKey}
-                    focused={keyField() === "url"}
-                    placeholderColor={theme.textFaint}
-                  />
-                </box>
+                <input
+                  value={baseURL()}
+                  onInput={setBaseURL}
+                  onSubmit={confirmKey}
+                  focused={keyField() === "url"}
+                  placeholderColor={theme.textFaint}
+                />
               </box>
               <Show when={keyError()}>
                 <text fg={theme.error}>✗ {keyError()}</text>
               </Show>
               <box flexDirection="row" gap={2}>
-                <box
-                  border
-                  borderStyle="single"
-                  borderColor={validating() ? theme.textFaint : theme.success}
-                  paddingLeft={1}
-                  paddingRight={1}
-                  onMouseDown={confirmKey}
-                >
+                <box onMouseDown={confirmKey}>
                   <text fg={validating() ? theme.textFaint : theme.success}>
                     {validating() ? "validating…" : "connect ⏎"}
                   </text>
                 </box>
-                <box
-                  border
-                  borderStyle="single"
-                  borderColor={theme.border}
-                  paddingLeft={1}
-                  paddingRight={1}
-                  onMouseDown={() => setStep("provider")}
-                >
+                <box onMouseDown={() => setStep("provider")}>
                   <text fg={theme.textMuted}>back esc</text>
                 </box>
               </box>
@@ -311,14 +271,7 @@ export function ModelModal() {
             <box flexDirection="column" gap={1}>
               <box flexDirection="row" gap={1} alignItems="center">
                 <text fg={theme.text}>{provider()?.name}</text>
-                <box
-                  flexGrow={1}
-                  border
-                  borderStyle="single"
-                  borderColor={theme.border}
-                  paddingLeft={1}
-                  paddingRight={1}
-                >
+                <box flexGrow={1}>
                   <input
                     value={query()}
                     onInput={setQuery}
@@ -337,26 +290,25 @@ export function ModelModal() {
                     <Row
                       id={`m-${i()}`}
                       active={mIndex() === i()}
-                      accent={accent()}
                       onHover={() => setMIndex(i())}
                       onClick={() => chooseModel(m.id)}
                     >
-                      <text fg={mIndex() === i() ? theme.text : theme.textMuted}>{m.name}</text>
+                      <text fg={mIndex() === i() ? theme.textOnAccent : theme.textMuted}>{m.name}</text>
                       <box flexGrow={1} />
                       <Show when={m.reasoning}>
-                        <text fg={mIndex() === i() ? accent() : theme.textFaint}>◇</text>
+                        <text fg={mIndex() === i() ? theme.textOnAccent : theme.textFaint}>◇</text>
                       </Show>
                       <Show when={m.contextWindow}>
-                        <text fg={theme.textFaint}>{fmtCtx(m.contextWindow)}</text>
+                        <text fg={mIndex() === i() ? theme.textOnAccent : theme.textFaint}>{fmtCtx(m.contextWindow)}</text>
                       </Show>
                       <Show when={m.cost}>
-                        <text fg={theme.textFaint}>{fmtCost(m.cost)}</text>
+                        <text fg={mIndex() === i() ? theme.textOnAccent : theme.textFaint}>{fmtCost(m.cost)}</text>
                       </Show>
                     </Row>
                   )}
                 </For>
               </scrollbox>
-              <text fg={theme.textFaint}>↑↓ move · ⏎ select · esc back · {filtered().length} models</text>
+              <Meta text={`↑↓ move · ⏎ select · esc back · ${filtered().length} models`} />
             </box>
           </Match>
 
@@ -372,11 +324,11 @@ export function ModelModal() {
                   finalize()
                 }}
               />
-              <text fg={theme.textFaint}>←/→ move · click · ⏎ confirm · esc back</text>
+              <Meta text="←/→ move · click · ⏎ confirm · esc back" />
             </box>
           </Match>
         </Switch>
-      </box>
+      </Overlay>
     </Scrim>
   )
 }

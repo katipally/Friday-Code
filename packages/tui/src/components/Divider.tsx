@@ -1,11 +1,11 @@
-import { getMode, theme } from "@friday/shared"
+import { theme } from "@friday/shared"
 import { createSignal } from "solid-js"
 import { shimmerAccent, useHover } from "../motion/index.ts"
-import { useApp } from "../store.tsx"
 
 /**
  * A vertical draggable grip bar that sits between the chat and the right panel.
  * It brightens on hover, shimmers while dragging, and is wide enough to grab easily.
+ * Chrome — tinted with the Friday brand, not the per-mode accent.
  */
 export function GripDivider(props: {
   active: boolean
@@ -13,10 +13,9 @@ export function GripDivider(props: {
   onDrag: (e: any) => void
   onEnd: () => void
 }) {
-  const app = useApp()
   const [hover, setHover] = createSignal(false)
-  const accent = () => getMode(app.mode()).accent
-  const ruleColor = () => (props.active ? shimmerAccent(accent(), 0.4) : hover() ? theme.borderActive : theme.border)
+  const ruleColor = () =>
+    props.active ? shimmerAccent(theme.brand, 0.4) : hover() ? theme.borderActive : theme.border
 
   return (
     <box

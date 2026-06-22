@@ -818,7 +818,7 @@ export function createAppStore(engine: Engine, version = "dev") {
   const BUILTIN_COMMANDS: { name: string; description: string }[] = [
     { name: "model", description: "connect a provider / pick a model" },
     { name: "effort", description: "set reasoning effort (slider)" },
-    { name: "new", description: "start a new session in its own window" },
+    { name: "new", description: "start a new session in this window" },
     { name: "clear", description: "clear the conversation (reset this window)" },
     { name: "resume", description: "resume or switch to another session" },
     { name: "fork", description: "branch a session from a past turn" },
@@ -872,7 +872,7 @@ export function createAppStore(engine: Engine, version = "dev") {
         setEffortOpen(true)
         return true
       case "new":
-        newChatWindow() // a fresh session in its own real terminal window
+        newSession() // a fresh session IN THIS TUI (opening a real terminal window is dashboard-only)
         return true
       case "clear":
         newSession() // reset the conversation in place (this window)

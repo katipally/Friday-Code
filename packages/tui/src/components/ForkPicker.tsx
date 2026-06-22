@@ -1,15 +1,15 @@
-import { getMode, theme } from "@friday/shared"
+import { theme } from "@friday/shared"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { createMemo, createSignal, For, Show } from "solid-js"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
+import { bandBg, Overlay } from "./ui.tsx"
 
 /** Branch a new session from any past user turn (fork / timeline). The new session carries the
  * conversation up to the chosen turn, so you can explore an alternative without losing this thread. */
 export function ForkPicker() {
   const app = useApp()
   const dims = useTerminalDimensions()
-  const accent = () => getMode(app.mode()).accent
   const points = createMemo(() => app.engine.forkPoints())
   const [sel, setSel] = createSignal(0)
 
@@ -27,50 +27,38 @@ export function ForkPicker() {
 
   return (
     <Scrim onClose={() => app.setForkOpen(false)}>
-      <box
-        flexDirection="column"
-        width={Math.min(70, dims().width - 4)}
-        border
-        borderStyle="single"
-        borderColor={theme.border}
-        backgroundColor={theme.bgElevated}
-        paddingLeft={2}
-        paddingRight={2}
-        paddingTop={1}
-        paddingBottom={1}
-        gap={1}
-      >
-        <box flexDirection="row" gap={1}>
-          <text fg={theme.textMuted}>fork</text>
-          <text fg={theme.textFaint}>· branch a new session from a past turn</text>
-        </box>
+      <Overlay title="fork" hint="branch a new session from a past turn" width={Math.min(70, dims().width - 4)}>
         <Show
           when={points().length}
           fallback={<text fg={theme.textFaint}>no turns to fork from yet — send a prompt first</text>}
         >
           <scrollbox maxHeight={14}>
             <For each={points()}>
-              {(p, i) => (
-                <box
-                  flexDirection="row"
-                  gap={1}
-                  paddingLeft={1}
-                  backgroundColor={sel() === i() ? theme.bgHover : "transparent"}
-                  onMouseOver={() => setSel(i())}
-                  onMouseDown={() => app.forkFrom(p.index)}
-                >
-                  <text fg={sel() === i() ? accent() : theme.textFaint}>{sel() === i() ? "⑂" : " "}</text>
-                  <text fg={theme.textFaint}>{i() + 1}.</text>
-                  <box flexGrow={1}>
-                    <text fg={sel() === i() ? theme.text : theme.textMuted}>{p.text || "(empty)"}</text>
+              {(p, i) => {
+                const on = () => sel() === i()
+                return (
+                  <box
+                    flexDirection="row"
+                    gap={1}
+                    paddingLeft={1}
+                    paddingRight={1}
+                    backgroundColor={bandBg(on())}
+                    onMouseOver={() => setSel(i())}
+                    onMouseDown={() => app.forkFrom(p.index)}
+                  >
+                    <text fg={on() ? theme.textOnAccent : theme.textFaint}>{on() ? "⑂" : " "}</text>
+                    <text fg={on() ? theme.textOnAccent : theme.textFaint}>{i() + 1}.</text>
+                    <box flexGrow={1}>
+                      <text fg={on() ? theme.textOnAccent : theme.textMuted}>{p.text || "(empty)"}</text>
+                    </box>
                   </box>
-                </box>
-              )}
+                )
+              }}
             </For>
           </scrollbox>
         </Show>
         <text fg={theme.textFaint}>↑↓ move · ⏎ fork from here · esc close</text>
-      </box>
+      </Overlay>
     </Scrim>
   )
 }

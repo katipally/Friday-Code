@@ -1,10 +1,11 @@
 import type { McpServerConfig } from "@friday/core"
-import { getMode, theme } from "@friday/shared"
+import { theme } from "@friday/shared"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { createSignal, For, Show } from "solid-js"
 import { useApp } from "../store.tsx"
 import { G } from "../util/term.ts"
 import { Scrim } from "./Scrim.tsx"
+import { Meta, Overlay, SectionLabel } from "./ui.tsx"
 
 type View = "list" | "add"
 
@@ -12,7 +13,6 @@ type View = "list" | "add"
 export function McpModal() {
   const app = useApp()
   const dims = useTerminalDimensions()
-  const accent = () => getMode(app.mode()).accent
   const [view, setView] = createSignal<View>("list")
   const [kind, setKind] = createSignal<"stdio" | "http">("stdio")
   const [error, setError] = createSignal("")
@@ -63,24 +63,7 @@ export function McpModal() {
 
   return (
     <Scrim onClose={() => app.setMcpModalOpen(false)}>
-      <box
-        flexDirection="column"
-        width={Math.min(68, dims().width - 4)}
-        border
-        borderStyle="single"
-        borderColor={theme.border}
-        backgroundColor={theme.bgElevated}
-        paddingLeft={2}
-        paddingRight={2}
-        paddingTop={1}
-        paddingBottom={1}
-        gap={1}
-      >
-        <box flexDirection="row" gap={1}>
-          <text fg={theme.textMuted}>/mcp</text>
-          <text fg={theme.textFaint}>· model context protocol servers</text>
-        </box>
-
+      <Overlay title="/mcp" hint="model context protocol servers" width={Math.min(68, dims().width - 4)}>
         <Show when={view() === "list"}>
           <box flexDirection="column">
             <Show when={entries().length} fallback={<text fg={theme.textFaint}>no servers configured</text>}>
@@ -126,18 +109,20 @@ export function McpModal() {
           <box flexDirection="column" gap={1}>
             <box flexDirection="row" gap={2}>
               <box onMouseDown={() => setKind("stdio")}>
-                <text fg={kind() === "stdio" ? accent() : theme.textFaint}>
+                <text fg={kind() === "stdio" ? theme.brand : theme.textFaint}>
                   {kind() === "stdio" ? "● " : "○ "}stdio
                 </text>
               </box>
               <box onMouseDown={() => setKind("http")}>
-                <text fg={kind() === "http" ? accent() : theme.textFaint}>{kind() === "http" ? "● " : "○ "}http</text>
+                <text fg={kind() === "http" ? theme.brand : theme.textFaint}>
+                  {kind() === "http" ? "● " : "○ "}http
+                </text>
               </box>
               <text fg={theme.textFaint}>(tab)</text>
             </box>
             <box flexDirection="column">
-              <text fg={theme.textFaint}>name</text>
-              <box border borderStyle="single" borderColor={theme.border} paddingLeft={1} paddingRight={1}>
+              <SectionLabel text="name" />
+              <box backgroundColor={theme.bgComposer} paddingLeft={1} paddingRight={1}>
                 <input
                   ref={(r: any) => (nameInput = r)}
                   focused
@@ -147,8 +132,8 @@ export function McpModal() {
               </box>
             </box>
             <box flexDirection="column">
-              <text fg={theme.textFaint}>{kind() === "stdio" ? "command (e.g. npx -y some-mcp)" : "url"}</text>
-              <box border borderStyle="single" borderColor={theme.border} paddingLeft={1} paddingRight={1}>
+              <SectionLabel text={kind() === "stdio" ? "command (e.g. npx -y some-mcp)" : "url"} />
+              <box backgroundColor={theme.bgComposer} paddingLeft={1} paddingRight={1}>
                 <input
                   ref={(r: any) => (valueInput = r)}
                   onSubmit={add}
@@ -160,8 +145,8 @@ export function McpModal() {
             {/* Remote servers often need a bearer token / API key — sent as an Authorization header. */}
             <Show when={kind() === "http"}>
               <box flexDirection="column">
-                <text fg={theme.textFaint}>auth token (optional)</text>
-                <box border borderStyle="single" borderColor={theme.border} paddingLeft={1} paddingRight={1}>
+                <SectionLabel text="auth token (optional)" />
+                <box backgroundColor={theme.bgComposer} paddingLeft={1} paddingRight={1}>
                   <input
                     ref={(r: any) => (tokenInput = r)}
                     onSubmit={add}
@@ -172,33 +157,19 @@ export function McpModal() {
               </box>
             </Show>
             <Show when={error()}>
-              <text fg={error() === "connecting…" ? theme.textMuted : theme.error}>{error()}</text>
+              <Meta text={error()} color={error() === "connecting…" ? theme.textMuted : theme.error} />
             </Show>
             <box flexDirection="row" gap={2}>
-              <box
-                border
-                borderStyle="single"
-                borderColor={theme.success}
-                paddingLeft={1}
-                paddingRight={1}
-                onMouseDown={add}
-              >
+              <box paddingLeft={1} paddingRight={1} onMouseDown={add}>
                 <text fg={theme.success}>connect</text>
               </box>
-              <box
-                border
-                borderStyle="single"
-                borderColor={theme.border}
-                paddingLeft={1}
-                paddingRight={1}
-                onMouseDown={() => setView("list")}
-              >
+              <box paddingLeft={1} paddingRight={1} onMouseDown={() => setView("list")}>
                 <text fg={theme.textMuted}>back esc</text>
               </box>
             </box>
           </box>
         </Show>
-      </box>
+      </Overlay>
     </Scrim>
   )
 }

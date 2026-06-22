@@ -15,7 +15,9 @@ export function StatusStrip() {
   // Effective mascot state: a pending permission/question makes Friday "wait" regardless of the
   // engine's last mascot event, so the face reads the moment-to-moment situation.
   const mstate = (): MascotState => (app.pending() || app.askPending() ? "waiting" : app.mascot())
-  // Mood tint: error→red, done→green, waiting→amber, otherwise the current mode's accent.
+  // Mood tint: error→red, done→green, waiting→amber, otherwise the CURRENT MODE's accent — the
+  // mascot sits above the composer and reflects the active mode (plan/default/yolo) so the mood
+  // colour matches the mode you're about to run in.
   const moodAccent = () => {
     const s = mstate()
     if (s === "error") return theme.error

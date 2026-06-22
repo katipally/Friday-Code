@@ -18,14 +18,7 @@ export function DiffCard(props: { diff: string }) {
     return `--- a/file\n+++ b/file\n@@ -1,${removed} +1,${added} @@\n${d}`
   }
   return (
-    <box
-      border
-      borderStyle="single"
-      borderColor={theme.borderMuted}
-      backgroundColor={theme.bg}
-      paddingLeft={1}
-      paddingRight={1}
-    >
+    <box backgroundColor={theme.bgElevated} paddingLeft={1} paddingRight={1}>
       <diff
         diff={diff()}
         view="unified"

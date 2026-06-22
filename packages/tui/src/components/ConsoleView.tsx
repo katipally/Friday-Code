@@ -2,6 +2,7 @@ import { theme } from "@friday/shared"
 import { useKeyboard } from "@opentui/solid"
 import { createSignal, For, Show } from "solid-js"
 import { type TeamMember, useApp, type ViewItem } from "../store.tsx"
+import { SectionLabel } from "./ui.tsx"
 
 /** Status → dot glyph + color. */
 export function dot(status: string): { g: string; c: string } {
@@ -77,7 +78,9 @@ export function ConsoleView() {
     <box flexDirection="column" flexGrow={1} backgroundColor={theme.bgPanel} paddingLeft={1} paddingRight={1}>
       {/* header */}
       <box flexDirection="row" gap={1} paddingTop={1} paddingBottom={1}>
-        <text fg={theme.info}>▣ agent console</text>
+        <text fg={theme.brand}>
+          <strong>▣ AGENT CONSOLE</strong>
+        </text>
         <box flexGrow={1} />
         <Show when={app.team()} fallback={<text fg={theme.textFaint}>no active team</text>}>
           <text fg={theme.textMuted}>
@@ -101,13 +104,11 @@ export function ConsoleView() {
           <box
             flexDirection="column"
             width={34}
-            borderStyle="single"
-            border
-            borderColor={theme.border}
+            backgroundColor={theme.bgElevated}
             paddingLeft={1}
             paddingRight={1}
           >
-            <text fg={theme.textFaint}>roster ({members().length})</text>
+            <SectionLabel text={`ROSTER (${members().length})`} />
             <For each={members()}>
               {(m, i) => {
                 const d = dot(m.status)
@@ -115,7 +116,7 @@ export function ConsoleView() {
                 return (
                   <box
                     flexDirection="column"
-                    backgroundColor={on() ? theme.bgHover : "transparent"}
+                    backgroundColor={on() ? theme.bgSelected : "transparent"}
                     onMouseDown={() => setSel(i())}
                   >
                     <box flexDirection="row" gap={1}>
@@ -138,16 +139,8 @@ export function ConsoleView() {
 
           {/* right pane — board (top) + watch tail (bottom) */}
           <box flexDirection="column" flexGrow={1} gap={1}>
-            <box
-              flexDirection="column"
-              flexGrow={1}
-              borderStyle="single"
-              border
-              borderColor={theme.border}
-              paddingLeft={1}
-              paddingRight={1}
-            >
-              <text fg={theme.textFaint}>shared board</text>
+            <box flexDirection="column" flexGrow={1} backgroundColor={theme.bgElevated} paddingLeft={1} paddingRight={1}>
+              <SectionLabel text="SHARED BOARD" />
               <Show when={app.team()!.posts.length} fallback={<text fg={theme.textFaint}>(no posts yet)</text>}>
                 <For each={app.team()!.posts.slice(-12)}>
                   {(p) => (
@@ -169,15 +162,7 @@ export function ConsoleView() {
               </Show>
             </box>
 
-            <box
-              flexDirection="column"
-              flexGrow={1}
-              borderStyle="single"
-              border
-              borderColor={theme.borderActive}
-              paddingLeft={1}
-              paddingRight={1}
-            >
+            <box flexDirection="column" flexGrow={1} paddingLeft={1} paddingRight={1}>
               <text fg={theme.textFaint}>watching: {selected()?.role ?? "—"} (v to open full session)</text>
               <Show when={tail().length} fallback={<text fg={theme.textFaint}>(no output yet)</text>}>
                 <For each={tail()}>

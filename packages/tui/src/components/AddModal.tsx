@@ -4,6 +4,7 @@ import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { useApp } from "../store.tsx"
 import { expandTokens, isBigPaste, makePasteToken } from "../util/attachments.ts"
 import { Scrim } from "./Scrim.tsx"
+import { Overlay } from "./ui.tsx"
 
 /**
  * /add composer: steer the running agent without stopping it. The agent keeps working (soft-paused at
@@ -45,36 +46,16 @@ export function AddModal() {
 
   return (
     <Scrim onClose={() => app.addCancel()}>
-      <box
-        flexDirection="column"
+      <Overlay
+        title={app.addModalInterrupt() ? "/add" : "/add!"}
+        hint={
+          app.addModalInterrupt()
+            ? "paused — agent is waiting; send to steer it"
+            : "folds in at the next step — agent keeps working"
+        }
         width={Math.min(72, dims().width - 4)}
-        border
-        borderStyle="single"
-        borderColor={theme.border}
-        backgroundColor={theme.bgElevated}
-        paddingLeft={2}
-        paddingRight={2}
-        paddingTop={1}
-        paddingBottom={1}
-        gap={1}
       >
-        <box flexDirection="row" gap={1}>
-          <text fg={theme.textMuted}>{app.addModalInterrupt() ? "/add" : "/add!"}</text>
-          <text fg={theme.textFaint}>
-            {app.addModalInterrupt()
-              ? "· paused — agent is waiting; send to steer it"
-              : "· folds in at the next step — agent keeps working"}
-          </text>
-        </box>
-
-        <box
-          border
-          borderStyle="single"
-          borderColor={theme.border}
-          backgroundColor={theme.bgComposer}
-          paddingLeft={1}
-          paddingRight={1}
-        >
+        <box backgroundColor={theme.bgComposer} paddingLeft={1} paddingRight={1}>
           <textarea
             ref={(r: any) => {
               ta = r
@@ -96,25 +77,11 @@ export function AddModal() {
         </box>
 
         <box flexDirection="row" gap={2} alignItems="center">
-          <box
-            border
-            borderStyle="single"
-            borderColor={theme.warning}
-            paddingLeft={1}
-            paddingRight={1}
-            onMouseDown={() => send(true)}
-          >
+          <box paddingLeft={1} paddingRight={1} onMouseDown={() => send(true)}>
             <text fg={theme.warning}>⏸ pause now</text>
             <text fg={theme.textFaint}> (cut current reply)</text>
           </box>
-          <box
-            border
-            borderStyle="single"
-            borderColor={theme.success}
-            paddingLeft={1}
-            paddingRight={1}
-            onMouseDown={() => send(false)}
-          >
+          <box paddingLeft={1} paddingRight={1} onMouseDown={() => send(false)}>
             <text fg={theme.success}>＋ next step</text>
             <text fg={theme.textFaint}> (let it finish)</text>
           </box>
@@ -122,7 +89,7 @@ export function AddModal() {
         <text fg={theme.textFaint}>
           ⏎ {app.addModalInterrupt() ? "steer now" : "fold in next step"} · esc cancel (resumes the agent)
         </text>
-      </box>
+      </Overlay>
     </Scrim>
   )
 }

@@ -49,7 +49,7 @@ export const MODES: readonly Mode[] = [
     id: "yolo",
     label: "yolo",
     glyph: "⚡", // full auto — no prompts
-    accent: "#ffaf00", // amber/gold — full-auto, proceed-with-caution; exact xterm-256 cube member (214)
+    accent: "#ff5f5f", // red — danger/full-auto; distinct from the amber Friday brand chrome; exact xterm-256 cube member (203)
     hint: "full auto · no prompts",
     policy: { edit: "allow", bash: "allow", network: "allow", browser: "allow", computer: "allow" },
   },

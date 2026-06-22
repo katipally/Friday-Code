@@ -26,11 +26,14 @@ function fmtElapsed(ms?: number): string {
     .padStart(2, "0")}s`
 }
 
-/** User prompt: a right-aligned bubble whose sharp border is colored by the mode it was sent in. */
+/** User prompt: a right-aligned message on a clean elevated fill — separation comes from the
+ * background step + padding + margin, not a border or accent block. */
 function UserBubble(props: { item: Extract<ViewItem, { kind: "user" }> }) {
   const app = useApp()
   const renderer = useRenderer()
-  const accent = () => shimmerAccent(getMode((props.item.mode as ModeId) ?? app.mode()).accent)
+  // The mode this turn ACTUALLY ran in — locked at send time, never re-tinted by later mode switches.
+  const ranMode = (): ModeId => (props.item.mode as ModeId) ?? app.mode()
+  const accent = () => shimmerAccent(getMode(ranMode()).accent)
   // What the user saw (compact, with inline paste tokens) — falls back to the sent text.
   const shown = () => props.item.display ?? props.item.text
   // File references in the prompt show as click-to-open chips beneath the text.
@@ -49,12 +52,9 @@ function UserBubble(props: { item: Extract<ViewItem, { kind: "user" }> }) {
           flexDirection="column"
           gap={1}
           maxWidth="85%"
-          border
-          borderStyle="single"
-          borderColor={accent()}
-          backgroundColor={theme.bgComposer}
-          paddingLeft={1}
-          paddingRight={1}
+          backgroundColor={theme.bgElevated}
+          paddingLeft={2}
+          paddingRight={2}
         >
           <text fg={theme.text} selectable>
             {shown()}
@@ -68,7 +68,14 @@ function UserBubble(props: { item: Extract<ViewItem, { kind: "user" }> }) {
           </Show>
         </box>
       </box>
-      <box flexDirection="row" justifyContent="flex-end" paddingRight={1}>
+      <box flexDirection="row" justifyContent="flex-end" alignItems="center" gap={1} paddingRight={1}>
+        {/* mode tag — shown only for plan/yolo (default needs no label), as an elevated chip in the
+            run mode's accent so you can always tell which mode this turn ran in. Locked to item.mode. */}
+        <Show when={ranMode() === "plan" || ranMode() === "yolo"}>
+          <box backgroundColor={theme.bgElevated} paddingLeft={1} paddingRight={1}>
+            <text fg={accent()}>{getMode(ranMode()).label}</text>
+          </box>
+        </Show>
         <Pressable label="⧉ copy" onClick={copy} />
         <Pressable label="↶ undo" onClick={undo} />
       </box>
@@ -152,9 +159,7 @@ function NoticeBubble(props: { item: Extract<ViewItem, { kind: "notice" }> }) {
   return (
     <box flexDirection="row" justifyContent="center" marginBottom={1}>
       <box
-        border
-        borderStyle="single"
-        borderColor={theme.border}
+        backgroundColor={theme.bgElevated}
         paddingLeft={1}
         paddingRight={1}
         onMouseDown={() => props.item.summary && app.viewCompaction(props.item.summary)}
@@ -183,7 +188,7 @@ function BreakerRow(props: { item: Extract<ViewItem, { kind: "breaker" }> }) {
         <box flexGrow={1} flexBasis={0} minWidth={0} height={1} overflow="hidden">
           <text fg={tint()}>{rule}</text>
         </box>
-        <box border borderStyle="single" borderColor={tint()} paddingLeft={1} paddingRight={1} flexShrink={0}>
+        <box backgroundColor={theme.bgElevated} paddingLeft={1} paddingRight={1} flexShrink={0}>
           <text fg={tint()}>
             {modeGlyph(props.item.mode)} {props.item.label}
           </text>
@@ -239,7 +244,7 @@ function InjectRow(props: { item: Extract<ViewItem, { kind: "inject" }> }) {
         <box flexGrow={1} flexBasis={0} minWidth={0} height={1} overflow="hidden">
           <text fg={tint()}>{rule}</text>
         </box>
-        <box border borderStyle="single" borderColor={tint()} paddingLeft={1} paddingRight={1} flexShrink={0}>
+        <box backgroundColor={theme.bgElevated} paddingLeft={1} paddingRight={1} flexShrink={0}>
           <text fg={tint()}>{label()}</text>
         </box>
         <box flexGrow={1} flexBasis={0} minWidth={0} height={1} overflow="hidden">

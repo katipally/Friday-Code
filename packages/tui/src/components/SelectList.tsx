@@ -58,9 +58,9 @@ export function SelectList(props: {
       backgroundColor={theme.bgElevated}
       textColor={theme.textMuted}
       focusedBackgroundColor={theme.bgHover}
-      focusedTextColor={props.accent ?? theme.text}
-      selectedBackgroundColor={theme.bgHover}
-      selectedTextColor={props.accent ?? theme.text}
+      focusedTextColor={theme.text}
+      selectedBackgroundColor={theme.bgSelected}
+      selectedTextColor={theme.textOnAccent}
       descriptionColor={theme.textFaint}
       selectedDescriptionColor={theme.textFaint}
       onChange={(i) => props.onHover?.(i)}

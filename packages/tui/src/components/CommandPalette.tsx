@@ -1,15 +1,15 @@
-import { getMode, theme } from "@friday/shared"
+import { theme } from "@friday/shared"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { createMemo, createSignal, onMount } from "solid-js"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
 import { SelectList } from "./SelectList.tsx"
+import { Meta, Overlay } from "./ui.tsx"
 
 /** Ctrl/Cmd+K fuzzy command palette over built-in + custom commands. */
 export function CommandPalette() {
   const app = useApp()
   const dims = useTerminalDimensions()
-  const accent = () => getMode(app.mode()).accent
   const all = app.listCommands()
   const [query, setQuery] = createSignal("")
   const [sel, setSel] = createSignal(0)
@@ -44,22 +44,10 @@ export function CommandPalette() {
 
   return (
     <Scrim onClose={() => app.setPaletteOpen(false)}>
-      <box
-        flexDirection="column"
-        width={Math.min(64, dims().width - 4)}
-        border
-        borderStyle="single"
-        borderColor={theme.border}
-        backgroundColor={theme.bgElevated}
-        paddingLeft={1}
-        paddingRight={1}
-        paddingTop={1}
-        paddingBottom={1}
-        gap={1}
-      >
+      <Overlay title="commands" width={Math.min(64, dims().width - 4)}>
         <box flexDirection="row" gap={1} alignItems="center">
-          <text fg={theme.textMuted}>⌘</text>
-          <box flexGrow={1} border borderStyle="single" borderColor={theme.border} paddingLeft={1} paddingRight={1}>
+          <text fg={theme.brand}>⌘</text>
+          <box flexGrow={1}>
             <textarea
               ref={(r: any) => (input = r)}
               focused
@@ -74,13 +62,13 @@ export function CommandPalette() {
           <SelectList
             items={filtered().map((c) => ({ id: c.name, label: `/${c.name}`, hint: c.description }))}
             selected={sel()}
-            accent={accent()}
+            accent={theme.brand}
             onHover={(i) => setSel(i)}
             onChoose={(i) => run(i)}
           />
         </box>
-        <text fg={theme.textFaint}>↑↓ move · ⏎/⭾ run · esc close</text>
-      </box>
+        <Meta text="↑↓ move · ⏎/⭾ run · esc close" />
+      </Overlay>
     </Scrim>
   )
 }

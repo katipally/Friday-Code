@@ -115,8 +115,8 @@ function Shell() {
 
   return (
     <box width="100%" height="100%" backgroundColor={theme.bg}>
-      {/* No outer app frame (opencode-style): the canvas is borderless and accent lives on the
-          bordered elements themselves (user bubble, side panel) and focus rings. */}
+      {/* No outer app frame (opencode-style): the canvas is borderless. Chrome is greyscale + brand
+          amber; the per-mode accent is confined to the chat transcript + composer focus ring. */}
       <box flexGrow={1} flexDirection="column" backgroundColor={theme.bg}>
         {/* The side panel is a full-height LEFT sidebar that PUSHES the main column (it never hovers).
             Drag is handled at the row so resize keeps tracking once the cursor leaves the grip. */}

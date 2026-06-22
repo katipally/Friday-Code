@@ -1,10 +1,11 @@
-import { getMode, theme } from "@friday/shared"
+import { theme } from "@friday/shared"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { Show } from "solid-js"
-import { shimmerAccent, useBreathe } from "../motion/index.ts"
+import { useBreathe } from "../motion/index.ts"
 import { useApp } from "../store.tsx"
 import { Markdown } from "./Markdown.tsx"
 import { Pressable } from "./Pressable.tsx"
+import { Overlay } from "./ui.tsx"
 import { Scrim } from "./Scrim.tsx"
 
 /** A 12-cell block bar for a 0–100 percentage. */
@@ -21,8 +22,7 @@ function bar(pct: number, width = 12): string {
  */
 export function CompactionCard() {
   const app = useApp()
-  const accent = () => getMode(app.mode()).accent
-  const glow = useBreathe(accent, () => app.compacting())
+  const glow = useBreathe(() => theme.brand, () => app.compacting())
   const before = () => app.compactPct().before
 
   useKeyboard((key) => {
@@ -33,31 +33,19 @@ export function CompactionCard() {
   return (
     <Show when={app.compacting()}>
       <Scrim onClose={() => {}}>
-        <box
-          flexDirection="column"
-          width={46}
-          border
-          borderStyle="single"
-          borderColor={shimmerAccent(accent())}
-          backgroundColor={theme.bgElevated}
-          paddingLeft={2}
-          paddingRight={2}
-          paddingTop={1}
-          paddingBottom={1}
-          gap={1}
-        >
-          <text fg={accent()}>↻ compacting context</text>
+        <Overlay width={46}>
+          <text fg={theme.brand}>↻ compacting context</text>
           <box flexDirection="row" justifyContent="center">
             <text fg={glow()}>(( ◍ ))</text>
           </box>
           <text fg={theme.textFaint}>summarizing older turns — freeing space…</text>
-          <text fg={before() > 80 ? theme.warning : accent()}>
+          <text fg={before() > 80 ? theme.warning : theme.brand}>
             ctx {before()}% {bar(before())}
           </text>
           <box flexDirection="row" justifyContent="center">
             <Pressable label="■ stop · esc" fg={theme.error} onClick={() => app.stopCompact()} />
           </box>
-        </box>
+        </Overlay>
       </Scrim>
     </Show>
   )
@@ -70,7 +58,6 @@ export function CompactionCard() {
 export function CompactionSummary() {
   const app = useApp()
   const dims = useTerminalDimensions()
-  const accent = () => getMode(app.mode()).accent
   let sb: { scrollBy?: (n: number) => void } | null = null
   const W = () => Math.min(dims().width - 4, Math.max(64, Math.round(dims().width * 0.7)))
   const H = () => Math.max(6, Math.round(dims().height * 0.7) - 4)
@@ -87,28 +74,12 @@ export function CompactionSummary() {
   return (
     <Show when={app.compactionView()}>
       <Scrim onClose={() => app.setCompactionView(null)}>
-        <box
-          flexDirection="column"
-          width={W()}
-          border
-          borderStyle="single"
-          borderColor={theme.border}
-          backgroundColor={theme.bgElevated}
-          paddingLeft={2}
-          paddingRight={2}
-          paddingTop={1}
-          paddingBottom={1}
-          gap={1}
-        >
-          <box flexDirection="row" gap={1} alignItems="center">
-            <text fg={accent()}>↻ compaction summary</text>
-            <text fg={theme.textFaint}>· what was kept in context</text>
-          </box>
+        <Overlay width={W()} title="compaction summary" hint="what was kept in context">
           <scrollbox ref={(r: any) => (sb = r)} maxHeight={H()} paddingLeft={1} paddingRight={1}>
             <Markdown content={app.compactionView() ?? ""} />
           </scrollbox>
           <text fg={theme.textFaint}>↑↓ scroll · esc close</text>
-        </box>
+        </Overlay>
       </Scrim>
     </Show>
   )

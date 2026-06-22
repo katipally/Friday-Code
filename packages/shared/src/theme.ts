@@ -1,11 +1,23 @@
 /**
  * Friday Code theme tokens.
  *
- * Clean, readable neutral dark theme with crisp borders and clear surface separation.
- * The single dynamic value is `accent`, which the UI swaps to the current mode's color
- * (see modes.ts) and applies to bordered elements + active focus rings.
+ * Clean, readable neutral dark theme. Chrome is greyscale; color carries meaning only.
+ *
+ * Two distinct accents:
+ *  - `brand` (amber) — Friday's identity. Used (sparingly) for chrome: panel/overlay titles,
+ *    the wordmark, chrome selection bands, active chrome affordances. Never the per-mode color.
+ *  - the per-mode `accent` (see modes.ts) — scoped to the CHAT view + COMPOSER only. It must not
+ *    leak into chrome; the rest of the UI uses `brand`.
  */
 export const theme = {
+  // brand — Friday amber. Reserved for IDENTITY only (titles, wordmark, brand marks). Never used
+  // for selection/hover, so the brand color and the "this row is selected" cue can't be confused.
+  brand: "#ffaf00", // exact xterm-256 cube member (214)
+  brandDim: "#a6731f", // resting brand where full amber would shout
+  // selection — a neutral grey fill band, clearly brighter than bgHover, distinct from brand.
+  bgSelected: "#34353d",
+  textOnAccent: "#ffffff", // bright text drawn ON a selection / colored fill band (high contrast)
+
   // surfaces — true-black canvas (like opencode) with neutral grey layers stepped far
   // enough apart to survive 256-color quantization (Terminal.app has no truecolor).
   bg: "#000000", // chat / base canvas — true black
@@ -73,41 +85,7 @@ const BASE: Theme = { ...theme }
  * the next launch). Keep overrides to the high-impact surface/text/role tokens.
  */
 export const THEMES: Record<string, Partial<Theme>> = {
-  dark: {}, // the default
-  light: {
-    bg: "#ffffff",
-    bgComposer: "#f3f4f6",
-    bgPanel: "#f3f4f6",
-    bgElevated: "#e9ebef",
-    bgHover: "#dfe2e8",
-    text: "#1b1f24",
-    textMuted: "#4b525c",
-    textFaint: "#6b7280",
-    border: "#d0d4da",
-    borderMuted: "#e2e5ea",
-    borderActive: "#b3b9c2",
-    success: "#2f8f3e",
-    warning: "#b3791a",
-    error: "#c0384b",
-    info: "#1f6feb",
-  },
-  nord: {
-    bg: "#2e3440",
-    bgComposer: "#323846",
-    bgPanel: "#323846",
-    bgElevated: "#3b4252",
-    bgHover: "#434c5e",
-    text: "#eceff4",
-    textMuted: "#d8dee9",
-    textFaint: "#9aa3b2",
-    border: "#434c5e",
-    borderMuted: "#3b4252",
-    borderActive: "#5e81ac",
-    success: "#a3be8c",
-    warning: "#ebcb8b",
-    error: "#bf616a",
-    info: "#88c0d0",
-  },
+  dark: {}, // the one theme — Friday is dark-only
 }
 
 /**
@@ -124,6 +102,7 @@ const COARSE_DARK: Partial<Theme> = {
   borderMuted: "#262626", // 235
   border: "#444444", // 238
   borderActive: "#585858", // 240
+  bgSelected: "#4e4e4e", // 239 — selection band stays clearly above bgHover (236) on 256-color
 }
 
 /**

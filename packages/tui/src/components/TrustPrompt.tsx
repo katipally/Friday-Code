@@ -1,8 +1,9 @@
-import { getMode, theme } from "@friday/shared"
+import { theme } from "@friday/shared"
 import { useKeyboard } from "@opentui/solid"
 import { Show } from "solid-js"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
+import { Overlay } from "./ui.tsx"
 
 /**
  * First-run-per-directory trust gate. Friday reads and runs code in the working directory, so the
@@ -11,7 +12,6 @@ import { Scrim } from "./Scrim.tsx"
  */
 export function TrustPrompt() {
   const app = useApp()
-  const accent = () => getMode(app.mode()).accent
 
   useKeyboard((key) => {
     if (!app.trustOpen()) return
@@ -22,17 +22,7 @@ export function TrustPrompt() {
   return (
     <Show when={app.trustOpen()}>
       <Scrim onClose={() => app.declineTrust()}>
-        <box
-          flexDirection="column"
-          width={64}
-          border
-          borderStyle="single"
-          borderColor={accent()}
-          backgroundColor={theme.bgElevated}
-          padding={1}
-          gap={1}
-        >
-          <text fg={accent()}>Trust this folder?</text>
+        <Overlay title="Trust this folder?" width={64}>
           <box backgroundColor={theme.bgComposer} paddingLeft={1} paddingRight={1}>
             <text fg={theme.text}>{app.cwdLabel()}</text>
           </box>
@@ -40,7 +30,7 @@ export function TrustPrompt() {
             Friday can read files and run commands here. Only continue in directories you trust.
           </text>
           <text fg={theme.textFaint}>⏎ trust &amp; continue · esc quit</text>
-        </box>
+        </Overlay>
       </Scrim>
     </Show>
   )

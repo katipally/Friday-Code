@@ -4,6 +4,7 @@ import { Show } from "solid-js"
 import { shimmerAccent } from "../motion/index.ts"
 import { useApp } from "../store.tsx"
 import { G } from "../util/term.ts"
+import { Overlay } from "./ui.tsx"
 import { Scrim } from "./Scrim.tsx"
 
 /**
@@ -24,21 +25,10 @@ export function YoloConfirm() {
   return (
     <Show when={app.yoloConfirmOpen()}>
       <Scrim onClose={() => app.cancelYolo()}>
-        <box
-          flexDirection="column"
-          width={60}
-          border
-          borderStyle="single"
-          borderColor={shimmerAccent(accent())}
-          backgroundColor={theme.bgElevated}
-          paddingLeft={1}
-          paddingRight={1}
-          paddingTop={1}
-          paddingBottom={1}
-          gap={1}
-        >
-          <text fg={accent()}>
-            {G.warn} enter yolo mode?
+        <Overlay width={60}>
+          {/* Danger gate — semantic yolo red header, no brand-amber title. */}
+          <text fg={shimmerAccent(accent())}>
+            <strong>{G.warn} ENTER YOLO MODE?</strong>
           </text>
           <text fg={theme.text}>
             yolo runs everything with NO confirmation — file edits, shell commands, browser control,
@@ -47,7 +37,7 @@ export function YoloConfirm() {
           <text fg={theme.textMuted}>Only use this when you trust the task. You can leave with Shift+Tab.</text>
           <box flexDirection="row" gap={1}>
             <box paddingLeft={1} paddingRight={1} backgroundColor={accent()} onMouseDown={() => app.confirmYolo()}>
-              <text fg={theme.bg}>
+              <text fg={theme.textOnAccent}>
                 <strong>y</strong> enable yolo
               </text>
             </box>
@@ -58,7 +48,7 @@ export function YoloConfirm() {
             </box>
           </box>
           <text fg={theme.textFaint}>y/⏎ enable · n/esc cancel</text>
-        </box>
+        </Overlay>
       </Scrim>
     </Show>
   )

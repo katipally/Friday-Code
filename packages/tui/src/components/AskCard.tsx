@@ -1,24 +1,28 @@
-import { type AskOption, getMode, theme } from "@friday/shared"
+import { type AskOption, theme } from "@friday/shared"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { createEffect, createSignal, For, Show } from "solid-js"
 import { shimmerAccent, useHover } from "../motion/index.ts"
 import { type PendingAsk, useApp } from "../store.tsx"
 import { G } from "../util/term.ts"
+import { bandBg } from "./ui.tsx"
+import { Overlay } from "./ui.tsx"
 import { Scrim } from "./Scrim.tsx"
 
-/** A question-tab pill with a smooth hover fade. */
+/** A question-tab pill with a smooth hover fade; active tab bands with the neutral selection grey. */
 function Tab(props: { label: string; active: boolean; done: boolean; accent: string; onSelect: () => void }) {
   const h = useHover({ base: theme.bgElevated })
+  const fg = () =>
+    props.active ? theme.textOnAccent : props.done ? theme.success : theme.textFaint
   return (
     <box
       paddingLeft={1}
       paddingRight={1}
-      backgroundColor={props.active ? theme.bgHover : h.bg()}
+      backgroundColor={props.active ? bandBg(true) : h.bg()}
       onMouseOver={h.onMouseOver}
       onMouseOut={h.onMouseOut}
       onMouseDown={props.onSelect}
     >
-      <text fg={props.active ? props.accent : props.done ? theme.success : theme.textFaint}>
+      <text fg={fg()}>
         {props.done ? G.todoDone : G.todoOpen} {props.label}
       </text>
     </box>
@@ -40,7 +44,8 @@ function Tab(props: { label: string; active: boolean; done: boolean; accent: str
 export function AskCard() {
   const app = useApp()
   const dims = useTerminalDimensions()
-  const accent = () => getMode(app.mode()).accent
+  // Chrome accent is brand amber (question header / selection); not the per-mode accent.
+  const accent = () => theme.brand
   let input: any
   let optsBox: { scrollBy?: (n: number) => void } | null = null
   let previewBox: { scrollBy?: (n: number) => void } | null = null
@@ -201,22 +206,11 @@ export function AskCard() {
     <Show when={ask()}>
       {(a: () => PendingAsk) => (
         <Scrim onClose={() => {}}>
-          <box
-            flexDirection="column"
-            width={totalW()}
-            border
-            borderStyle="single"
-            borderColor={shimmerAccent(theme.info)}
-            backgroundColor={theme.bgElevated}
-            paddingLeft={1}
-            paddingRight={1}
-            paddingTop={1}
-            paddingBottom={1}
-            gap={1}
-          >
+          <Overlay width={totalW()}>
+            {/* Question header is brand amber; not the Overlay title (extra hints follow inline). */}
             <box flexDirection="row" gap={1} alignItems="center">
-              <text fg={theme.info}>
-                <strong>? question</strong>
+              <text fg={shimmerAccent(theme.brand)}>
+                <strong>? QUESTION</strong>
               </text>
               <Show when={a().questions.length > 1}>
                 <text fg={theme.textFaint}>
@@ -246,7 +240,7 @@ export function AskCard() {
 
             {/* Optional ASCII banner the agent supplied for this question. */}
             <Show when={q()?.art}>
-              <box border borderStyle="single" borderColor={theme.borderMuted} paddingLeft={1} paddingRight={1}>
+              <box backgroundColor={theme.bgComposer} paddingLeft={1} paddingRight={1}>
                 <text fg={theme.textMuted}>{q()!.art}</text>
               </box>
             </Show>
@@ -272,28 +266,28 @@ export function AskCard() {
                           paddingLeft={1}
                           paddingRight={1}
                           marginBottom={optGap()}
-                          backgroundColor={active() ? theme.bgHover : "transparent"}
+                          backgroundColor={bandBg(active())}
                           onMouseOver={() => setSelIdx(i())}
                           onMouseDown={() => chooseOption(i())}
                         >
                           <box flexDirection="row" gap={1}>
-                            <text fg={active() ? accent() : theme.textFaint}>{active() ? G.caret : " "}</text>
+                            <text fg={active() ? theme.textOnAccent : theme.textFaint}>{active() ? G.caret : " "}</text>
                             <Show when={q()?.multi}>
-                              <text fg={checked() ? theme.success : theme.textFaint}>
+                              <text fg={active() ? theme.textOnAccent : checked() ? theme.success : theme.textFaint}>
                                 {checked() ? G.todoDone : G.todoOpen}
                               </text>
                             </Show>
-                            <text fg={theme.textFaint}>{i() + 1}</text>
-                            <text fg={active() || picked() || checked() ? theme.text : theme.textMuted}>
+                            <text fg={active() ? theme.textOnAccent : theme.textFaint}>{i() + 1}</text>
+                            <text fg={active() ? theme.textOnAccent : picked() || checked() ? theme.text : theme.textMuted}>
                               {opt.label}
                             </text>
                             <Show when={opt.preview}>
-                              <text fg={theme.textFaint}>{G.caret}▦</text>
+                              <text fg={active() ? theme.textOnAccent : theme.textFaint}>{G.caret}▦</text>
                             </Show>
                           </box>
                           <Show when={opt.description}>
                             <box paddingLeft={q()?.multi ? 5 : 3}>
-                              <text fg={theme.textFaint}>{opt.description}</text>
+                              <text fg={active() ? theme.textOnAccent : theme.textFaint}>{opt.description}</text>
                             </box>
                           </Show>
                         </box>
@@ -311,22 +305,20 @@ export function AskCard() {
                     paddingLeft={1}
                     paddingRight={1}
                     marginTop={optGap()}
-                    backgroundColor={isCustomRow() ? theme.bgHover : "transparent"}
+                    backgroundColor={bandBg(isCustomRow())}
                     onMouseOver={() => setSelIdx(opts().length)}
                     onMouseDown={() => setTyping(true)}
                   >
-                    <text fg={isCustomRow() ? accent() : theme.textFaint}>{isCustomRow() ? G.caret : " "}</text>
-                    <text fg={typing() ? accent() : theme.textFaint}>{G.pencil}</text>
-                    <text fg={isCustomRow() || typing() ? theme.text : theme.textMuted}>type your own answer</text>
+                    <text fg={isCustomRow() ? theme.textOnAccent : theme.textFaint}>{isCustomRow() ? G.caret : " "}</text>
+                    <text fg={isCustomRow() ? theme.textOnAccent : typing() ? accent() : theme.textFaint}>{G.pencil}</text>
+                    <text fg={isCustomRow() ? theme.textOnAccent : typing() ? theme.text : theme.textMuted}>type your own answer</text>
                   </box>
                 </scrollbox>
 
                 {/* The custom-answer editor — only focused while typing so it never steals option keys. */}
                 <Show when={typing()}>
                   <box
-                    border
-                    borderStyle="single"
-                    borderColor={theme.border}
+                    backgroundColor={theme.bgComposer}
                     paddingLeft={1}
                     paddingRight={1}
                     marginTop={1}
@@ -350,9 +342,6 @@ export function AskCard() {
                 <box
                   flexDirection="column"
                   width={previewW()}
-                  border
-                  borderStyle="single"
-                  borderColor={theme.border}
                   backgroundColor={theme.bgComposer}
                   paddingLeft={1}
                   paddingRight={1}
@@ -391,7 +380,7 @@ export function AskCard() {
                   (anyPreview() ? " · pgup/pgdn scroll · esc skip" : " · esc skip")}
               </text>
             </box>
-          </box>
+          </Overlay>
         </Scrim>
       )}
     </Show>

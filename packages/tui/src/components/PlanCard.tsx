@@ -1,10 +1,10 @@
-import { getMode, type ModeId, theme } from "@friday/shared"
+import { type ModeId, theme } from "@friday/shared"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
-import { shimmerAccent } from "../motion/index.ts"
 import { useApp } from "../store.tsx"
 import { G } from "../util/term.ts"
 import { Markdown } from "./Markdown.tsx"
+import { Overlay, Row } from "./ui.tsx"
 import { Scrim } from "./Scrim.tsx"
 
 type Choice =
@@ -29,7 +29,6 @@ const CHOICES: Choice[] = [
 export function PlanCard() {
   const app = useApp()
   const dims = useTerminalDimensions()
-  const accent = () => getMode(app.mode()).accent
   const plan = () => app.planPending()
   const readOnly = () => app.planReadOnly()
   const [sel, setSel] = createSignal(0)
@@ -96,28 +95,11 @@ export function PlanCard() {
   return (
     <Show when={plan()}>
       <Scrim onClose={() => app.dismissPlan()}>
-        <box
-          flexDirection="column"
+        <Overlay
           width={W()}
-          border
-          borderStyle="single"
-          borderColor={shimmerAccent(getMode("plan").accent)}
-          backgroundColor={theme.bgElevated}
-          paddingLeft={2}
-          paddingRight={2}
-          paddingTop={1}
-          paddingBottom={1}
-          gap={1}
+          title={readOnly() ? "plan" : "plan ready"}
+          hint={readOnly() ? "viewing a saved plan" : "review it, then choose how to proceed"}
         >
-          <box flexDirection="row" gap={1} alignItems="center">
-            <text fg={getMode("plan").accent}>
-              {G.modePlan} {readOnly() ? "plan" : "plan ready"}
-            </text>
-            <text fg={theme.textFaint}>
-              · {readOnly() ? "viewing a saved plan" : "review it, then choose how to proceed"}
-            </text>
-          </box>
-
           {/* full plan detail — taller in the viewer since there are no choices below it */}
           <scrollbox ref={(r: any) => (sb = r)} maxHeight={planMaxH()} paddingLeft={1} paddingRight={1}>
             <Markdown content={lines()} />
@@ -128,21 +110,15 @@ export function PlanCard() {
             <box flexDirection="column">
               <For each={CHOICES}>
                 {(c, i) => (
-                  <box
-                    flexDirection="row"
-                    gap={1}
-                    paddingLeft={1}
-                    paddingRight={1}
-                    backgroundColor={sel() === i() ? theme.bgHover : "transparent"}
-                    onMouseDown={() => choose(c)}
-                    onMouseOver={() => setSel(i())}
-                  >
-                    <text fg={sel() === i() ? accent() : theme.textFaint}>{sel() === i() ? G.caret : " "}</text>
-                    <box width={20}>
-                      <text fg={sel() === i() ? theme.text : theme.textMuted}>{c.label}</text>
-                    </box>
-                    <text fg={theme.textFaint}>{c.hint}</text>
-                  </box>
+                  // band is brand amber — the run mode is conveyed by the label, not the band color.
+                  <Row
+                    label={c.label}
+                    hint={c.hint}
+                    labelWidth={20}
+                    selected={sel() === i()}
+                    onSelect={() => setSel(i())}
+                    onActivate={() => choose(c)}
+                  />
                 )}
               </For>
             </box>
@@ -156,7 +132,7 @@ export function PlanCard() {
               Kept as a TOP-LEVEL sibling (not nested inside the !readOnly Show) so re-renders never
               destroy/recreate it mid-typing, which would silently drop focus. */}
           <Show when={!readOnly() && typing()}>
-            <box border borderStyle="single" borderColor={theme.border} paddingLeft={1} paddingRight={1}>
+            <box backgroundColor={theme.bgComposer} paddingLeft={1} paddingRight={1}>
               <textarea
                 ref={(r: any) => (input = r)}
                 onSubmit={submitRefine}
@@ -169,7 +145,7 @@ export function PlanCard() {
               />
             </box>
           </Show>
-        </box>
+        </Overlay>
       </Scrim>
     </Show>
   )
