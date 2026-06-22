@@ -318,7 +318,6 @@ export class Engine {
    * orchestrator is automatically re-prompted to merge & report. Returns the team id. */
   spawnTeam(orchestrator: string, goal: string, roles: { role: string; prompt: string; worktree?: string }[]): string {
     const teamId = this.board.createTeam(goal, orchestrator)
-    const sids: string[] = []
     for (const r of roles) {
       const wt = r.worktree || `team-${teamId}-${r.role}`.replace(/[^a-zA-Z0-9._/-]/g, "-")
       const briefing =
@@ -330,13 +329,12 @@ export class Engine {
       this.board.addMember(teamId, sid, r.role, wt)
       this.teamOf.set(sid, teamId)
       this.runners.get(sid)?.activateTools("board_")
-      sids.push(sid)
     }
     // The orchestrator needs the board tools too (to read progress / be re-prompted with context).
     this.runners.get(orchestrator)?.activateTools("board_")
-    // Pop a read-only watch window per member (real terminal) so the team runs visibly, like a swarm.
-    // The in-TUI Console (Ctrl+T) still tails the shared board. Degrades to in-TUI if no backend.
-    openFleetWindows(sids)
+    // ponytail: no auto-popout. The in-TUI Console (Ctrl+T) tails the team live; popping a real OS
+    // terminal per member whenever the model forms a team surprised users ("terminals open randomly").
+    // Opt in instead: `/fleet`, or `o` on a member in the Console.
     const timer = setTimeout(() => this.gatherTimeout(teamId), Engine.TEAM_TIMEOUT_MS)
     timer.unref?.()
     this.emitTeam(teamId)
