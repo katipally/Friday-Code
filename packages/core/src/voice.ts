@@ -130,15 +130,183 @@ async function transcribe(wav: string, cfg?: VoiceConfig): Promise<string> {
   return (await res.text()).trim()
 }
 
+// ---- native live transcription (macOS Speech framework) -----------------
+
+/**
+ * A tiny Swift CLI using SFSpeechRecognizer + AVAudioEngine that streams partial results as JSON
+ * lines. It uses the OS speech engine (on-device when supported) so there is NOTHING to bundle —
+ * we compile it on first use with swiftc and cache the binary in ~/.friday/bin.
+ */
+const SWIFT_SRC = `import Foundation
+import Speech
+import AVFoundation
+
+func emit(_ obj: [String: Any]) {
+    if let d = try? JSONSerialization.data(withJSONObject: obj), let s = String(data: d, encoding: .utf8) {
+        print(s); fflush(stdout)
+    }
+}
+
+guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US")), recognizer.isAvailable else {
+    emit(["error": "speech recognizer unavailable"]); exit(1)
+}
+let audioEngine = AVAudioEngine()
+var request: SFSpeechAudioBufferRecognitionRequest?
+var task: SFSpeechRecognitionTask?
+
+func startListening() {
+    let req = SFSpeechAudioBufferRecognitionRequest()
+    req.shouldReportPartialResults = true
+    if recognizer.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
+    request = req
+    let input = audioEngine.inputNode
+    let format = input.outputFormat(forBus: 0)
+    input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in req.append(buffer) }
+    audioEngine.prepare()
+    do { try audioEngine.start() } catch { emit(["error": "audio start failed"]); exit(1) }
+    emit(["ready": true])
+    task = recognizer.recognitionTask(with: req) { result, error in
+        if let result = result {
+            let text = result.bestTranscription.formattedString
+            emit(result.isFinal ? ["final": text] : ["partial": text])
+        }
+        if error != nil { /* surfaced via parent timeout/last-partial */ }
+    }
+}
+
+func stopListening() {
+    audioEngine.stop()
+    audioEngine.inputNode.removeTap(onBus: 0)
+    request?.endAudio()
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { task?.cancel(); exit(0) }
+}
+
+SFSpeechRecognizer.requestAuthorization { status in
+    DispatchQueue.main.async {
+        guard status == .authorized else { emit(["error": "speech not authorized"]); exit(2) }
+        startListening()
+    }
+}
+FileHandle.standardInput.readabilityHandler = { _ in DispatchQueue.main.async { stopListening() } }
+RunLoop.main.run()
+`
+
+function helperBin(): string {
+  return path.join(os.homedir(), ".friday", "bin", "friday-speech")
+}
+
+/** Compile the Swift helper once (cached). Returns its path, or undefined if not buildable here. */
+function ensureSpeechHelper(): string | undefined {
+  if (process.platform !== "darwin") return undefined
+  const bin = helperBin()
+  if (fs.existsSync(bin)) return bin
+  if (!Bun.which("swiftc")) return undefined
+  try {
+    fs.mkdirSync(path.dirname(bin), { recursive: true })
+    const src = `${bin}.swift`
+    fs.writeFileSync(src, SWIFT_SRC)
+    const p = Bun.spawnSync(["swiftc", src, "-o", bin, "-framework", "Speech", "-framework", "AVFoundation"], {
+      stdout: "ignore",
+      stderr: "ignore",
+    })
+    return p.success && fs.existsSync(bin) ? bin : undefined
+  } catch {
+    return undefined
+  }
+}
+
+export function nativeLiveAvailable(): boolean {
+  return process.platform === "darwin" && (fs.existsSync(helperBin()) || !!Bun.which("swiftc"))
+}
+
+class LiveVoiceSession {
+  private proc?: ReturnType<typeof Bun.spawn>
+  private last = ""
+  private final?: string
+  running = false
+
+  async start(onPartial: (text: string) => void): Promise<void> {
+    if (this.running) return
+    const bin = ensureSpeechHelper()
+    if (!bin) throw new Error("native speech unavailable (needs macOS + Xcode `swiftc`)")
+    this.proc = Bun.spawn([bin], { stdin: "pipe", stdout: "pipe", stderr: "ignore" })
+    this.running = true
+    void this.readLoop(onPartial)
+  }
+
+  private async readLoop(onPartial: (text: string) => void): Promise<void> {
+    if (!this.proc?.stdout) return
+    const decoder = new TextDecoder()
+    let buf = ""
+    for await (const chunk of this.proc.stdout as ReadableStream<Uint8Array>) {
+      buf += decoder.decode(chunk, { stream: true })
+      const lines = buf.split("\n")
+      buf = lines.pop() ?? ""
+      for (const line of lines) {
+        if (!line.trim()) continue
+        let msg: any
+        try {
+          msg = JSON.parse(line)
+        } catch {
+          continue
+        }
+        if (typeof msg.partial === "string") {
+          this.last = msg.partial
+          onPartial(msg.partial)
+        } else if (typeof msg.final === "string") {
+          this.final = msg.final
+          onPartial(msg.final)
+        } else if (msg.error) {
+          this.final = this.final ?? ""
+        }
+      }
+    }
+  }
+
+  async stop(): Promise<string> {
+    if (!this.running || !this.proc) return ""
+    this.running = false
+    try {
+      const sink = this.proc.stdin // FileSink when stdin:"pipe"
+      if (sink && typeof sink !== "number") {
+        sink.write("\n")
+        sink.flush?.()
+      }
+    } catch {}
+    await Promise.race([this.proc.exited, Bun.sleep(2500)])
+    try {
+      this.proc.kill()
+    } catch {}
+    const text = (this.final ?? this.last).trim()
+    this.proc = undefined
+    this.final = undefined
+    this.last = ""
+    return text
+  }
+}
+
+let live: LiveVoiceSession | undefined
+export function liveRecording(): boolean {
+  return !!live?.running
+}
+export async function startLiveVoice(onPartial: (text: string) => void): Promise<void> {
+  if (!live) live = new LiveVoiceSession()
+  await live.start(onPartial)
+}
+export async function stopLiveVoice(): Promise<string> {
+  return live ? live.stop() : ""
+}
+
 // ---- public API used by the engine / TUI -------------------------------
 
-/** Is voice usable at all on this machine right now? (recorder present AND an engine resolvable) */
+/** Is voice usable at all right now? Native live (macOS) needs nothing; batch needs recorder+key. */
 export function voiceStatus(cfg?: VoiceConfig): { ok: boolean; reason: string } {
+  if (nativeLiveAvailable()) return { ok: true, reason: "ready (native live transcription)" }
   if (!findRecorder(cfg?.recorder))
     return { ok: false, reason: "no mic recorder (install sox `rec`, ffmpeg, or arecord)" }
   if (resolveEngine(cfg).kind === "none")
     return { ok: false, reason: "no speech engine (set GROQ_API_KEY or OPENAI_API_KEY)" }
-  return { ok: true, reason: "ready" }
+  return { ok: true, reason: "ready (cloud Whisper)" }
 }
 
 export function voiceRecording(): boolean {

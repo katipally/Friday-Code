@@ -125,6 +125,8 @@ export function createAppStore(engine: Engine, version = "dev") {
   const [overlayOpen, setOverlayOpen] = createSignal(false)
   const [modelModalOpen, setModelModalOpen] = createSignal(false)
   const [yoloConfirmOpen, setYoloConfirmOpen] = createSignal(false)
+  const [voiceModalOpen, setVoiceModalOpen] = createSignal(false)
+  const [voicePartial, setVoicePartial] = createSignal("")
   const [onboardingOpen, setOnboardingOpen] = createSignal(false)
 
   const [paletteOpen, setPaletteOpen] = createSignal(false)
@@ -247,6 +249,7 @@ export function createAppStore(engine: Engine, version = "dev") {
     overlayOpen() ||
     modelModalOpen() ||
     yoloConfirmOpen() ||
+    voiceModalOpen() ||
     onboardingOpen() ||
     effortOpen() ||
     paletteOpen() ||
@@ -631,6 +634,19 @@ export function createAppStore(engine: Engine, version = "dev") {
   function cancelYolo() {
     setYoloConfirmOpen(false)
   }
+  /** Stop the live voice modal: finalize the transcript into the composer. */
+  function stopVoiceModal() {
+    setVoiceModalOpen(false)
+    engine
+      .stopVoiceLive()
+      .then((text) => {
+        if (text) {
+          setComposerText(text)
+          pushToast("transcribed — edit & press Enter to send", "done")
+        } else pushToast("nothing heard", "input")
+      })
+      .catch((e) => pushToast(`voice: ${e?.message ?? e}`, "error"))
+  }
   function setEffort(e: Effort) {
     setEffortSig(e)
     engine.send({ type: "set-effort", effort: e })
@@ -829,6 +845,17 @@ export function createAppStore(engine: Engine, version = "dev") {
         return true
       }
       case "voice": {
+        // Native live transcription (macOS): open a modal that streams text as you speak.
+        if (engine.voiceLiveAvailable()) {
+          setVoicePartial("")
+          setVoiceModalOpen(true)
+          engine.startVoiceLive((t) => setVoicePartial(t)).catch((e) => {
+            setVoiceModalOpen(false)
+            pushToast(`voice: ${e?.message ?? e}`, "error")
+          })
+          return true
+        }
+        // Fallback: press-to-talk batch (cloud Whisper).
         if (engine.voiceRecording()) {
           pushToast("transcribing…", "input")
           engine
@@ -1240,6 +1267,9 @@ export function createAppStore(engine: Engine, version = "dev") {
     yoloConfirmOpen,
     confirmYolo,
     cancelYolo,
+    voiceModalOpen,
+    voicePartial,
+    stopVoiceModal,
     onboardingOpen,
     setOnboardingOpen,
     mascot,

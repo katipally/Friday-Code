@@ -40,7 +40,17 @@ import { persistPermission, projectPermissions, revokeProjectPermissions } from 
 import { type RunnerHost, SessionRunner, type SessionStats } from "./runner.ts"
 import { SessionStore } from "./sessions.ts"
 import type { StreamFn } from "./stream.ts"
-import { cancelVoice, startVoice, stopVoice, voiceRecording, voiceStatus } from "./voice.ts"
+import {
+  cancelVoice,
+  liveRecording,
+  nativeLiveAvailable,
+  startLiveVoice,
+  startVoice,
+  stopLiveVoice,
+  stopVoice,
+  voiceRecording,
+  voiceStatus,
+} from "./voice.ts"
 
 export type { SessionStats } from "./runner.ts"
 export type { StreamFn } from "./stream.ts"
@@ -264,6 +274,19 @@ export class Engine {
   }
   cancelVoice(): void {
     cancelVoice()
+  }
+  /** Native live transcription (macOS): streams partials to `onPartial`; stopVoiceLive returns final. */
+  voiceLiveAvailable(): boolean {
+    return nativeLiveAvailable()
+  }
+  voiceLiveRecording(): boolean {
+    return liveRecording()
+  }
+  startVoiceLive(onPartial: (text: string) => void): Promise<void> {
+    return startLiveVoice(onPartial)
+  }
+  stopVoiceLive(): Promise<string> {
+    return stopLiveVoice()
   }
   // ---- computer use (opt-in native backend) ----
   computerInstalled(): boolean {
