@@ -1,19 +1,21 @@
 import { theme } from "@friday/shared"
 import { useKeyboard } from "@opentui/solid"
-import { Show } from "solid-js"
+import { Match, Show, Switch } from "solid-js"
 import { shimmerAccent } from "../motion/index.ts"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
 
 /**
- * Live voice-input modal. While open, the native speech helper streams partial transcripts which
- * render here in real time; ⏎/esc stops and drops the final text into the composer (editable).
+ * Mic modal — press-to-talk, on-device speech-to-text (whisper-tiny.en). Ctrl+R (or ⏎/space) while
+ * recording stops & transcribes locally and drops the text into the composer. Shows an OS-aware setup
+ * checklist when the mic isn't ready, and keeps the error on screen (with the fix) if anything fails.
  */
-export function VoiceModal() {
+export function MicModal() {
   const app = useApp()
 
   useKeyboard((key) => {
-    if (!app.voiceModalOpen()) return
+    if (!app.micModalOpen()) return
+    if (app.micPhase() === "transcribing") return // busy — ignore keys until it finishes
     if (
       key.name === "return" ||
       key.name === "enter" ||
@@ -21,14 +23,12 @@ export function VoiceModal() {
       key.name === "space" ||
       (key.ctrl && key.name === "r")
     )
-      return app.stopVoiceModal()
+      return app.toggleMic() // recording → stop&insert; setup/error → close
   })
 
-  const setup = () => app.voiceSetup()
-
   return (
-    <Show when={app.voiceModalOpen()}>
-      <Scrim onClose={() => app.stopVoiceModal()}>
+    <Show when={app.micModalOpen()}>
+      <Scrim onClose={() => app.closeMic()}>
         <box
           flexDirection="column"
           width={64}
@@ -42,50 +42,45 @@ export function VoiceModal() {
           paddingBottom={1}
           gap={1}
         >
-          <Show
-            when={!app.voiceError() && setup().length === 0}
-            fallback={
-              <>
-                <text fg={app.voiceError() ? theme.error : theme.warning}>
-                  {app.voiceError() ? "⚠ voice error" : "⚠ voice not set up yet"}
-                </text>
-                {/* The actual error (if a session failed). */}
-                <Show when={app.voiceError()}>
-                  <box backgroundColor={theme.bgComposer} paddingLeft={1} paddingRight={1}>
-                    <text fg={theme.error} selectable>
-                      {app.voiceError()}
-                    </text>
-                  </box>
-                </Show>
-                {/* What might fix it — the OS-aware checklist (✓ done · • todo). */}
-                <Show when={setup().length}>
-                  <text fg={theme.textFaint}>{app.voiceError() ? "what might fix it:" : ""}</text>
-                  <box flexDirection="column" backgroundColor={theme.bgComposer} paddingLeft={1} paddingRight={1}>
-                    {setup().map((l) => (
-                      <text fg={l.startsWith("✓") ? theme.success : theme.text}>{l}</text>
-                    ))}
-                  </box>
-                </Show>
-                <text fg={theme.textFaint}>esc close · once fixed, press Ctrl+R again</text>
-              </>
-            }
-          >
-            <text fg={theme.info}>🎙 listening — speak now</text>
-            <box
-              border
-              borderStyle="single"
-              borderColor={theme.border}
-              backgroundColor={theme.bgComposer}
-              paddingLeft={1}
-              paddingRight={1}
-              minHeight={3}
-            >
-              <text fg={theme.text} selectable>
-                {app.voicePartial() || "…"}
+          <Switch>
+            <Match when={app.micPhase() === "recording"}>
+              <text fg={theme.info}>🎙 recording — speak now</text>
+              <box backgroundColor={theme.bgComposer} paddingLeft={1} paddingRight={1} minHeight={1}>
+                <text fg={theme.textMuted}>listening on-device · nothing leaves your machine</text>
+              </box>
+              <text fg={theme.textFaint}>⏎ / esc / Ctrl+R — stop & transcribe</text>
+            </Match>
+
+            <Match when={app.micPhase() === "transcribing"}>
+              <text fg={theme.info}>⏳ transcribing on-device…</text>
+              <box backgroundColor={theme.bgComposer} paddingLeft={1} paddingRight={1} minHeight={1}>
+                <text fg={theme.textFaint}>first run loads whisper-tiny.en (~40MB) — a moment, then instant</text>
+              </box>
+            </Match>
+
+            {/* setup or error */}
+            <Match when={app.micPhase() === "setup" || app.micPhase() === "error"}>
+              <text fg={app.micError() ? theme.error : theme.warning}>
+                {app.micError() ? "⚠ mic error" : "⚠ mic not set up yet"}
               </text>
-            </box>
-            <text fg={theme.textFaint}>⏎/esc/Ctrl+R stop & insert · transcribes live, on-device</text>
-          </Show>
+              <Show when={app.micError()}>
+                <box backgroundColor={theme.bgComposer} paddingLeft={1} paddingRight={1}>
+                  <text fg={theme.error} selectable>
+                    {app.micError()}
+                  </text>
+                </box>
+              </Show>
+              <Show when={app.micSetup().length}>
+                <text fg={theme.textFaint}>{app.micError() ? "what might fix it:" : ""}</text>
+                <box flexDirection="column" backgroundColor={theme.bgComposer} paddingLeft={1} paddingRight={1}>
+                  {app.micSetup().map((l) => (
+                    <text fg={l.startsWith("✓") ? theme.success : theme.text}>{l}</text>
+                  ))}
+                </box>
+              </Show>
+              <text fg={theme.textFaint}>esc close · once fixed, press Ctrl+R again</text>
+            </Match>
+          </Switch>
         </box>
       </Scrim>
     </Show>

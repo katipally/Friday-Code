@@ -10,6 +10,7 @@ import { CompactionCard, CompactionSummary } from "./components/CompactionCard.t
 import { Composer } from "./components/Composer.tsx"
 import { ConsoleView } from "./components/ConsoleView.tsx"
 import { ContextPanel } from "./components/ContextPanel.tsx"
+import { Dashboard } from "./components/Dashboard.tsx"
 import { DirectoryModal } from "./components/DirectoryModal.tsx"
 import { CollapseTab, GripDivider } from "./components/Divider.tsx"
 import { EffortSlider } from "./components/EffortSlider.tsx"
@@ -18,7 +19,7 @@ import { FooterHints } from "./components/FooterHints.tsx"
 import { ForkPicker } from "./components/ForkPicker.tsx"
 import { KeymapOverlay } from "./components/KeymapOverlay.tsx"
 import { McpModal } from "./components/McpModal.tsx"
-import { MissionControl } from "./components/MissionControl.tsx"
+import { MicModal } from "./components/MicModal.tsx"
 import { ModelModal } from "./components/ModelModal.tsx"
 import { Onboarding } from "./components/Onboarding.tsx"
 import { PermissionCard } from "./components/PermissionCard.tsx"
@@ -28,7 +29,6 @@ import { Splash } from "./components/Splash.tsx"
 import { StatusStrip } from "./components/StatusStrip.tsx"
 import { Toasts } from "./components/Toasts.tsx"
 import { TopBar } from "./components/TopBar.tsx"
-import { VoiceModal } from "./components/VoiceModal.tsx"
 import { YoloConfirm } from "./components/YoloConfirm.tsx"
 import { AppProvider, createAppStore, useApp } from "./store.tsx"
 
@@ -157,8 +157,8 @@ function Shell() {
       <Show when={app.yoloConfirmOpen()}>
         <YoloConfirm />
       </Show>
-      <Show when={app.voiceModalOpen()}>
-        <VoiceModal />
+      <Show when={app.micModalOpen()}>
+        <MicModal />
       </Show>
       <Show when={app.effortOpen()}>
         <EffortSlider />
@@ -215,9 +215,9 @@ function AppRoot() {
       if (key.ctrl && key.name === "t") return app.toggleConsole()
       return
     }
-    if (app.view() === "mission") {
-      // MissionControl owns its keys; only the toggle is global so it can close from here too.
-      if (key.ctrl && key.name === "o") return app.toggleMission()
+    if (app.view() === "dashboard") {
+      // Dashboard owns its keys; only the toggle is global so it can close from here too.
+      if (key.ctrl && key.name === "o") return app.toggleDashboard()
       return
     }
     // KeymapOverlay has no useKeyboard of its own — close it on Esc here.
@@ -235,9 +235,9 @@ function AppRoot() {
     }
     if (key.ctrl && /^[1-9]$/.test(key.name)) return app.switchSessionByIndex(Number(key.name) - 1)
     if (key.ctrl && key.name === "k") return app.setPaletteOpen(true)
-    if (key.ctrl && key.name === "r") return app.toggleVoice()
+    if (key.ctrl && key.name === "r") return app.toggleMic()
     if (key.ctrl && key.name === "t") return app.toggleConsole()
-    if (key.ctrl && key.name === "o") return app.toggleMission()
+    if (key.ctrl && key.name === "o") return app.toggleDashboard()
     if (key.ctrl && key.name === "y") return app.setHistoryOpen(true)
     if (key.name?.toLowerCase() === "f1" || (key.ctrl && key.name === "/")) return app.setOverlayOpen(true)
     // `?` opens the keymap, but only when the composer is empty so it never eats a literal "?".
@@ -288,8 +288,8 @@ function AppRoot() {
       <Match when={app.view() === "console"}>
         <ConsoleView />
       </Match>
-      <Match when={app.view() === "mission"}>
-        <MissionControl />
+      <Match when={app.view() === "dashboard"}>
+        <Dashboard />
       </Match>
     </Switch>
   )

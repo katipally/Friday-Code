@@ -17,6 +17,34 @@ function truncate(s: string, n: number, fromStart = false): string {
   return fromStart ? `…${s.slice(s.length - (n - 1))}` : `${s.slice(0, n - 1)}…`
 }
 
+/**
+ * A prominent quick-action button with a clear hover animation: border lights up to the mode accent
+ * and the label brightens on hover; bg tints. Used for the mic + dashboard launchers.
+ */
+function QuickButton(props: { label: string; hint: string; onClick: () => void; accent: string }) {
+  const h = useHover({ base: theme.bgPanel, hover: theme.bgHover })
+  return (
+    <box
+      flexGrow={1}
+      flexDirection="row"
+      gap={1}
+      paddingLeft={1}
+      paddingRight={1}
+      border
+      borderStyle="single"
+      borderColor={h.hovered() ? props.accent : theme.border}
+      backgroundColor={h.bg()}
+      onMouseOver={h.onMouseOver}
+      onMouseOut={h.onMouseOut}
+      onMouseDown={props.onClick}
+    >
+      <text fg={h.hovered() ? theme.text : theme.textMuted}>{props.label}</text>
+      <box flexGrow={1} />
+      <text fg={theme.textFaint}>{props.hint}</text>
+    </box>
+  )
+}
+
 /** A collapsible section that flags `*new` and auto-opens when its content changes. */
 function Section(props: {
   label: string
@@ -262,8 +290,8 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
 
             {/* Quick actions — same as the Ctrl+R / Ctrl+O shortcuts, clickable for mouse users. */}
             <box flexDirection="row" gap={1}>
-              <Pressable label="🎙 voice" onClick={() => app.toggleVoice()} />
-              <Pressable label="▣ mission" onClick={() => app.toggleMission()} />
+              <QuickButton label="🎙 mic" hint="Ctrl+R" onClick={() => app.toggleMic()} accent={accent()} />
+              <QuickButton label="▦ dashboard" hint="Ctrl+O" onClick={() => app.toggleDashboard()} accent={accent()} />
             </box>
 
             {/* Plans proposed this session — click one to re-open the full plan + execute gate. */}

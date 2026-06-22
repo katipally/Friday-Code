@@ -1,70 +1,128 @@
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { getProviderKey } from "@friday/providers"
 
 /**
- * Voice input (speech-to-text only — no TTS, no bundled model). The design goal is "use what's on
- * the device": capture the mic with whatever recorder is installed, then transcribe with an OS-native
- * engine when one exists, else a cloud Whisper endpoint if a key is set, else say so plainly.
+ * Local speech-to-text (mic). Records the mic with whatever recorder is installed (ffmpeg / sox /
+ * arecord) to a 16 kHz mono WAV, then transcribes ON-DEVICE with whisper-tiny.en via Transformers.js
+ * (onnxruntime). No API key, no cloud, nothing native to compile: the ~40 MB model is downloaded once
+ * and cached under ~/.friday/models, then it works offline.
  *
- * HONEST LIMIT: there is no reliable cross-platform *native* CLI speech-to-text. Windows has SAPI,
- * macOS/Linux have nothing built in for this. So in practice cloud Whisper (Groq/OpenAI — both expose
- * an OpenAI-compatible /audio/transcriptions endpoint) is the realistic default for most users. We
- * never bundle or auto-install a model.
- *
- * Interaction is press-to-talk (start, then stop), NOT hold-to-talk — that avoids fragile key-repeat
- * handling in the terminal and is far less bug-prone.
+ * Interaction is press-to-talk (start, then stop) — robust in a terminal and bug-free vs key-repeat.
  */
 
-export type VoiceConfig = {
-  /** "auto" (native→cloud), "groq", "openai", or "native" */
-  engine?: "auto" | "groq" | "openai" | "native"
+export type MicConfig = {
   /** override the recorder binary (sox `rec` / ffmpeg / arecord) */
   recorder?: string
-  /** transcription model (defaults: groq=whisper-large-v3-turbo, openai=whisper-1) */
+  /** transcription model id (default Xenova/whisper-tiny.en) */
   model?: string
+}
+
+const DEFAULT_MODEL = "Xenova/whisper-tiny.en"
+function modelsDir(): string {
+  return path.join(os.homedir(), ".friday", "models")
 }
 
 type Recorder = { bin: string; argv: (out: string) => string[] }
 
-/** Find an installed mic recorder. `rec` (sox) is the simplest cross-platform; arecord on Linux. */
+/** Find an installed mic recorder, configured to capture 16 kHz mono WAV (what Whisper wants). */
 function findRecorder(override?: string): Recorder | undefined {
   if (override && Bun.which(override.split(" ")[0]!)) {
     const parts = override.split(" ")
     return { bin: parts[0]!, argv: (out) => [...parts, out] }
   }
-  if (Bun.which("rec")) return { bin: "rec", argv: (out) => ["rec", "-q", out] } // sox
-  if (Bun.which("sox")) return { bin: "sox", argv: (out) => ["sox", "-d", "-q", out] }
+  if (Bun.which("rec")) return { bin: "rec", argv: (o) => ["rec", "-q", "-r", "16000", "-c", "1", o] } // sox
+  if (Bun.which("sox")) return { bin: "sox", argv: (o) => ["sox", "-d", "-q", "-r", "16000", "-c", "1", o] }
   if (process.platform === "linux" && Bun.which("arecord"))
-    return { bin: "arecord", argv: (out) => ["arecord", "-q", "-f", "cd", "-t", "wav", out] }
+    return { bin: "arecord", argv: (o) => ["arecord", "-q", "-f", "S16_LE", "-r", "16000", "-c", "1", "-t", "wav", o] }
   if (Bun.which("ffmpeg")) {
-    const dev = process.platform === "darwin" ? ["-f", "avfoundation", "-i", ":0"] : ["-f", "alsa", "-i", "default"]
-    return { bin: "ffmpeg", argv: (out) => ["ffmpeg", "-y", "-loglevel", "quiet", ...dev, out] }
+    const dev =
+      process.platform === "darwin"
+        ? ["-f", "avfoundation", "-i", ":0"]
+        : process.platform === "win32"
+          ? ["-f", "dshow", "-i", "audio=default"]
+          : ["-f", "alsa", "-i", "default"]
+    return { bin: "ffmpeg", argv: (o) => ["ffmpeg", "-y", "-loglevel", "quiet", ...dev, "-ar", "16000", "-ac", "1", o] }
   }
   return undefined
 }
 
-class VoiceSession {
+/** Decode a 16-bit PCM WAV file to mono Float32 in [-1,1] (first channel if stereo). */
+function decodeWav(file: string): Float32Array | undefined {
+  const buf = fs.readFileSync(file)
+  if (buf.length < 44 || buf.toString("ascii", 0, 4) !== "RIFF") return undefined
+  let off = 12
+  let dataOff = -1
+  let dataLen = 0
+  let bits = 16
+  let channels = 1
+  while (off + 8 <= buf.length) {
+    const id = buf.toString("ascii", off, off + 4)
+    const sz = buf.readUInt32LE(off + 4)
+    if (id === "fmt ") {
+      channels = buf.readUInt16LE(off + 10) || 1
+      bits = buf.readUInt16LE(off + 22) || 16
+    } else if (id === "data") {
+      dataOff = off + 8
+      dataLen = sz
+      break
+    }
+    off += 8 + sz + (sz & 1)
+  }
+  if (dataOff < 0 || bits !== 16) return undefined // recorders emit 16-bit PCM; bail otherwise
+  dataLen = Math.min(dataLen, buf.length - dataOff)
+  const samples = dataLen >> 1
+  const out = new Float32Array(Math.ceil(samples / channels))
+  let j = 0
+  for (let i = 0; i < samples; i += channels) out[j++] = buf.readInt16LE(dataOff + i * 2) / 32768
+  return out
+}
+
+// ---- on-device whisper (Transformers.js), lazily loaded ----
+
+let asrPromise: Promise<(input: Float32Array) => Promise<{ text: string }>> | undefined
+async function getAsr(model: string): Promise<(input: Float32Array) => Promise<{ text: string }>> {
+  if (!asrPromise) {
+    asrPromise = (async () => {
+      // dynamic import so the heavy dep never slows startup and a broken install fails gracefully
+      const { env, pipeline } = await import("@huggingface/transformers")
+      env.cacheDir = modelsDir()
+      env.allowLocalModels = false
+      const asr = await pipeline("automatic-speech-recognition", model)
+      return (input: Float32Array) => asr(input) as Promise<{ text: string }>
+    })()
+    asrPromise.catch(() => {
+      asrPromise = undefined // let a failed load retry next time
+    })
+  }
+  return asrPromise
+}
+
+/** Kick off the model download/load in the background (called when recording starts). */
+export function prewarmMic(cfg?: MicConfig): void {
+  void getAsr(cfg?.model ?? DEFAULT_MODEL).catch(() => {})
+}
+
+class MicSession {
   private proc?: ReturnType<typeof Bun.spawn>
   private out?: string
   recording = false
 
-  /** Begin capturing the mic to a temp WAV. Throws if no recorder is installed. */
-  start(cfg?: VoiceConfig): void {
+  start(cfg?: MicConfig): void {
     if (this.recording) return
     const rec = findRecorder(cfg?.recorder)
-    if (!rec) throw new Error("no microphone recorder found — install sox (`rec`), ffmpeg, or arecord")
-    this.out = path.join(os.tmpdir(), `friday-voice-${process.pid}-${this.proc ? 1 : 0}.wav`)
+    if (!rec) throw new Error("no microphone recorder found — install ffmpeg or sox")
+    this.out = path.join(os.tmpdir(), `friday-mic-${process.pid}.wav`)
     this.proc = Bun.spawn(rec.argv(this.out), { stdout: "ignore", stderr: "ignore" })
     this.recording = true
+    prewarmMic(cfg) // start loading the model while the user talks
   }
 
-  /** Stop capturing, transcribe, and return the recognized text (empty string if nothing heard). */
-  async stopAndTranscribe(cfg?: VoiceConfig): Promise<string> {
+  /** Stop capture, transcribe locally, return recognized text ("" if nothing heard). */
+  async stopAndTranscribe(cfg?: MicConfig): Promise<string> {
     if (!this.recording || !this.out || !this.proc) return ""
     this.recording = false
-    this.proc.kill("SIGINT") // let the recorder flush a valid WAV header
+    this.proc.kill("SIGINT") // flush a valid WAV header
     await this.proc.exited.catch(() => {})
     await Bun.sleep(150)
     const wav = this.out
@@ -72,7 +130,11 @@ class VoiceSession {
     this.proc = undefined
     if (!fs.existsSync(wav) || fs.statSync(wav).size < 1024) return ""
     try {
-      return await transcribe(wav, cfg)
+      const audio = decodeWav(wav)
+      if (!audio || audio.length < 1600) return "" // < 0.1s captured
+      const asr = await getAsr(cfg?.model ?? DEFAULT_MODEL)
+      const r = await asr(audio)
+      return (r?.text ?? "").trim()
     } finally {
       try {
         fs.unlinkSync(wav)
@@ -84,314 +146,61 @@ class VoiceSession {
     try {
       this.proc?.kill()
     } catch {}
-    if (this.out) {
+    if (this.out)
       try {
         fs.unlinkSync(this.out)
       } catch {}
-    }
     this.recording = false
     this.proc = undefined
     this.out = undefined
   }
 }
 
-let session: VoiceSession | undefined
-function active(): VoiceSession {
-  if (!session) session = new VoiceSession()
+let session: MicSession | undefined
+function active(): MicSession {
+  if (!session) session = new MicSession()
   return session
 }
 
-/** Pick a transcription backend given config + available keys. */
-function resolveEngine(cfg?: VoiceConfig): { kind: "groq" | "openai"; key: string; model: string } | { kind: "none" } {
-  const want = cfg?.engine ?? "auto"
-  const groqKey = getProviderKey("groq")
-  const openaiKey = getProviderKey("openai")
-  if ((want === "groq" || want === "auto") && groqKey)
-    return { kind: "groq", key: groqKey, model: cfg?.model ?? "whisper-large-v3-turbo" }
-  if ((want === "openai" || want === "auto") && openaiKey)
-    return { kind: "openai", key: openaiKey, model: cfg?.model ?? "whisper-1" }
-  return { kind: "none" }
-}
-
-async function transcribe(wav: string, cfg?: VoiceConfig): Promise<string> {
-  const eng = resolveEngine(cfg)
-  if (eng.kind === "none")
-    throw new Error("no speech engine available — set a GROQ_API_KEY or OPENAI_API_KEY (no native STT on this OS)")
-  const url =
-    eng.kind === "groq"
-      ? "https://api.groq.com/openai/v1/audio/transcriptions"
-      : "https://api.openai.com/v1/audio/transcriptions"
-  const form = new FormData()
-  form.append("file", new Blob([fs.readFileSync(wav)]), "audio.wav")
-  form.append("model", eng.model)
-  form.append("response_format", "text")
-  const res = await fetch(url, { method: "POST", headers: { Authorization: `Bearer ${eng.key}` }, body: form })
-  if (!res.ok) throw new Error(`transcription failed (${res.status}): ${(await res.text()).slice(0, 200)}`)
-  return (await res.text()).trim()
-}
-
-// ---- native live transcription (macOS Speech framework) -----------------
-
-/**
- * A tiny Swift CLI using SFSpeechRecognizer + AVAudioEngine that streams partial results as JSON
- * lines. It uses the OS speech engine (on-device when supported) so there is NOTHING to bundle —
- * we compile it on first use with swiftc and cache the binary in ~/.friday/bin.
- */
-const SWIFT_SRC = `import Foundation
-import Speech
-import AVFoundation
-
-func emit(_ obj: [String: Any]) {
-    if let d = try? JSONSerialization.data(withJSONObject: obj), let s = String(data: d, encoding: .utf8) {
-        print(s); fflush(stdout)
-    }
-}
-
-guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US")), recognizer.isAvailable else {
-    emit(["error": "speech recognizer unavailable"]); exit(1)
-}
-let audioEngine = AVAudioEngine()
-var request: SFSpeechAudioBufferRecognitionRequest?
-var task: SFSpeechRecognitionTask?
-
-func startListening() {
-    let req = SFSpeechAudioBufferRecognitionRequest()
-    req.shouldReportPartialResults = true
-    if recognizer.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
-    request = req
-    let input = audioEngine.inputNode
-    let format = input.outputFormat(forBus: 0)
-    input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in req.append(buffer) }
-    audioEngine.prepare()
-    do { try audioEngine.start() } catch { emit(["error": "audio start failed"]); exit(1) }
-    emit(["ready": true])
-    task = recognizer.recognitionTask(with: req) { result, error in
-        if let result = result {
-            let text = result.bestTranscription.formattedString
-            emit(result.isFinal ? ["final": text] : ["partial": text])
-        }
-        if error != nil { /* surfaced via parent timeout/last-partial */ }
-    }
-}
-
-func stopListening() {
-    audioEngine.stop()
-    audioEngine.inputNode.removeTap(onBus: 0)
-    request?.endAudio()
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { task?.cancel(); exit(0) }
-}
-
-SFSpeechRecognizer.requestAuthorization { status in
-    DispatchQueue.main.async {
-        guard status == .authorized else { emit(["error": "speech not authorized"]); exit(2) }
-        startListening()
-    }
-}
-FileHandle.standardInput.readabilityHandler = { _ in DispatchQueue.main.async { stopListening() } }
-RunLoop.main.run()
-`
-
-function helperBin(): string {
-  return path.join(os.homedir(), ".friday", "bin", "friday-speech")
-}
-
-/** Compile the Swift helper once (cached). Returns its path, or undefined if not buildable here. */
-function ensureSpeechHelper(): string | undefined {
-  if (process.platform !== "darwin") return undefined
-  const bin = helperBin()
-  if (fs.existsSync(bin)) return bin
-  if (!Bun.which("swiftc")) return undefined
-  try {
-    fs.mkdirSync(path.dirname(bin), { recursive: true })
-    const src = `${bin}.swift`
-    fs.writeFileSync(src, SWIFT_SRC)
-    const p = Bun.spawnSync(["swiftc", src, "-o", bin, "-framework", "Speech", "-framework", "AVFoundation"], {
-      stdout: "ignore",
-      stderr: "ignore",
-    })
-    return p.success && fs.existsSync(bin) ? bin : undefined
-  } catch {
-    return undefined
-  }
-}
-
-export function nativeLiveAvailable(): boolean {
-  return process.platform === "darwin" && (fs.existsSync(helperBin()) || !!Bun.which("swiftc"))
-}
-
-/** Map a raw helper error token to actionable, human-readable guidance. */
-function explainVoiceError(raw: string): string {
-  const e = raw.toLowerCase()
-  if (e.includes("not authorized") || e.includes("authoriz"))
-    return "mic/Speech not authorized — enable your terminal app in System Settings → Privacy & Security → Microphone AND → Speech Recognition, then retry"
-  if (e.includes("recognizer unavailable")) return "speech recognizer unavailable on this Mac"
-  if (e.includes("audio start")) return "could not start the microphone (another app may be using it)"
-  return raw.trim() || "voice helper exited unexpectedly"
-}
-
-class LiveVoiceSession {
-  private proc?: ReturnType<typeof Bun.spawn>
-  private last = ""
-  private final?: string
-  private gotResult = false
-  running = false
-
-  async start(onPartial: (text: string) => void, onError?: (msg: string) => void): Promise<void> {
-    if (this.running) return
-    const bin = ensureSpeechHelper()
-    if (!bin) throw new Error("native speech unavailable (needs macOS + Xcode `swiftc`)")
-    this.proc = Bun.spawn([bin], { stdin: "pipe", stdout: "pipe", stderr: "pipe" })
-    this.running = true
-    this.gotResult = false
-    void this.readLoop(onPartial, onError)
-  }
-
-  private async readLoop(onPartial: (text: string) => void, onError?: (msg: string) => void): Promise<void> {
-    if (!this.proc?.stdout) return
-    const decoder = new TextDecoder()
-    let buf = ""
-    try {
-      for await (const chunk of this.proc.stdout as ReadableStream<Uint8Array>) {
-        buf += decoder.decode(chunk, { stream: true })
-        const lines = buf.split("\n")
-        buf = lines.pop() ?? ""
-        for (const line of lines) {
-          if (!line.trim()) continue
-          let msg: any
-          try {
-            msg = JSON.parse(line)
-          } catch {
-            continue
-          }
-          if (typeof msg.partial === "string") {
-            this.gotResult = true
-            this.last = msg.partial
-            onPartial(msg.partial)
-          } else if (typeof msg.final === "string") {
-            this.gotResult = true
-            this.final = msg.final
-            onPartial(msg.final)
-          } else if (msg.error) {
-            this.final = this.final ?? ""
-            onError?.(explainVoiceError(String(msg.error)))
-          }
-        }
-      }
-    } catch (e: any) {
-      onError?.(explainVoiceError(String(e?.message ?? e)))
-    }
-    // Stream closed with no transcript and no error reported → surface stderr / exit reason.
-    if (!this.gotResult && this.running) {
-      const code = await (this.proc?.exited ?? Promise.resolve(0)).catch(() => 1)
-      let err = ""
-      try {
-        const se = this.proc?.stderr
-        if (se && typeof se !== "number") err = await new Response(se as ReadableStream<Uint8Array>).text()
-      } catch {}
-      // A non-zero / signal exit with no JSON and no stderr is the classic macOS TCC abort: a CLI
-      // helper can't satisfy the Speech/Microphone usage-description check, so the OS kills it before
-      // it can report anything. Point the user at the path that actually works from a terminal: cloud.
-      if (!err.trim() && code !== 0)
-        err =
-          "macOS blocked the native speech helper (privacy/TCC) — on-device Speech isn't reachable from a terminal CLI on this Mac. Use cloud transcription instead: set GROQ_API_KEY or OPENAI_API_KEY (a mic recorder like ffmpeg/sox must also be installed)."
-      onError?.(explainVoiceError(err))
-    }
-  }
-
-  async stop(): Promise<string> {
-    if (!this.running || !this.proc) return ""
-    this.running = false
-    try {
-      const sink = this.proc.stdin // FileSink when stdin:"pipe"
-      if (sink && typeof sink !== "number") {
-        sink.write("\n")
-        sink.flush?.()
-      }
-    } catch {}
-    await Promise.race([this.proc.exited, Bun.sleep(2500)])
-    try {
-      this.proc.kill()
-    } catch {}
-    const text = (this.final ?? this.last).trim()
-    this.proc = undefined
-    this.final = undefined
-    this.last = ""
-    return text
-  }
-}
-
-let live: LiveVoiceSession | undefined
-export function liveRecording(): boolean {
-  return !!live?.running
-}
-export async function startLiveVoice(
-  onPartial: (text: string) => void,
-  onError?: (msg: string) => void,
-): Promise<void> {
-  if (!live) live = new LiveVoiceSession()
-  await live.start(onPartial, onError)
-}
-export async function stopLiveVoice(): Promise<string> {
-  return live ? live.stop() : ""
-}
-
-// ---- public API used by the engine / TUI -------------------------------
-
-/** Is voice usable at all right now? Native live (macOS) needs nothing; batch needs recorder+key. */
-export function voiceStatus(cfg?: VoiceConfig): { ok: boolean; reason: string } {
-  if (nativeLiveAvailable()) return { ok: true, reason: "ready (native live transcription)" }
-  if (!findRecorder(cfg?.recorder))
-    return { ok: false, reason: "no mic recorder (install sox `rec`, ffmpeg, or arecord)" }
-  if (resolveEngine(cfg).kind === "none")
-    return { ok: false, reason: "no speech engine (set GROQ_API_KEY or OPENAI_API_KEY)" }
-  return { ok: true, reason: "ready (cloud Whisper)" }
-}
-
-/**
- * OS-aware enablement checklist. Each line is prefixed ✓ (satisfied) or • (todo) so the user sees
- * exactly what's missing for voice to work on their platform. `ready` mirrors voiceStatus().ok.
- */
-export function voiceSetupSteps(cfg?: VoiceConfig): { ready: boolean; lines: string[] } {
-  const ok = (done: boolean, text: string) => `${done ? "✓" : "•"} ${text}`
-  const hasRec = !!findRecorder(cfg?.recorder)
-  const hasKey = resolveEngine(cfg).kind !== "none"
-  if (process.platform === "darwin") {
-    const native = nativeLiveAvailable()
-    return {
-      ready: native || (hasRec && hasKey),
-      lines: [
-        "macOS — on-device live transcription (no API key, nothing bundled):",
-        ok(native, "Xcode command-line tools (`swiftc`) — install with: xcode-select --install"),
-        "• Grant your terminal app Microphone AND Speech Recognition in",
-        "  System Settings → Privacy & Security (you'll be prompted on first use)",
-        "Then press Ctrl+R again.",
-      ],
-    }
-  }
-  const recHint = process.platform === "linux" ? "sox (`rec`), ffmpeg, or arecord" : "ffmpeg (add it to PATH)"
-  return {
-    ready: hasRec && hasKey,
-    lines: [
-      `${process.platform === "win32" ? "Windows" : "Linux"} — cloud transcription (Whisper):`,
-      ok(hasRec, `Install a mic recorder: ${recHint}`),
-      ok(hasKey, "Set GROQ_API_KEY or OPENAI_API_KEY in your environment"),
-      "Then press Ctrl+R again.",
-    ],
-  }
-}
-
-export function voiceRecording(): boolean {
+export function micRecording(): boolean {
   return active().recording
 }
-
-export function startVoice(cfg?: VoiceConfig): void {
+export function startMic(cfg?: MicConfig): void {
   active().start(cfg)
 }
-
-export async function stopVoice(cfg?: VoiceConfig): Promise<string> {
+export function stopMic(cfg?: MicConfig): Promise<string> {
   return active().stopAndTranscribe(cfg)
 }
-
-export function cancelVoice(): void {
+export function cancelMic(): void {
   session?.cancel()
+}
+
+export function micStatus(cfg?: MicConfig): { ok: boolean; reason: string } {
+  if (!findRecorder(cfg?.recorder)) return { ok: false, reason: "no mic recorder (install ffmpeg or sox)" }
+  return { ok: true, reason: "ready (on-device whisper-tiny.en)" }
+}
+
+/**
+ * Setup checklist for the mic modal. Each line is prefixed ✓ (done) or • (todo). The model line is
+ * informational — it downloads itself on first use.
+ */
+export function micSetupSteps(cfg?: MicConfig): { ready: boolean; lines: string[] } {
+  const ok = (done: boolean, text: string) => `${done ? "✓" : "•"} ${text}`
+  const hasRec = !!findRecorder(cfg?.recorder)
+  const recHint =
+    process.platform === "darwin"
+      ? "brew install ffmpeg   (or sox)"
+      : process.platform === "win32"
+        ? "install ffmpeg and add it to PATH"
+        : "sudo apt install ffmpeg   (or sox / alsa-utils)"
+  return {
+    ready: hasRec,
+    lines: [
+      "Local speech-to-text — runs on your machine, no API key, no cloud:",
+      ok(hasRec, `Install a mic recorder: ${recHint}`),
+      "• First run downloads whisper-tiny.en (~40MB) once, then works offline",
+      "• Your OS will ask for Microphone permission the first time — allow it",
+      "Then press Ctrl+R, speak, and press Ctrl+R again to transcribe & insert.",
+    ],
+  }
 }

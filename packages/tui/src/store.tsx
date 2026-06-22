@@ -124,7 +124,7 @@ function messagesToItems(messages: Message[]): ViewItem[] {
 }
 
 export function createAppStore(engine: Engine, version = "dev") {
-  const [view, setView] = createSignal<"splash" | "shell" | "console" | "mission" | "exit">("splash")
+  const [view, setView] = createSignal<"splash" | "shell" | "console" | "dashboard" | "exit">("splash")
   const [mode, setModeSig] = createSignal<ModeId>(engine.selection().mode ?? DEFAULT_MODE)
   const [effort, setEffortSig] = createSignal<Effort>(engine.selection().effort ?? "medium")
   const [model, setModel] = createSignal<string>(engine.selection().model ?? "no model — open /model")
@@ -143,11 +143,12 @@ export function createAppStore(engine: Engine, version = "dev") {
   const [overlayOpen, setOverlayOpen] = createSignal(false)
   const [modelModalOpen, setModelModalOpen] = createSignal(false)
   const [yoloConfirmOpen, setYoloConfirmOpen] = createSignal(false)
-  const [voiceModalOpen, setVoiceModalOpen] = createSignal(false)
-  const [voicePartial, setVoicePartial] = createSignal("")
-  const [voiceError, setVoiceError] = createSignal("")
-  // Non-empty → the modal is showing the OS-aware setup checklist instead of a live session.
-  const [voiceSetup, setVoiceSetup] = createSignal<string[]>([])
+  const [micModalOpen, setMicModalOpen] = createSignal(false)
+  // press-to-talk lifecycle for the mic modal
+  const [micPhase, setMicPhase] = createSignal<"idle" | "recording" | "transcribing" | "setup" | "error">("idle")
+  const [micError, setMicError] = createSignal("")
+  // Non-empty → the modal shows the OS-aware setup checklist (also shown alongside an error).
+  const [micSetup, setMicSetup] = createSignal<string[]>([])
   const [onboardingOpen, setOnboardingOpen] = createSignal(false)
 
   const [paletteOpen, setPaletteOpen] = createSignal(false)
@@ -272,7 +273,7 @@ export function createAppStore(engine: Engine, version = "dev") {
     overlayOpen() ||
     modelModalOpen() ||
     yoloConfirmOpen() ||
-    voiceModalOpen() ||
+    micModalOpen() ||
     onboardingOpen() ||
     effortOpen() ||
     paletteOpen() ||
@@ -661,76 +662,95 @@ export function createAppStore(engine: Engine, version = "dev") {
   function cancelYolo() {
     setYoloConfirmOpen(false)
   }
-  /** Stop the live voice modal: finalize the transcript into the composer. */
-  function stopVoiceModal() {
-    const wasSetup = voiceSetup().length > 0 || !!voiceError()
-    setVoiceModalOpen(false)
-    setVoiceSetup([])
-    setVoiceError("")
-    if (wasSetup) return // setup checklist or failed session — nothing to finalize
-    engine
-      .stopVoiceLive()
-      .then((text) => {
-        if (text) {
-          setComposerText(text)
-          pushToast("transcribed — edit & press Enter to send", "done")
-        } else pushToast("nothing heard", "input")
-      })
-      .catch((e) => pushToast(`voice: ${e?.message ?? e}`, "error"))
+  /** Insert transcribed text into the composer, appending to anything already typed. */
+  function insertTranscript(text: string) {
+    const cur = (composerEl as any)?.plainText ? String((composerEl as any).plainText).trim() : ""
+    setComposerText(cur ? `${cur} ${text}` : text)
+  }
+  /** Close the mic modal, cancelling an in-progress recording. */
+  function closeMic() {
+    if (micPhase() === "recording") engine.cancelMic()
+    setMicModalOpen(false)
+    setMicPhase("idle")
+    setMicError("")
+    setMicSetup([])
   }
   /**
-   * Voice toggle (Ctrl+R). Routes to the best available path: native live modal (macOS),
-   * else cloud press-to-talk, else opens the modal showing an OS-aware setup checklist.
+   * Mic toggle (Ctrl+R) — press-to-talk, on-device whisper. First press records; second press stops
+   * and transcribes locally, inserting into the composer. If the mic isn't set up, the modal shows an
+   * OS-aware checklist (and stays open on error) instead of a toast that vanishes.
    */
-  function toggleVoice() {
-    if (voiceModalOpen()) return stopVoiceModal() // live modal open → stop & insert
-    if (engine.voiceRecording()) {
-      // cloud press-to-talk in progress → stop & transcribe
-      pushToast("transcribing…", "input")
+  function toggleMic() {
+    if (micPhase() === "recording") {
+      // stop & transcribe locally (may take a moment, esp. on first run while the model loads)
+      setMicPhase("transcribing")
       engine
-        .stopVoice()
+        .stopMic()
         .then((text) => {
+          setMicModalOpen(false)
+          setMicPhase("idle")
           if (text) {
-            setComposerText(text)
+            insertTranscript(text)
             pushToast("transcribed — edit & press Enter to send", "done")
           } else pushToast("nothing heard", "input")
         })
-        .catch((e) => pushToast(`voice: ${e?.message ?? e}`, "error"))
+        .catch((e) => {
+          setMicError(e?.message ?? String(e))
+          setMicSetup(engine.micSetupSteps().lines)
+          setMicPhase("error")
+        })
       return
     }
-    if (engine.voiceLiveAvailable()) {
-      setVoicePartial("")
-      setVoiceError("")
-      setVoiceSetup([])
-      setVoiceModalOpen(true)
-      // On any failure, KEEP the modal open and show the error + the OS remedy checklist, so the user
-      // sees what went wrong and how to fix it (instead of a toast that vanishes).
-      const fail = (msg: string) => {
-        setVoiceError(msg)
-        setVoiceSetup(engine.voiceSetupSteps().lines)
-      }
-      engine
-        .startVoiceLive(
-          (t) => setVoicePartial(t),
-          (msg) => fail(msg),
-        )
-        .catch((e) => fail(e?.message ?? String(e)))
+    if (micModalOpen()) return closeMic() // setup/error/transcribing modal open → toggle off
+    const st = engine.micStatus()
+    if (!st.ok) {
+      setMicSetup(engine.micSetupSteps().lines)
+      setMicError("")
+      setMicPhase("setup")
+      setMicModalOpen(true)
       return
     }
-    if (engine.voiceStatus().ok) {
-      try {
-        engine.startVoice()
-        pushToast("🎙 recording — Ctrl+R to stop & transcribe", "input")
-      } catch (e: any) {
-        pushToast(`voice: ${e?.message ?? e}`, "error")
-      }
-      return
+    try {
+      engine.startMic()
+      setMicError("")
+      setMicSetup([])
+      setMicPhase("recording")
+      setMicModalOpen(true)
+    } catch (e: any) {
+      setMicError(e?.message ?? String(e))
+      setMicSetup(engine.micSetupSteps().lines)
+      setMicPhase("error")
+      setMicModalOpen(true)
     }
-    // Not set up on this OS — show the actionable checklist.
-    setVoicePartial("")
-    setVoiceError("")
-    setVoiceSetup(engine.voiceSetupSteps().lines)
-    setVoiceModalOpen(true)
+  }
+  // ---- dashboard launchers (open work in its own window; the dashboard stays the console) ----
+  /** Open a brand-new interactive friday window (new chat) in the current directory. */
+  function newChatWindow() {
+    const r = engine.openInteractive([])
+    pushToast(r.ok ? `opened new chat (${r.backend})` : "no terminal backend to open a window", r.ok ? "done" : "error")
+  }
+  /** Resume an existing session in its own interactive window. */
+  function resumeInWindow(id: string) {
+    const r = engine.openInteractive(["-s", id])
+    pushToast(r.ok ? `opened session (${r.backend})` : "no terminal backend to open a window", r.ok ? "done" : "error")
+  }
+  /** Fan out a swarm of independent agents (one task per line) + open watch windows for each. */
+  function launchSwarm(tasks: string[]) {
+    const jobs = tasks
+      .map((t) => t.trim())
+      .filter(Boolean)
+      .map((t) => ({ description: t.slice(0, 40), prompt: t }))
+    if (!jobs.length) return
+    const ids = engine.spawnAgents(jobs)
+    for (const id of ids) engine.popoutAgent(id) // read-only watch window per agent
+    pushToast(`spawned ${ids.length} swarm agent(s)`, "done")
+  }
+  /** Ask Friday to form a coordinated team for a goal (it decides the roles via spawn_team). */
+  function launchTeam(goal: string) {
+    const g = goal.trim()
+    if (!g) return
+    setView("shell")
+    submit(`Form an agent team to accomplish this goal. Decide the roles yourself and call spawn_team.\n\nGoal: ${g}`)
   }
   function setEffort(e: Effort) {
     setEffortSig(e)
@@ -752,8 +772,8 @@ export function createAppStore(engine: Engine, version = "dev") {
     { name: "usage", description: "show token + cost usage this session" },
     { name: "stats", description: "show token + cost usage this session" },
     { name: "doctor", description: "check model, provider & environment health" },
-    { name: "mission", description: "mission control — Sessions · Teams · Swarm (Ctrl+O)" },
-    { name: "console", description: "open the agent-team console / dashboard (Ctrl+T)" },
+    { name: "dashboard", description: "dashboard — Sessions · Teams · Swarm · History (Ctrl+O)" },
+    { name: "console", description: "open the agent-team console (Ctrl+T)" },
     { name: "fleet", description: "swarm: open an external window per running agent (inline view: Ctrl+O)" },
     { name: "browser", description: "launch the browser + activate browser tools (/browser close to stop)" },
     { name: "chrome", description: "alias for /browser" },
@@ -889,8 +909,8 @@ export function createAppStore(engine: Engine, version = "dev") {
         appendItem(sid, { kind: "notice", id: nextLocalId(), text: parts.join(" · ") })
         return true
       }
-      case "mission": {
-        toggleMission()
+      case "dashboard": {
+        toggleDashboard()
         return true
       }
       case "console": {
@@ -955,9 +975,10 @@ export function createAppStore(engine: Engine, version = "dev") {
         }
         return true
       }
-      case "voice": {
-        // Voice is bound to Ctrl+R; this hidden alias just delegates.
-        toggleVoice()
+      case "voice":
+      case "mic": {
+        // Mic is bound to Ctrl+R; this hidden alias just delegates.
+        toggleMic()
         return true
       }
       case "browser":
@@ -987,8 +1008,8 @@ export function createAppStore(engine: Engine, version = "dev") {
             ? "✓ browser: available (/browser)"
             : "✗ browser: none found (install Chrome/Brave/Edge)",
           (() => {
-            const v = engine.voiceStatus()
-            return v.ok ? "✓ voice: ready (/voice)" : `✗ voice: ${v.reason}`
+            const v = engine.micStatus()
+            return v.ok ? "✓ mic: ready (Ctrl+R · on-device whisper)" : `✗ mic: ${v.reason}`
           })(),
           engine.computerInstalled()
             ? "✓ computer-use: installed"
@@ -1230,8 +1251,8 @@ export function createAppStore(engine: Engine, version = "dev") {
   function toggleConsole() {
     setView(view() === "console" ? "shell" : "console")
   }
-  function toggleMission() {
-    setView(view() === "mission" ? "shell" : "mission")
+  function toggleDashboard() {
+    setView(view() === "dashboard" ? "shell" : "dashboard")
   }
   /** Focus an agent's session and drop back into the chat shell. */
   function visitAgent(sessionId: string) {
@@ -1370,12 +1391,17 @@ export function createAppStore(engine: Engine, version = "dev") {
     yoloConfirmOpen,
     confirmYolo,
     cancelYolo,
-    voiceModalOpen,
-    voicePartial,
-    voiceError,
-    voiceSetup,
-    stopVoiceModal,
-    toggleVoice,
+    micModalOpen,
+    micPhase,
+    micError,
+    micSetup,
+    closeMic,
+    toggleMic,
+    newChatWindow,
+    resumeInWindow,
+    launchSwarm,
+    launchTeam,
+    refreshSessions,
     onboardingOpen,
     setOnboardingOpen,
     mascot,
@@ -1474,7 +1500,7 @@ export function createAppStore(engine: Engine, version = "dev") {
     team,
     sessionItems,
     toggleConsole,
-    toggleMission,
+    toggleDashboard,
     visitAgent,
     stopAgent,
     popoutAgent,

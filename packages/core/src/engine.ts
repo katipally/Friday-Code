@@ -35,24 +35,13 @@ import { type PostKind, TeamBoard } from "./board.ts"
 import { type CustomCommand, loadCommands } from "./commands.ts"
 import { loadConfig, saveConfig } from "./config.ts"
 import { type CronJob, loadCron, parseInterval, saveCron } from "./cron.ts"
-import { openFleetWindows } from "./fleet.ts"
+import { openFleetWindows, openInteractiveWindow } from "./fleet.ts"
+import { cancelMic, micRecording, micSetupSteps, micStatus, prewarmMic, startMic, stopMic } from "./mic.ts"
 import { notify } from "./notify.ts"
 import { persistPermission, projectPermissions, revokeProjectPermissions } from "./permissions.ts"
 import { type RunnerHost, SessionRunner, type SessionStats } from "./runner.ts"
 import { SessionStore } from "./sessions.ts"
 import type { StreamFn } from "./stream.ts"
-import {
-  cancelVoice,
-  liveRecording,
-  nativeLiveAvailable,
-  startLiveVoice,
-  startVoice,
-  stopLiveVoice,
-  stopVoice,
-  voiceRecording,
-  voiceSetupSteps,
-  voiceStatus,
-} from "./voice.ts"
 
 export type { SessionStats } from "./runner.ts"
 export type { StreamFn } from "./stream.ts"
@@ -412,6 +401,10 @@ export class Engine {
   popoutAgent(sessionId: string): { ok: boolean; backend: string; opened: number } {
     return openFleetWindows([sessionId])
   }
+  /** Open a NEW interactive friday window: fresh chat (no args) or resume `-s <id>`, in `cwd`. */
+  openInteractive(args: string[] = [], cwd?: string): { ok: boolean; backend: string; opened: number } {
+    return openInteractiveWindow(args, cwd ?? this.currentCwd())
+  }
   /** Force-activate deferred tools (by name prefix) for the focused session so the model can use them
    * immediately without calling tool_search first. Returns the number activated. */
   activateTools(prefix: string): number {
@@ -429,39 +422,31 @@ export class Engine {
   browserAvailable(): boolean {
     return !!findBrowser()
   }
-  // ---- voice (speech-to-text) ----
-  voiceStatus(): { ok: boolean; reason: string } {
-    return voiceStatus(loadConfig().voice)
+  // ---- mic (on-device speech-to-text via whisper-tiny.en) ----
+  micStatus(): { ok: boolean; reason: string } {
+    return micStatus(loadConfig().voice)
   }
-  /** OS-aware enablement checklist for the voice setup screen. */
-  voiceSetupSteps(): { ready: boolean; lines: string[] } {
-    return voiceSetupSteps(loadConfig().voice)
+  /** OS-aware enablement checklist for the mic setup screen. */
+  micSetupSteps(): { ready: boolean; lines: string[] } {
+    return micSetupSteps(loadConfig().voice)
   }
-  voiceRecording(): boolean {
-    return voiceRecording()
+  micRecording(): boolean {
+    return micRecording()
   }
-  startVoice(): void {
-    startVoice(loadConfig().voice)
+  /** Begin capturing the mic (press-to-talk). Throws if no recorder is installed. */
+  startMic(): void {
+    startMic(loadConfig().voice)
   }
-  /** Stop recording and return the transcript (throws if no engine/recorder). */
-  stopVoice(): Promise<string> {
-    return stopVoice(loadConfig().voice)
+  /** Stop capture and return the locally-transcribed text ("" if nothing heard). */
+  stopMic(): Promise<string> {
+    return stopMic(loadConfig().voice)
   }
-  cancelVoice(): void {
-    cancelVoice()
+  cancelMic(): void {
+    cancelMic()
   }
-  /** Native live transcription (macOS): streams partials to `onPartial`; stopVoiceLive returns final. */
-  voiceLiveAvailable(): boolean {
-    return nativeLiveAvailable()
-  }
-  voiceLiveRecording(): boolean {
-    return liveRecording()
-  }
-  startVoiceLive(onPartial: (text: string) => void, onError?: (msg: string) => void): Promise<void> {
-    return startLiveVoice(onPartial, onError)
-  }
-  stopVoiceLive(): Promise<string> {
-    return stopLiveVoice()
+  /** Warm the whisper model in the background so the first transcription isn't slow. */
+  prewarmMic(): void {
+    prewarmMic(loadConfig().voice)
   }
   // ---- computer use (opt-in native backend) ----
   computerInstalled(): boolean {

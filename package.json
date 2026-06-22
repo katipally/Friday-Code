@@ -35,6 +35,7 @@
     "publish": "bun run scripts/publish.ts"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
     "@opentui/core": "0.4.1",
     "@opentui/solid": "0.4.1",
     "solid-js": "1.9.13"

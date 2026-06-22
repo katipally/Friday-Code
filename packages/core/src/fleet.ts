@@ -1,13 +1,14 @@
 /**
- * Fleet display backends: open a read-only viewer window per background agent so the user can
- * watch several agents work in parallel. Each window runs `friday attach <id>`, which tails that
- * session's transcript from the shared store (no IPC, no server).
+ * Window backends: open separate terminal/IDE windows so the dashboard can stay the "console" while
+ * each new chat/session/agent gets its own window. Two flavors:
+ *   - INTERACTIVE  → `friday [args]` you can type in (new chat / resumed session).
+ *   - WATCH (tiled)→ `friday attach <id>`, a read-only tail of a background agent's transcript.
  *
- * Backend is auto-detected: tmux (when we're inside it) → tiled panes; else a known OS terminal
- * emulator → one window per agent; else give up and let the caller fall back to the in-TUI list.
+ * Backend is auto-detected and adaptive: inside tmux → panes/windows; iTerm/Terminal on macOS; the
+ * common emulators on Linux. Unknown env degrades to "none" so the caller can fall back to the in-TUI
+ * view rather than guessing.
  *
- * ponytail: covers tmux + macOS Terminal + the common Linux emulators; other emulators degrade to
- * "none" rather than guessing. Add more as users hit them.
+ * ponytail: covers tmux + iTerm + macOS Terminal + common Linux emulators; add more as users hit them.
  */
 
 /** Reconstruct how to launch friday itself. Dev: `bun <script>`; compiled: just the binary. */
@@ -18,42 +19,56 @@ function selfCmd(): string[] {
 }
 
 function sh(parts: string[]): string {
-  // POSIX-quote each arg so paths with spaces survive the shell hop.
   return parts.map((p) => `'${p.replace(/'/g, "'\\''")}'`).join(" ")
 }
 
-function attachCommand(id: string): string {
-  return sh([...selfCmd(), "attach", id])
+/** A shell command string for one window: optionally cd into `cwd`, then run friday with `args`. */
+function fridayCommand(args: string[], cwd?: string): string {
+  const cmd = sh([...selfCmd(), ...args])
+  return cwd ? `cd ${sh([cwd])} && ${cmd}` : cmd
 }
 
 function run(cmd: string[]): boolean {
   try {
-    const p = Bun.spawnSync(cmd, { stdout: "ignore", stderr: "ignore" })
-    return p.success
+    return Bun.spawnSync(cmd, { stdout: "ignore", stderr: "ignore" }).success
   } catch {
     return false
   }
 }
 
-function openTmux(ids: string[]): number {
+function openTmux(cmds: string[], tile: boolean): number {
   let opened = 0
-  for (const id of ids) {
-    if (run(["tmux", "split-window", "-h", attachCommand(id)])) opened++
+  for (const c of cmds) {
+    // tile=watch panes (split); otherwise a fresh interactive window.
+    const ok = tile ? run(["tmux", "split-window", "-h", c]) : run(["tmux", "new-window", c])
+    if (ok) opened++
   }
-  run(["tmux", "select-layout", "tiled"])
+  if (tile) run(["tmux", "select-layout", "tiled"])
   return opened
 }
 
-function openMacTerminal(ids: string[]): number {
+function openITerm(cmds: string[]): number {
   let opened = 0
-  for (const id of ids) {
-    const script = `tell application "Terminal" to do script "${attachCommand(id).replace(/"/g, '\\"')}"`
+  for (const c of cmds) {
+    const script = `tell application "iTerm2"
+      create window with default profile
+      tell current session of current window to write text "${c.replace(/"/g, '\\"')}"
+    end tell`
     if (run(["osascript", "-e", script])) opened++
   }
   return opened
 }
 
-function openLinuxTerminal(ids: string[]): { opened: number; backend: string } {
+function openMacTerminal(cmds: string[]): number {
+  let opened = 0
+  for (const c of cmds) {
+    const script = `tell application "Terminal" to do script "${c.replace(/"/g, '\\"')}"`
+    if (run(["osascript", "-e", script])) opened++
+  }
+  return opened
+}
+
+function openLinuxTerminal(cmds: string[]): { opened: number; backend: string } {
   const emulators: { bin: string; argv: (cmd: string) => string[] }[] = [
     { bin: "wezterm", argv: (c) => ["wezterm", "start", "--", "sh", "-c", c] },
     { bin: "gnome-terminal", argv: (c) => ["gnome-terminal", "--", "sh", "-c", c] },
@@ -63,24 +78,42 @@ function openLinuxTerminal(ids: string[]): { opened: number; backend: string } {
   for (const e of emulators) {
     if (!Bun.which(e.bin)) continue
     let opened = 0
-    for (const id of ids) if (run(e.argv(attachCommand(id)))) opened++
+    for (const c of cmds) if (run(e.argv(c))) opened++
     if (opened) return { opened, backend: e.bin }
   }
   return { opened: 0, backend: "none" }
 }
 
-export function openFleetWindows(ids: string[]): { ok: boolean; backend: string; opened: number } {
+type WinResult = { ok: boolean; backend: string; opened: number }
+
+/** Open one window per command, picking the backend for the current environment. */
+function openWindows(cmds: string[], tile: boolean): WinResult {
+  if (!cmds.length) return { ok: false, backend: "none", opened: 0 }
   if (process.env.TMUX) {
-    const opened = openTmux(ids)
+    const opened = openTmux(cmds, tile)
     return { ok: opened > 0, backend: "tmux", opened }
   }
   if (process.platform === "darwin") {
-    const opened = openMacTerminal(ids)
-    return { ok: opened > 0, backend: "Terminal.app", opened }
+    const iterm = process.env.TERM_PROGRAM === "iTerm.app" && Bun.which("osascript")
+    const opened = iterm ? openITerm(cmds) : openMacTerminal(cmds)
+    return { ok: opened > 0, backend: iterm ? "iTerm" : "Terminal.app", opened }
   }
   if (process.platform === "linux") {
-    const { opened, backend } = openLinuxTerminal(ids)
+    const { opened, backend } = openLinuxTerminal(cmds)
     return { ok: opened > 0, backend, opened }
   }
   return { ok: false, backend: "none", opened: 0 }
+}
+
+/** Read-only tiled watch windows, one per background agent (`friday attach <id>`). */
+export function openFleetWindows(ids: string[]): WinResult {
+  return openWindows(
+    ids.map((id) => fridayCommand(["attach", id])),
+    true,
+  )
+}
+
+/** A new interactive friday window (new chat, or `-s <id>` to resume), in `cwd` if given. */
+export function openInteractiveWindow(args: string[] = [], cwd?: string): WinResult {
+  return openWindows([fridayCommand(args, cwd)], false)
 }
