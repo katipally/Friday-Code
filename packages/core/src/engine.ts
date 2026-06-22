@@ -30,6 +30,7 @@ import { persistPermission, projectPermissions, revokeProjectPermissions } from 
 import { type RunnerHost, SessionRunner, type SessionStats } from "./runner.ts"
 import { SessionStore } from "./sessions.ts"
 import type { StreamFn } from "./stream.ts"
+import { cancelVoice, startVoice, stopVoice, voiceRecording, voiceStatus } from "./voice.ts"
 
 export type { SessionStats } from "./runner.ts"
 export type { StreamFn } from "./stream.ts"
@@ -236,6 +237,23 @@ export class Engine {
   /** Whether an automatable browser binary is installed (for /doctor). */
   browserAvailable(): boolean {
     return !!findBrowser()
+  }
+  // ---- voice (speech-to-text) ----
+  voiceStatus(): { ok: boolean; reason: string } {
+    return voiceStatus(loadConfig().voice)
+  }
+  voiceRecording(): boolean {
+    return voiceRecording()
+  }
+  startVoice(): void {
+    startVoice(loadConfig().voice)
+  }
+  /** Stop recording and return the transcript (throws if no engine/recorder). */
+  stopVoice(): Promise<string> {
+    return stopVoice(loadConfig().voice)
+  }
+  cancelVoice(): void {
+    cancelVoice()
   }
   /** Open a viewer window per running task (tmux pane / OS terminal); returns the chosen backend. */
   openFleet(): { ok: boolean; backend: string; opened: number } {

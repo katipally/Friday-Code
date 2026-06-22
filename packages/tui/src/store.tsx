@@ -635,6 +635,7 @@ export function createAppStore(engine: Engine, version = "dev") {
     { name: "doctor", description: "check model, provider & environment health" },
     { name: "fleet", description: "open a window per running background agent" },
     { name: "chrome", description: "launch the browser for automation (/chrome close to stop)" },
+    { name: "voice", description: "press-to-talk: start, then /voice again to transcribe" },
     { name: "review", description: "review the current changes" },
     { name: "security-review", description: "audit the current changes for security issues" },
     { name: "permissions", description: "view / clear remembered approvals" },
@@ -778,6 +779,33 @@ export function createAppStore(engine: Engine, version = "dev") {
         )
         return true
       }
+      case "voice": {
+        if (engine.voiceRecording()) {
+          pushToast("transcribing…", "input")
+          engine
+            .stopVoice()
+            .then((text) => {
+              if (text) {
+                setComposerText(text)
+                pushToast("transcribed — edit & press Enter to send", "done")
+              } else pushToast("nothing heard", "input")
+            })
+            .catch((e) => pushToast(`voice: ${e?.message ?? e}`, "error"))
+          return true
+        }
+        const st = engine.voiceStatus()
+        if (!st.ok) {
+          pushToast(`voice unavailable — ${st.reason}`, "error")
+          return true
+        }
+        try {
+          engine.startVoice()
+          pushToast("🎙 recording — /voice again to stop & transcribe", "input")
+        } catch (e: any) {
+          pushToast(`voice: ${e?.message ?? e}`, "error")
+        }
+        return true
+      }
       case "chrome": {
         const a = args.trim().toLowerCase()
         if (a === "close" || a === "stop") {
@@ -799,6 +827,10 @@ export function createAppStore(engine: Engine, version = "dev") {
           `✓ mode: ${mode()} · effort: ${effort()}${reasoningModel() ? "" : " (model has no reasoning channel)"}`,
           `✓ output style: ${engine.selection().outputStyle ?? "concise"}`,
           engine.browserAvailable() ? "✓ browser: available (/chrome)" : "✗ browser: none found (install Chrome/Brave/Edge)",
+          (() => {
+            const v = engine.voiceStatus()
+            return v.ok ? "✓ voice: ready (/voice)" : `✗ voice: ${v.reason}`
+          })(),
           `✓ platform: ${process.platform}`,
         ]
         appendItem(sid, { kind: "notice", id: nextLocalId(), text: lines.join("\n") })

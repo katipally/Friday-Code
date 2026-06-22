@@ -3,6 +3,7 @@ import type { McpServerConfig } from "@friday/mcp"
 import { configPath, fridayDir } from "@friday/providers"
 import type { Effort, ModeId } from "@friday/shared"
 import type { HooksConfig } from "./hooks.ts"
+import type { VoiceConfig } from "./voice.ts"
 
 export interface FridayConfig {
   providerId?: string
@@ -30,6 +31,8 @@ export interface FridayConfig {
   formatter?: boolean
   /** browser automation: override the binary, CDP port, or profile dir (defaults: auto-detect, 9333, ~/.friday/chrome-profile) */
   browser?: { binary?: string; port?: number; userDataDir?: string }
+  /** voice input (speech-to-text only): engine + recorder/model overrides */
+  voice?: VoiceConfig
 }
 
 export function loadConfig(): FridayConfig {
