@@ -1033,12 +1033,20 @@ export class SessionRunner {
 
     this.busy = true
     this.abort = new AbortController()
-    // Capture the git base ONCE, before this session's first edit/commit, so the changes panel can
-    // diff the working tree against it (committed + uncommitted) for a full session footprint.
+    // Capture the git base ONCE, near session start, so the changes panel can diff the working tree
+    // against it (committed + uncommitted) for a full session footprint. Fire-and-forget — `git
+    // rev-parse HEAD` returns the committed sha regardless of uncommitted edits, so it needn't block
+    // the turn (and awaiting a subprocess spawn here measurably delays the first stream event,
+    // especially on Windows). It resolves long before the model emits an edit; until then the
+    // snapshot tracker covers the gap.
     if (this.sessionBaseRef === undefined) {
-      const base = await gitRevParse(this.cwd)
-      this.sessionBaseRef = base ?? "" // "" = checked, not a repo → fall back to snapshot tracking
-      if (base) this.persistMeta({ baseRef: base })
+      this.sessionBaseRef = "" // "" = capturing / not a repo → snapshot fallback until git resolves
+      void gitRevParse(this.cwd).then((base) => {
+        if (base) {
+          this.sessionBaseRef = base
+          this.persistMeta({ baseRef: base })
+        }
+      })
     }
     this.currentCheckpoint = {
       id: this.host.nextId(),
