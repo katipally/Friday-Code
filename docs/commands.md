@@ -6,7 +6,7 @@ below), and two run on the engine. Anything that is not a built-in is matched
 against your custom commands in `~/.friday/commands/` or `.friday/commands/`
 (see [configuration](configuration.md)).
 
-For the headline steering commands, see [steering](steering.md).
+For the headline pause commands, see [pause](pause.md).
 
 ## Session
 
@@ -21,15 +21,17 @@ For the headline steering commands, see [steering](steering.md).
 | `/compact` | Summarize old context to free space. Runs on the engine. |
 | `/exit` | Quit Friday. Alias: `/quit`. |
 
-## Steering
+## Pause
 
 | Command | What it does |
 |---|---|
-| `/add` | Pause the agent now and steer: cut the current generation and fold in your note. |
-| `/add!` | Add information at the next step: let the current generation finish first. |
+| `/pause` | Pause the agent now: cut the current generation and open a composer to fold in context it missed. Also Shift+Esc. |
 
-See [steering](steering.md) for the full picture, including the bare-`/add`
-composer and the cost model.
+`/pause` only works while the agent is busy — if it is idle, you get a "nothing
+to pause" toast. Any text typed after the command is ignored; the composer modal
+is the single entry point (type a note, `@file` mentions included, then Enter to
+fold it in and resume, or Esc to release without adding anything). `/nudge` and
+`/add` are kept as aliases. See [pause](pause.md) for the full picture.
 
 ## Model and reasoning
 
@@ -43,7 +45,7 @@ composer and the cost model.
 
 | Command | What it does |
 |---|---|
-| `/dashboard` | Open the dashboard over Sessions, Teams, Swarm, and History. Also Ctrl+O. |
+| `/dashboard` | Open the dashboard over Sessions, Teams, and Swarm. Also Ctrl+O. |
 | `/console` | Open the live agent-team cockpit with the shared board and roster. Also Ctrl+T. |
 | `/fleet` | Open an external terminal window per running agent. |
 
@@ -79,4 +81,6 @@ See [integrations](integrations.md) for browser, computer use, and voice.
 | `/doctor` | Check model, provider, and environment health. |
 | `/permissions` | View remembered approvals. `/permissions clear` resets them. |
 | `/theme` | Switch the UI theme. Applies on next launch. |
+| `/settings` | Open settings — autoupdate, keybindings, editor, theme. Also Ctrl+G. Alias: `/config`. |
+| `/update` | Check for a new version and update Friday. |
 | `/help` | Show the keymap. Also `?` or `F1`. |

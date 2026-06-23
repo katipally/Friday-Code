@@ -40,6 +40,33 @@ export function Composer() {
   const [files, setFiles] = createSignal<string[]>([])
   const [sel, setSel] = createSignal(0)
 
+  // Newline key(s) follow the user's setting (Enter always submits). The textarea binding model only
+  // exposes meta (not option) as a modifier, so alt/option+Enter is expressed as meta+return.
+  const newlineBindings = createMemo(() => {
+    const m = app.newlineMode()
+    const out: any[] = [{ name: "return", action: "submit" }]
+    if (m === "shift" || m === "both") out.push({ name: "return", shift: true, action: "newline" })
+    if (m === "alt" || m === "both") out.push({ name: "return", meta: true, action: "newline" })
+    return out
+  })
+
+  // Prompt history: ↑/↓ walk this session's prior user prompts when the caret is on the first line
+  // and no autocomplete is open. histIdx -1 = not browsing; `draft` preserves the in-progress text.
+  const history = () =>
+    app
+      .items()
+      .filter((i) => i.kind === "user")
+      .map((i) => (i as any).display ?? (i as any).text)
+      .filter((s: string) => s?.trim())
+  let histIdx = -1
+  let draft = ""
+  function onFirstLine(): boolean {
+    const t: string = ta?.plainText ?? ""
+    const off: number = ta?.cursorOffset ?? 0
+    const nl = t.indexOf("\n")
+    return nl === -1 || off <= nl
+  }
+
   // Load (and reload when the workspace roots change) the file list across all roots.
   createEffect(() => {
     listProjectFiles(app.roots()).then(setFiles)
@@ -187,7 +214,24 @@ export function Composer() {
       if (key.name === "up") return setSel((s) => (s - 1 + items.length) % items.length)
       if (key.name === "down") return setSel((s) => (s + 1) % items.length)
       if (key.name === "tab" && !key.shift) return items[sel()]?.apply()
+    } else {
+      // Prompt history (only when no autocomplete dropdown is competing for ↑/↓).
+      const h = history()
+      if (key.name === "up" && onFirstLine() && h.length) {
+        if (histIdx === -1) draft = ta?.plainText ?? ""
+        histIdx = Math.min(histIdx + 1, h.length - 1)
+        setComposer(h[h.length - 1 - histIdx]!)
+        return
+      }
+      if (key.name === "down" && histIdx !== -1) {
+        histIdx -= 1
+        setComposer(histIdx < 0 ? draft : h[h.length - 1 - histIdx]!)
+        if (histIdx < 0) histIdx = -1
+        return
+      }
     }
+    // Any non-navigation key exits history-browsing so further edits are on the recalled text itself.
+    if (key.name !== "up" && key.name !== "down") histIdx = -1
     refresh()
   })
 
@@ -221,7 +265,7 @@ export function Composer() {
               )}
             </For>
           </scrollbox>
-          <text fg={theme.textFaint}>↑↓ move · ⏎ run · ⭾ complete · {suggestions().length}</text>
+          <text fg={theme.textFaint}>↑↓ move · Enter run · Tab complete · {suggestions().length}</text>
         </box>
       </Show>
 
@@ -261,11 +305,8 @@ export function Composer() {
               if (r) r.onPaste = onPaste
             }}
             onSubmit={submit}
-            keyBindings={[
-              { name: "return", action: "submit" },
-              { name: "return", shift: true, action: "newline" },
-            ]}
-            placeholder="ask anything…   /command · @file · ⇧⏎ newline"
+            keyBindings={newlineBindings()}
+            placeholder="ask anything…   /command · @file · ↑ history · Shift+Enter newline"
             placeholderColor={theme.textFaint}
             textColor={theme.text}
             backgroundColor={theme.bgComposer}

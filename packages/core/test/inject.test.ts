@@ -48,7 +48,7 @@ function makeGatedStream(scripts: ProviderEvent[][], requests: Message[][], gate
   }
 }
 
-test("/add: a mid-task injection reaches the model's next request and lands at the end of history", async () => {
+test("/pause: a mid-task injection reaches the model's next request and lands at the end of history", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-test-"))
   fs.writeFileSync(path.join(dir, "hello.txt"), "one\ntwo\n")
   const requests: Message[][] = []
@@ -100,7 +100,7 @@ function untilAbort(signal: AbortSignal, gate?: Promise<void>): Promise<void> {
   })
 }
 
-test("/add!: interrupt-steer cuts the generation, keeps the partial reply, and folds the note in", async () => {
+test("interrupting /pause: cuts the generation, keeps the partial reply, and folds the note in", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-test-"))
   const requests: Message[][] = []
   // Turn 0 streams a partial hallucination then parks until aborted; turn 1+ completes normally.
@@ -150,7 +150,7 @@ test("/add!: interrupt-steer cuts the generation, keeps the partial reply, and f
   fs.rmSync(dir, { recursive: true, force: true })
 })
 
-test("true Stop during streaming still ends the turn (interrupt-steer must not regress it)", async () => {
+test("true Stop during streaming still ends the turn (the interrupting /pause must not regress it)", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-test-"))
   const requests: Message[][] = []
   const streamFn: StreamFn = async function* (_p, _k, req, signal) {
@@ -173,7 +173,7 @@ test("true Stop during streaming still ends the turn (interrupt-steer must not r
   fs.rmSync(dir, { recursive: true, force: true })
 })
 
-test("/add (bare, interrupt-on-open): inject-pause interrupt cuts the generation now and parks the agent", async () => {
+test("/pause (bare, interrupt-on-open): inject-pause interrupt cuts the generation now and parks the agent", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-test-"))
   const requests: Message[][] = []
   const streamFn: StreamFn = async function* (_p, _k, req, signal) {
@@ -193,7 +193,7 @@ test("/add (bare, interrupt-on-open): inject-pause interrupt cuts the generation
 
   engine.send({ type: "prompt", text: "go" })
   await waitFor(() => events.some((e) => e.type === "text" && (e as any).delta?.includes("wrong"))) // mid-stream
-  // Opening the bare /add modal: interrupt NOW + arm the pause.
+  // Opening the bare /pause modal: interrupt NOW + arm the pause.
   engine.send({ type: "inject-pause", interrupt: true })
   // The generation is cut and the agent idles waiting — no second request yet.
   await waitFor(() => events.some((e) => e.type === "status" && (e as any).text === "waiting for you…"))
@@ -207,7 +207,7 @@ test("/add (bare, interrupt-on-open): inject-pause interrupt cuts the generation
   fs.rmSync(dir, { recursive: true, force: true })
 })
 
-test("/add: a note sent BEFORE the loop reaches the pause does not deadlock (pause disarms on input)", async () => {
+test("/pause: a note sent BEFORE the loop reaches the pause does not deadlock (pause disarms on input)", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-test-"))
   fs.writeFileSync(path.join(dir, "hello.txt"), "one\ntwo\n")
   const requests: Message[][] = []
@@ -241,7 +241,7 @@ test("/add: a note sent BEFORE the loop reaches the pause does not deadlock (pau
   fs.rmSync(dir, { recursive: true, force: true })
 })
 
-test("/add (bare): soft-pause idles the agent, then a sent note resumes it", async () => {
+test("/pause (bare): soft-pause idles the agent, then a sent note resumes it", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-test-"))
   fs.writeFileSync(path.join(dir, "hello.txt"), "one\ntwo\n")
   const requests: Message[][] = []
@@ -278,7 +278,7 @@ test("/add (bare): soft-pause idles the agent, then a sent note resumes it", asy
   fs.rmSync(dir, { recursive: true, force: true })
 })
 
-test("/add (bare): aborting while soft-paused unwinds the loop (no hang)", async () => {
+test("/pause (bare): aborting while soft-paused unwinds the loop (no hang)", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-test-"))
   fs.writeFileSync(path.join(dir, "hello.txt"), "one\ntwo\n")
   const requests: Message[][] = []
@@ -311,7 +311,7 @@ test("/add (bare): aborting while soft-paused unwinds the loop (no hang)", async
   fs.rmSync(dir, { recursive: true, force: true })
 })
 
-test("/add: injecting when idle behaves like a normal prompt", async () => {
+test("/pause: injecting when idle behaves like a normal prompt", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-test-"))
   const requests: Message[][] = []
   const streamFn = makeGatedStream(

@@ -1,12 +1,11 @@
+import { spawn } from "node:child_process"
 import type { Engine } from "@friday/core"
 import { theme } from "@friday/shared"
 import { useKeyboard, useRenderer, useSelectionHandler, useTerminalDimensions } from "@opentui/solid"
 import { createEffect, createMemo, createSignal, Match, onMount, Show, Switch, untrack } from "solid-js"
-import { AddModal } from "./components/AddModal.tsx"
 import { AskCard } from "./components/AskCard.tsx"
 import { Chat } from "./components/Chat.tsx"
 import { CheckpointHistory } from "./components/CheckpointHistory.tsx"
-import { CommandPalette } from "./components/CommandPalette.tsx"
 import { CompactionCard, CompactionSummary } from "./components/CompactionCard.tsx"
 import { Composer } from "./components/Composer.tsx"
 import { ComputerModal } from "./components/ComputerModal.tsx"
@@ -23,14 +22,18 @@ import { WORDMARK_ROWS } from "./components/Logo.tsx"
 import { McpModal } from "./components/McpModal.tsx"
 import { MicModal } from "./components/MicModal.tsx"
 import { ModelModal } from "./components/ModelModal.tsx"
+import { PauseModal } from "./components/PauseModal.tsx"
 import { PermissionCard } from "./components/PermissionCard.tsx"
 import { PlanCard } from "./components/PlanCard.tsx"
 import { SessionHistory } from "./components/SessionHistory.tsx"
+import { SettingsModal } from "./components/SettingsModal.tsx"
 import { SkillsModal } from "./components/SkillsModal.tsx"
 import { StatusStrip } from "./components/StatusStrip.tsx"
+import { ThemeModal } from "./components/ThemeModal.tsx"
 import { Toasts } from "./components/Toasts.tsx"
 import { TopBar } from "./components/TopBar.tsx"
 import { TrustPrompt } from "./components/TrustPrompt.tsx"
+import { UpdateModal } from "./components/UpdateModal.tsx"
 import { YoloConfirm } from "./components/YoloConfirm.tsx"
 import { AppProvider, createAppStore, useApp } from "./store.tsx"
 
@@ -180,17 +183,14 @@ function Shell() {
       <Show when={app.effortOpen()}>
         <EffortSlider />
       </Show>
-      <Show when={app.paletteOpen()}>
-        <CommandPalette />
-      </Show>
       <Show when={app.historyOpen()}>
         <SessionHistory />
       </Show>
       <Show when={app.dirModalOpen()}>
         <DirectoryModal />
       </Show>
-      <Show when={app.addModalOpen()}>
-        <AddModal />
+      <Show when={app.pauseModalOpen()}>
+        <PauseModal />
       </Show>
       <Show when={app.mcpModalOpen()}>
         <McpModal />
@@ -200,6 +200,15 @@ function Shell() {
       </Show>
       <Show when={app.computerModalOpen()}>
         <ComputerModal />
+      </Show>
+      <Show when={app.settingsModalOpen()}>
+        <SettingsModal />
+      </Show>
+      <Show when={app.themeModalOpen()}>
+        <ThemeModal />
+      </Show>
+      <Show when={app.updateModalOpen()}>
+        <UpdateModal />
       </Show>
       <Show when={app.checkpointsOpen()}>
         <CheckpointHistory />
@@ -263,18 +272,34 @@ function AppRoot() {
     // Every other modal / HITL prompt owns its own keyboard; global shortcuts must not fire under
     // them. anyModalOpen() is the single source of truth (store), so nothing can be forgotten here.
     if (app.anyModalOpen()) return
-    if (key.shift && key.name === "tab") return app.toggleMode(1)
-    if (key.ctrl && key.name === "b") {
-      app.setRightOpen(!app.rightOpen())
-      return
+    // Rebindable named actions (see ~/.friday/keybindings.json). Resolved before the bespoke
+    // arming keys below; a plain Esc never matches a chord (shift+escape ≠ escape) so stop/checkpoint
+    // arming still works.
+    const action = app.keyAction(key)
+    if (action) {
+      switch (action) {
+        case "panel.toggle":
+          return app.setRightOpen(!app.rightOpen())
+        case "mic.toggle":
+          return app.toggleMic()
+        case "console.toggle":
+          return app.toggleConsole()
+        case "dashboard.toggle":
+          return app.toggleDashboard()
+        case "history.open":
+          return app.setHistoryOpen(true)
+        case "mode.cycle":
+          return app.toggleMode(1)
+        case "pause.open":
+          return void app.runCommand("pause") // pause the agent & add context (Shift+Esc)
+        case "settings.open":
+          return app.setSettingsModalOpen(true)
+        case "help.open":
+          return app.setOverlayOpen(true)
+      }
     }
     if (key.ctrl && /^[1-9]$/.test(key.name)) return app.switchSessionByIndex(Number(key.name) - 1)
-    if (key.ctrl && key.name === "k") return app.setPaletteOpen(true)
-    if (key.ctrl && key.name === "r") return app.toggleMic()
-    if (key.ctrl && key.name === "t") return app.toggleConsole()
-    if (key.ctrl && key.name === "o") return app.toggleDashboard()
-    if (key.ctrl && key.name === "y") return app.setHistoryOpen(true)
-    if (key.name?.toLowerCase() === "f1" || (key.ctrl && key.name === "/")) return app.setOverlayOpen(true)
+    if (key.ctrl && key.name === "/") return app.setOverlayOpen(true)
     // `?` opens the keymap, but only when the composer is empty so it never eats a literal "?".
     if ((key.name === "?" || (key.name === "/" && key.shift)) && app.composerEmpty()) {
       app.setOverlayOpen(true)
@@ -328,6 +353,15 @@ function AppRoot() {
     const stats = s ? `  ${s.messages} messages · ${fmtTokens(s.tokens)} tokens · ${fmtDuration(s.durationMs)}\n` : ""
     const resume = empty ? "" : `  resume:  friday -s ${id}\n` // empty sessions are discarded on dispose
     process.stdout.write(`\n${EXIT_LOGO}\n\n${name}${stats}${resume}\n`)
+    // After a /update, relaunch the (now-upgraded) binary so the user lands straight back in friday.
+    // ponytail: best-effort re-exec; if the spawn fails the printed `resume:` line still tells them how.
+    if (app.wantsRestart()) {
+      try {
+        spawn(process.execPath, process.argv.slice(1), { detached: true, stdio: "inherit" }).unref()
+      } catch {
+        /* fall back to manual relaunch */
+      }
+    }
     process.exit(0)
   }
   createEffect(() => {

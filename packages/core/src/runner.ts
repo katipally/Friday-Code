@@ -252,7 +252,11 @@ function describeWork(name: string, input: unknown): string {
 }
 
 /** Render ask_user answers back to the model: a single answer verbatim, or labeled Q/A pairs. */
-function formatAskAnswers(questions: AskQuestion[], answers: Record<string, string>): string {
+export function formatAskAnswers(questions: AskQuestion[], answers: Record<string, string>): string {
+  // Empty map = the user dismissed the question (Esc-Esc) or the run was aborted — tell the model plainly
+  // instead of emitting a wall of "(no answer)".
+  if (Object.keys(answers).length === 0)
+    return "(the user dismissed the question without answering — proceed with your best judgment, and only ask again if you are truly blocked)"
   if (questions.length === 1) return answers[questions[0]!.id] ?? "(no answer)"
   return questions.map((q) => `Q: ${q.question}\nA: ${answers[q.id] ?? "(no answer)"}`).join("\n\n")
 }
@@ -280,6 +284,8 @@ export interface RunnerHost {
     cost?: { input: number; output: number }
     /** config.outputStyle — nudges prompt verbosity (concise | explanatory | minimal) */
     outputStyle?: string
+    /** config.autoCompactThreshold — fraction of the window at which we auto-compact (default COMPACTION.threshold) */
+    autoCompactThreshold?: number
   }
   resolveProvider: () => ProviderInfo
   /** globally-unique id source (so permission/ask requestIds don't collide across sessions) */
@@ -364,13 +370,13 @@ export class SessionRunner {
   needsInput = false
   private pending = new Map<string, Pending>()
   private pendingAsk = new Map<string, (answers: Record<string, string>) => void>()
-  /** Notes the user injected mid-task via /add — drained into history at the top of the next loop step.
+  /** Notes the user injected mid-task via /pause — drained into history at the top of the next loop step.
    * `id` correlates with the optimistic UI chip so it flips pending → attached once folded in. */
   private pendingInjections: { id?: string; msg: Message }[] = []
-  /** Set while the agent is soft-paused at a step boundary waiting for the /add modal; resolving it resumes the loop. */
+  /** Set while the agent is soft-paused at a step boundary waiting for the /pause modal; resolving it resumes the loop. */
   private injectResume?: () => void
   private injectPauseArmed = false
-  /** Per-step aborter for /add! interrupt-steer: cancels ONLY the current model generation (not the run,
+  /** Per-step aborter for the interrupting /pause: cancels ONLY the current model generation (not the run,
    * not a running tool) so the loop can keep the partial reply, fold in the note, and regenerate. */
   private stepAbort?: AbortController
   private sessionAllow = new Set<PermissionCategory>()
@@ -711,7 +717,7 @@ export class SessionRunner {
   /** Release any in-flight permission/ask awaits (deny / no-answer) so the agent loop unwinds on
    * abort instead of hanging forever on a promise the user will never answer. */
   private settleInputWaiters(): void {
-    // Release a soft-pause too, so aborting while the /add modal is open unwinds the loop instead of hanging.
+    // Release a soft-pause too, so aborting while the /pause modal is open unwinds the loop instead of hanging.
     this.injectPauseArmed = false
     this.injectResume?.()
     this.injectResume = undefined
@@ -722,7 +728,7 @@ export class SessionRunner {
     this.pendingAsk.clear()
     this.needsInput = false
   }
-  /** Append injected /add notes to history as user messages. */
+  /** Append injected /pause notes to history as user messages. */
   private drainInjections(): void {
     if (this.pendingInjections.length === 0) return
     for (const { id, msg } of this.pendingInjections) {
@@ -753,7 +759,7 @@ export class SessionRunner {
     return true
   }
 
-  // ---- /add: steer a running agent without stopping it ----
+  // ---- /pause: add context to a running agent without stopping it ----
   /** Fold a user note into the conversation. If the agent is idle, it's just a normal prompt; if busy,
    * it's queued and drained as a user message at the top of the next loop step (and releases a soft-pause). */
   async injectMessage(text: string, images?: ImagePart[], id?: string, interrupt = false): Promise<void> {
@@ -773,12 +779,12 @@ export class SessionRunner {
     // reached the pause point (it would otherwise park later with no one left to resume it).
     this.injectPauseArmed = false
     this.injectResume?.()
-    // /add: cut the in-flight generation NOW so the note lands this step instead of the next. Aborts only
+    // /pause: cut the in-flight generation NOW so the note lands this step instead of the next. Aborts only
     // the model stream (stepAbort) — a running tool keeps its run-level signal and finishes untouched.
     if (interrupt) this.stepAbort?.abort()
   }
-  /** Make the agent idle at the next step boundary so the user can compose a note in the /add modal.
-   * `interrupt` (bare /add) also cuts the in-flight generation now so it parks immediately rather than
+  /** Make the agent idle at the next step boundary so the user can compose a note in the /pause modal.
+   * `interrupt` (bare /pause) also cuts the in-flight generation now so it parks immediately rather than
    * after the current step finishes. */
   armInjectPause(interrupt = false): void {
     if (!this.busy) return
@@ -1053,7 +1059,7 @@ export class SessionRunner {
         }
       }
     } catch (e) {
-      // Aborting the stream (true Stop or /add! interrupt) rejects the underlying fetch read mid-await.
+      // Aborting the stream (true Stop or an interrupting /pause) rejects the underlying fetch read mid-await.
       // That's expected — return whatever streamed so far so the caller can keep the partial reply.
       if (!signal.aborted) throw e
     }
@@ -1089,7 +1095,8 @@ export class SessionRunner {
     const window = this.host.selection().contextWindow || COMPACTION.defaultWindow
     // Trigger off the real input-token count of the last request (most accurate proxy for the
     // current context size); fall back to the char estimate before the first usage arrives.
-    const limit = Math.min(Math.floor(window * COMPACTION.threshold), window - COMPACTION.buffer)
+    const threshold = this.host.selection().autoCompactThreshold ?? COMPACTION.threshold
+    const limit = Math.min(Math.floor(window * threshold), window - COMPACTION.buffer)
     const used = this.lastInputTokens > 0 ? this.lastInputTokens : estimateTokens(this.sendMessages())
     if (!force && used < limit) return
     const floor = this.compaction?.throughIndex ?? 0
@@ -1222,7 +1229,7 @@ export class SessionRunner {
 
     for (let step = 0; step < MAX_STEPS; step++) {
       if (signal.aborted) return
-      // /add: fold any injected notes into history before building the next request. They land at the
+      // /pause: fold any injected notes into history before building the next request. They land at the
       // END of the conversation, so the cached prefix is preserved — the model sees them on this step.
       this.drainInjections()
       if (this.injectPauseArmed) {
@@ -1313,7 +1320,7 @@ export class SessionRunner {
           this.emit({ type: "usage", input: inTok, output: outTok, costUsd: cost })
         },
       }
-      // Per-step aborter for /add! interrupt-steer. The model stream listens to BOTH the run-level
+      // Per-step aborter for the interrupting /pause. The model stream listens to BOTH the run-level
       // signal (true Stop) and this step signal (interrupt); tool execution below keeps `signal` only,
       // so an interrupt cuts generation without killing a running tool.
       const stepAbort = new AbortController()
@@ -1336,7 +1343,7 @@ export class SessionRunner {
       const { text, reasoning, reasoningSignature, toolCalls } = turn
       if (signal.aborted) return // true Stop: discard the partial turn (history stays clean)
 
-      // /add! interrupt-steer: the user cut this generation mid-stream. Keep the partial reply as a
+      // interrupting /pause: the user cut this generation mid-stream. Keep the partial reply as a
       // clean text-only assistant message (drop reasoning/signature + any incomplete tool calls so the
       // next request stays valid), then continue — the loop top folds in the queued note and the step
       // regenerates with both the truncated reply and the note in view.

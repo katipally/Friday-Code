@@ -10,7 +10,7 @@ memory/       user-level persistent memory
 skills/       user-level markdown skills
 agents/       user-level custom agents
 commands/     user-level custom commands
-sessions/     bun:sqlite session state
+sessions.db   bun:sqlite session state
 logs/         when something goes wrong, look here
 ```
 

@@ -90,6 +90,37 @@ export function Overlay(props: { title?: string; hint?: string; width?: number; 
 }
 
 /**
+ * Labeled input chrome — an UPPERCASE label over a composer-surface box with a focus ring (brand when
+ * focused, muted otherwise). The single way text inputs are framed app-wide (modals: mcp, dir, …) so
+ * every input reads the same and clearly shows which field is active. Put an `<input>`/`<textarea>`
+ * as the child; drive `focused` from the field's active state.
+ */
+export function Field(props: { label?: string; hint?: string; focused?: boolean; children: JSX.Element }) {
+  return (
+    <box flexDirection="column">
+      <Show when={props.label}>
+        <box flexDirection="row" gap={1}>
+          <SectionLabel text={props.label!} />
+          <Show when={props.hint}>
+            <text fg={theme.textFaint}>{props.hint}</text>
+          </Show>
+        </box>
+      </Show>
+      <box
+        backgroundColor={theme.bgComposer}
+        border
+        borderStyle="single"
+        borderColor={props.focused ? theme.brand : theme.border}
+        paddingLeft={1}
+        paddingRight={1}
+      >
+        {props.children}
+      </box>
+    </box>
+  )
+}
+
+/**
  * Selection-band background. The single selection affordance app-wide: a solid fill across the row
  * when selected, transparent otherwise. Defaults to the neutral selection grey (theme.bgSelected) —
  * NEVER brand, so selection and brand identity stay visually distinct. Pass a semantic color

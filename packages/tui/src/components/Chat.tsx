@@ -127,7 +127,7 @@ function AssistantMessage(props: { item: Extract<ViewItem, { kind: "assistant" }
                 <text fg={theme.textFaint}>▋</text>
               </Show>
               <Show when={props.item.interrupted}>
-                <text fg={theme.warning}>⏸ paused — steering…</text>
+                <text fg={theme.warning}>⏸ paused — adding context…</text>
               </Show>
               <Show when={props.item.done && !props.item.intermediate}>
                 <box flexDirection="row" alignItems="center" paddingTop={0}>
@@ -221,7 +221,7 @@ function clock(ms: number): string {
 }
 
 /**
- * A /add note injected mid-task. Two states, rendered as a centered pill flanked by rules (like the
+ * A /pause note injected mid-task. Two states, rendered as a centered pill flanked by rules (like the
  * plan breaker) so it reads as an interleaved insertion into the flow:
  *   • pending  — sent, about to be folded in at the next step. Warm, *pulsing* so the user sees it's
  *                in flight ("⏳ adding to context…").

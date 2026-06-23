@@ -198,6 +198,7 @@ test("ask_user modal: renders an option's ASCII preview in a side panel", async 
   const frame = t.captureCharFrame()
   expect(frame).toContain("Which layout?")
   expect(frame).toContain("PREVIEW_SIDEBAR_BOX")
+  expect(frame).toContain("Submit") // synthetic submit tab at the end of the tab bar
 
   // Moving the selection (vim 'j') swaps the preview to the next option.
   t.mockInput.pressKey("j")

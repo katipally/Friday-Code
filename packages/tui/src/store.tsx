@@ -1,4 +1,19 @@
-import type { Engine, SessionStats } from "@friday/core"
+import {
+  actionForKey,
+  compareSemver,
+  detectInstallMethod,
+  type Engine,
+  getLatestVersion,
+  type InstallMethod,
+  type KeyAction,
+  type Keymap,
+  loadKeybindings,
+  normalizeChord,
+  RESERVED,
+  runUpdate,
+  type SessionStats,
+  saveKeybindings,
+} from "@friday/core"
 import {
   type AskQuestion,
   applyTheme,
@@ -39,7 +54,7 @@ export type ViewItem =
       outputTokens?: number
       /** the mode this reply ran in — colors its ⏺ marker so you can tell at a glance */
       mode?: ModeId
-      /** cut short by a /add pause-steer — renders a "⏸ paused" tag */
+      /** cut short by a /pause — renders a "⏸ paused" tag */
       interrupted?: boolean
     }
   | {
@@ -60,7 +75,7 @@ export type ViewItem =
   /** a flow divider shown when a plan is accepted ("running · <mode>") or refined ("refining plan");
    * tinted by the relevant mode. `note` is an optional quoted subtitle (e.g. the refinement text). */
   | { kind: "breaker"; id: string; mode: ModeId; label: string; note?: string }
-  /** a /add note injected mid-task: "pending" (sent, about to be folded in at the next step) then
+  /** a /pause note injected mid-task: "pending" (sent, about to be folded in at the next step) then
    * "attached" (now part of the agent's context). `at` is when sent; `attachedAt` when it landed. */
   | { kind: "inject"; id: string; text: string; state: "pending" | "attached"; at: number; attachedAt?: number }
 
@@ -164,7 +179,6 @@ export function createAppStore(engine: Engine, version = "dev") {
   // First-run-per-directory workspace trust gate (replaces the old welcome tour).
   const [trustOpen, setTrustOpen] = createSignal(!engine.isCwdTrusted())
 
-  const [paletteOpen, setPaletteOpen] = createSignal(false)
   // First Esc while busy "arms" the stop; a second Esc within the window actually aborts.
   const [stopArmed, setStopArmed] = createSignal(false)
   // First Ctrl+C "arms" the quit; a second within the window actually exits (footer hint shows it).
@@ -255,9 +269,7 @@ export function createAppStore(engine: Engine, version = "dev") {
   const [roots, setRoots] = createSignal<string[]>(engine.currentRoots())
   const [historyOpen, setHistoryOpen] = createSignal(false)
   const [dirModalOpen, setDirModalOpen] = createSignal(false)
-  const [addModalOpen, setAddModalOpen] = createSignal(false)
-  // Which mode the /add modal was opened in: true = bare /add (interrupt now), false = bare /add! (next step).
-  const [addModalInterrupt, setAddModalInterrupt] = createSignal(true)
+  const [pauseModalOpen, setPauseModalOpen] = createSignal(false)
   const [mcpModalOpen, setMcpModalOpen] = createSignal(false)
   const [skillsModalOpen, setSkillsModalOpen] = createSignal(false)
   const [computerModalOpen, setComputerModalOpen] = createSignal(false)
@@ -286,6 +298,79 @@ export function createAppStore(engine: Engine, version = "dev") {
   }
   const [checkpointsOpen, setCheckpointsOpen] = createSignal(false)
   const [forkOpen, setForkOpen] = createSignal(false)
+  const [settingsModalOpen, setSettingsModalOpen] = createSignal(false)
+  const [themeModalOpen, setThemeModalOpen] = createSignal(false)
+  const [newlineMode, setNewlineMode] = createSignal<"shift" | "alt" | "both">(
+    engine.userConfig().composerNewline ?? "both",
+  )
+  // Config-backed UI settings mirrored as signals so the Settings rows update the instant they change
+  // (engine.userConfig() is a plain fs read, not reactive).
+  const [autoupdate, setAutoupdateSig] = createSignal<"notify" | "off">(engine.userConfig().autoupdate ?? "notify")
+  const [outputStyle, setOutputStyleSig] = createSignal<string>(engine.userConfig().outputStyle ?? "concise")
+  const [formatterOn, setFormatterSig] = createSignal<boolean>(engine.userConfig().formatter !== false)
+  const [autoCompactThreshold, setAutoCompactSig] = createSignal<number>(
+    engine.userConfig().autoCompactThreshold ?? 0.85,
+  )
+
+  // Rebindable keymap (~/.friday/keybindings.json over defaults). The global handler dispatches the
+  // named action a key resolves to; /settings edits the bindings and persists them.
+  const [keymap, setKeymap] = createSignal<Keymap>(loadKeybindings())
+  const keyAction = (key: Parameters<typeof actionForKey>[0]): KeyAction | undefined => actionForKey(key, keymap())
+  /** Rebind an action to a chord. Returns false (and no-ops) if the chord is reserved. */
+  function rebind(action: KeyAction, chord: string): boolean {
+    const norm = normalizeChord(chord)
+    if (RESERVED.includes(norm)) return false
+    const next = { ...keymap(), [action]: norm }
+    setKeymap(next)
+    saveKeybindings(next)
+    return true
+  }
+  function resetKeybindings() {
+    saveKeybindings({}) // wipe overrides → file holds nothing → load yields pure defaults
+    setKeymap(loadKeybindings())
+  }
+
+  // ---- version updates ----
+  // "idle" until a check runs; "checking" while querying npm; "current"/"available" after; "updating"
+  // during the upgrade; "done"/"error" after. updateLatest holds the newest version when available.
+  const [updateModalOpen, setUpdateModalOpen] = createSignal(false)
+  const [updateState, setUpdateState] = createSignal<
+    "idle" | "checking" | "current" | "available" | "updating" | "done" | "error"
+  >("idle")
+  const [updateLatest, setUpdateLatest] = createSignal<string | null>(null)
+  const [updateLog, setUpdateLog] = createSignal("")
+  const [updateMethod, setUpdateMethod] = createSignal<InstallMethod>(detectInstallMethod())
+  const [wantsRestart, setWantsRestart] = createSignal(false)
+
+  /** Query npm for the latest version; flag "available" when newer than the running build. */
+  async function checkForUpdate(): Promise<void> {
+    setUpdateState("checking")
+    const latest = await getLatestVersion()
+    engine.setUserConfig({ lastUpdateCheck: Date.now() })
+    if (!latest) {
+      setUpdateState("error")
+      setUpdateLog("could not reach the npm registry")
+      return
+    }
+    setUpdateLatest(latest)
+    const newer = version !== "dev" && compareSemver(latest, version) > 0
+    setUpdateState(newer ? "available" : "current")
+  }
+  /** Run the package-manager upgrade for the detected install method. */
+  async function doUpdate(): Promise<void> {
+    setUpdateState("updating")
+    setUpdateLog("")
+    const r = await runUpdate(updateMethod())
+    setUpdateLog(r.output)
+    setUpdateState(r.ok ? "done" : "error")
+  }
+  /** Apply a theme live + persist it. Live switch repaints what re-renders; a restart guarantees all. */
+  function applyThemeNow(name: string) {
+    engine.setUserConfig({ theme: name })
+    applyTheme(name)
+    setThemeModalOpen(false)
+    pushToast(`theme “${name}” saved — restart to apply fully`, "done")
+  }
 
   // Focused-session views of the per-session maps.
   const status = () => sessionStatus()[activeSession()] ?? "ready"
@@ -319,15 +404,17 @@ export function createAppStore(engine: Engine, version = "dev") {
     micModalOpen() ||
     trustOpen() ||
     effortOpen() ||
-    paletteOpen() ||
     historyOpen() ||
     dirModalOpen() ||
-    addModalOpen() ||
+    pauseModalOpen() ||
     mcpModalOpen() ||
     skillsModalOpen() ||
     computerModalOpen() ||
     checkpointsOpen() ||
     forkOpen() ||
+    settingsModalOpen() ||
+    themeModalOpen() ||
+    updateModalOpen() ||
     compacting() ||
     !!compactionView() ||
     !!pending() ||
@@ -669,7 +756,7 @@ export function createAppStore(engine: Engine, version = "dev") {
         setKey(setSessionBusy, sid, false)
         break
       case "inject-attached":
-        // The /add note just landed in the agent's context — flip its chip pending → attached.
+        // The /pause note just landed in the agent's context — flip its chip pending → attached.
         patchItemIn(sid, e.id, (it) => {
           if (it.kind === "inject") {
             it.state = "attached"
@@ -854,8 +941,7 @@ export function createAppStore(engine: Engine, version = "dev") {
     { name: "resume", description: "resume or switch to another session" },
     { name: "fork", description: "branch a session from a past turn" },
     { name: "dir", description: "change or add a working directory" },
-    { name: "add", description: "pause the agent now & steer — cut the current generation, fold in your note" },
-    { name: "add!", description: "add info at the next step — let the current generation finish first" },
+    { name: "pause", description: "pause the agent — opens a composer to add context it missed" },
     { name: "mic", description: "talk to Friday — on-device speech-to-text (Ctrl+R)" },
     { name: "mcp", description: "view / add / remove MCP servers" },
     { name: "skills", description: "browse installed skills and run one" },
@@ -864,7 +950,7 @@ export function createAppStore(engine: Engine, version = "dev") {
     { name: "context", description: "show what's in the context window" },
     { name: "usage", description: "show token + cost usage this session" },
     { name: "doctor", description: "check model, provider & environment health" },
-    { name: "dashboard", description: "dashboard — Sessions · Teams · Swarm · History (Ctrl+O)" },
+    { name: "dashboard", description: "dashboard — Sessions · Teams · Swarm (Ctrl+O)" },
     { name: "console", description: "live agent-team cockpit — shared board + roster (Ctrl+T)" },
     { name: "fleet", description: "swarm: open an external window per running agent (inline view: Ctrl+O)" },
     { name: "browser", description: "launch the browser + activate browser tools (/browser close to stop)" },
@@ -874,6 +960,8 @@ export function createAppStore(engine: Engine, version = "dev") {
     { name: "security-review", description: "audit uncommitted changes for security issues (runs as a prompt)" },
     { name: "permissions", description: "view / clear remembered approvals" },
     { name: "theme", description: "switch UI theme" },
+    { name: "settings", description: "open settings — autoupdate, keybindings, editor, theme" },
+    { name: "update", description: "check for a new version & update friday" },
     { name: "budget", description: "set a token/$ usage budget" },
     { name: "commit", description: "stage all & commit (drafts message)" },
     { name: "undo", description: "rewind files + chat to a checkpoint" },
@@ -920,21 +1008,20 @@ export function createAppStore(engine: Engine, version = "dev") {
       case "dir":
         setDirModalOpen(true)
         return true
-      case "add":
-      case "add!": {
-        // Steer the running agent without stopping it. `/add <text>` interrupts the current generation
-        // and folds the note in NOW; `/add! <text>` lets the current step finish, then folds it in at
-        // the next step; bare `/add` soft-pauses (if busy) and opens a composer modal. Idle = a prompt.
-        const interrupt = name === "add"
-        const note = args.trim()
-        if (note) injectNote(note, interrupt)
-        else {
-          // Bare /add interrupts the current generation the moment the modal opens (so the agent stops
-          // racing ahead while you compose); bare /add! just soft-pauses at the next step boundary.
-          setAddModalInterrupt(interrupt)
-          if (busy()) engine.send({ type: "inject-pause", interrupt })
-          setAddModalOpen(true)
+      // `/nudge` and `/add` are kept as aliases for `/pause`.
+      case "pause":
+      case "nudge":
+      case "add": {
+        // Pausing only makes sense while the agent is working. When idle there's nothing to pause or
+        // fold into, so say so instead of silently turning the note into a fresh prompt.
+        if (!busy()) {
+          pushToast("nothing to pause — the agent isn't working", "input")
+          return true
         }
+        // `/pause` always pauses the agent NOW and opens the composer modal — any inline `args` are
+        // ignored (the modal is the single entry point, so you can attach @files / paste before sending).
+        engine.send({ type: "inject-pause", interrupt: true })
+        setPauseModalOpen(true)
         return true
       }
       case "mcp":
@@ -948,17 +1035,29 @@ export function createAppStore(engine: Engine, version = "dev") {
         return true
       case "theme": {
         const name = args.trim()
-        if (!name || !themeNames().includes(name)) {
+        // Bare /theme opens the picker; /theme <name> applies directly.
+        if (!name) {
+          setThemeModalOpen(true)
+          return true
+        }
+        if (!themeNames().includes(name)) {
           appendItem(activeSession(), {
             kind: "notice",
             id: nextLocalId(),
-            text: `themes: ${themeNames().join(", ")} · /theme <name> (applies on next launch)`,
+            text: `themes: ${themeNames().join(", ")} · /theme <name> (or bare /theme to pick)`,
           })
           return true
         }
-        engine.setUserConfig({ theme: name })
-        applyTheme(name)
-        pushToast(`theme “${name}” saved — restart to apply fully`, "done")
+        applyThemeNow(name)
+        return true
+      }
+      case "settings":
+      case "config":
+        setSettingsModalOpen(true)
+        return true
+      case "update": {
+        setUpdateModalOpen(true)
+        if (updateState() === "idle" || updateState() === "current") void checkForUpdate()
         return true
       }
       case "budget": {
@@ -1038,7 +1137,9 @@ export function createAppStore(engine: Engine, version = "dev") {
         }
         const r = engine.openFleet()
         pushToast(
-          r.ok ? `opened ${r.opened} agent window(s) via ${r.backend}` : "no terminal backend — see the Tasks panel",
+          r.ok
+            ? `opened ${r.opened} agent window(s) via ${r.backend}`
+            : "no terminal backend — see the dashboard's Swarm tab (Ctrl+O)",
           r.ok ? "done" : "input",
         )
         return true
@@ -1199,9 +1300,9 @@ export function createAppStore(engine: Engine, version = "dev") {
     engine.send({ type: "abort" })
   }
 
-  /** Steer the running agent with a note. While busy it shows an interleaved "pending" chip in the
-   * transcript (id correlates with the engine's inject-attached event, which flips it to "attached").
-   * When idle it's just a normal prompt. */
+  /** Add a note to the running agent's context (the /pause feature). While busy it shows an interleaved
+   * "pending" chip in the transcript (id correlates with the engine's inject-attached event, which flips
+   * it to "attached"). When idle it's just a normal prompt. */
   function injectNote(text: string, interrupt = false) {
     const t = text.trim()
     if (!t) return
@@ -1211,16 +1312,16 @@ export function createAppStore(engine: Engine, version = "dev") {
     appendItem(sid, { kind: "inject", id, text: t, state: "pending", at: Date.now() })
     engine.send({ type: "inject", id, text: t, interrupt })
   }
-  /** /add modal submit: inject the composed note (interrupt = cut the current generation now), or
+  /** /pause modal submit: inject the composed note (interrupt = cut the current generation now), or
    * release the soft-pause if empty. */
-  function addInject(text: string, interrupt = false) {
-    setAddModalOpen(false)
+  function pauseInject(text: string, interrupt = false) {
+    setPauseModalOpen(false)
     if (text.trim()) injectNote(text, interrupt)
     else engine.send({ type: "inject-resume" }) // empty send still releases a soft-pause
   }
-  /** /add modal cancel: release the soft-pause without adding anything. */
-  function addCancel() {
-    setAddModalOpen(false)
+  /** /pause modal cancel: release the soft-pause without adding anything. */
+  function pauseCancel() {
+    setPauseModalOpen(false)
     engine.send({ type: "inject-resume" })
   }
 
@@ -1501,9 +1602,30 @@ export function createAppStore(engine: Engine, version = "dev") {
   }
 
   const [exitStats, setExitStats] = createSignal<SessionStats | null>(null)
-  function quit() {
+  function quit(restart = false) {
+    if (restart) setWantsRestart(true)
     setExitStats(engine.stats())
     setView("exit")
+  }
+  /** Update, then quit so the relaunched build is the new one (App re-execs on exit if wantsRestart). */
+  async function updateAndRestart() {
+    await doUpdate()
+    if (updateState() === "done") {
+      setUpdateModalOpen(false)
+      quit(true)
+    }
+  }
+
+  // Startup update check: once per day, only for released builds, only when not disabled. Fire-and-
+  // forget so it never delays first render; opens the notify modal if a newer version exists.
+  if (version !== "dev") {
+    const cfg = engine.userConfig()
+    const stale = Date.now() - (cfg.lastUpdateCheck ?? 0) > 24 * 60 * 60 * 1000
+    if (cfg.autoupdate !== "off" && stale) {
+      void checkForUpdate().then(() => {
+        if (updateState() === "available") setUpdateModalOpen(true)
+      })
+    }
   }
 
   return {
@@ -1607,11 +1729,10 @@ export function createAppStore(engine: Engine, version = "dev") {
     setHistoryOpen,
     dirModalOpen,
     setDirModalOpen,
-    addModalOpen,
-    setAddModalOpen,
-    addModalInterrupt,
-    addInject,
-    addCancel,
+    pauseModalOpen,
+    setPauseModalOpen,
+    pauseInject,
+    pauseCancel,
     mcpModalOpen,
     skillsModalOpen,
     setSkillsModalOpen,
@@ -1644,8 +1765,6 @@ export function createAppStore(engine: Engine, version = "dev") {
     redoLast,
     quit,
     exitStats,
-    paletteOpen,
-    setPaletteOpen,
     stopArmed,
     quitArmed,
     setQuitArmed,
@@ -1676,6 +1795,52 @@ export function createAppStore(engine: Engine, version = "dev") {
     cost,
     contextWindow,
     sendEngineCommand,
+    // settings / theme / update / keymap
+    settingsModalOpen,
+    setSettingsModalOpen,
+    themeModalOpen,
+    setThemeModalOpen,
+    applyThemeNow,
+    keymap,
+    keyAction,
+    rebind,
+    resetKeybindings,
+    updateModalOpen,
+    setUpdateModalOpen,
+    updateState,
+    updateLatest,
+    updateLog,
+    updateMethod,
+    setUpdateMethod,
+    checkForUpdate,
+    doUpdate,
+    updateAndRestart,
+    wantsRestart,
+    autoupdate,
+    setAutoupdate: (v: "notify" | "off") => {
+      setAutoupdateSig(v)
+      engine.setUserConfig({ autoupdate: v })
+    },
+    outputStyle,
+    setOutputStyle: (v: string) => {
+      setOutputStyleSig(v)
+      engine.setUserConfig({ outputStyle: v })
+    },
+    formatterOn,
+    setFormatter: (on: boolean) => {
+      setFormatterSig(on)
+      engine.setUserConfig({ formatter: on })
+    },
+    autoCompactThreshold,
+    setAutoCompactThreshold: (v: number) => {
+      setAutoCompactSig(v)
+      engine.setUserConfig({ autoCompactThreshold: v })
+    },
+    newlineMode,
+    setNewlineMode: (v: "shift" | "alt" | "both") => {
+      setNewlineMode(v)
+      engine.setUserConfig({ composerNewline: v })
+    },
   }
 }
 

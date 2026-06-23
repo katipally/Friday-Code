@@ -15,6 +15,26 @@ export function isImagePath(p: string): boolean {
   return !!ext && ext in IMAGE_MIME
 }
 
+/** Split an optional `#Lstart-Lend` (or `#Lstart`) line-range suffix off a mention path. */
+function splitRange(rel: string): { rel: string; start?: number; end?: number } {
+  const m = rel.match(/^(.+?)#L(\d+)(?:-L?(\d+))?$/)
+  if (!m) return { rel }
+  const start = Number(m[2])
+  const end = m[3] ? Number(m[3]) : start
+  return { rel: m[1]!, start: Math.min(start, end), end: Math.max(start, end) }
+}
+
+/** Read a file, optionally sliced to a 1-based inclusive line range. */
+function readRange(full: string, start?: number, end?: number): string {
+  const text = fs.readFileSync(full, "utf8")
+  if (start == null) return text.slice(0, 20_000)
+  return text
+    .split("\n")
+    .slice(start - 1, end)
+    .join("\n")
+    .slice(0, 20_000)
+}
+
 /** Resolve a mention against the workspace roots; returns the absolute path of the first file match. */
 function resolveMention(rel: string, roots: string[]): string | undefined {
   if (path.isAbsolute(rel)) {
@@ -37,26 +57,29 @@ function resolveMention(rel: string, roots: string[]): string | undefined {
 
 /** Expand `@path` file mentions into appended <file> blocks. Image mentions are skipped (see collectImages). */
 export function expandMentions(text: string, roots: string[]): { text: string; files: string[] } {
-  const matches: { rel: string; full: string }[] = []
+  // `label` is the mention as typed (may carry a #Lx-y range); `full` is the resolved file; the
+  // optional start/end slice the inlined block to that range.
+  const matches: { label: string; full: string; start?: number; end?: number }[] = []
   const re = /(?:^|\s)@([^\s@]+)/g
   let m: RegExpExecArray | null
   while ((m = re.exec(text))) {
-    const rel = m[1]!
+    const label = m[1]!
+    const { rel, start, end } = splitRange(label)
     if (isImagePath(rel)) continue // images are attached, not inlined as text
     const full = resolveMention(rel, roots)
-    if (full && !matches.some((x) => x.full === full)) matches.push({ rel, full })
+    if (full && !matches.some((x) => x.label === label)) matches.push({ label, full, start, end })
   }
   if (!matches.length) return { text, files: [] }
   const blocks = matches
     .map((x) => {
       try {
-        return `<file path="${x.rel}">\n${fs.readFileSync(x.full, "utf8").slice(0, 20_000)}\n</file>`
+        return `<file path="${x.label}">\n${readRange(x.full, x.start, x.end)}\n</file>`
       } catch {
         return ""
       }
     })
     .filter(Boolean)
-  return { text: `${text}\n\n${blocks.join("\n\n")}`, files: matches.map((x) => x.rel) }
+  return { text: `${text}\n\n${blocks.join("\n\n")}`, files: matches.map((x) => x.label) }
 }
 
 /** Collect `@image.png` mentions as base64 image parts to attach to the user message. */

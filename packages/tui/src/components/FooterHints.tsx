@@ -3,16 +3,16 @@ import { For } from "solid-js"
 import { useHover } from "../motion/index.ts"
 import { useApp } from "../store.tsx"
 
-type Hint = { keys: string; label: string; act?: "mode" | "panel" | "cmds" }
+type Hint = { keys: string; label: string; act?: "mode" | "panel" | "settings" }
 
 const HINTS: Hint[] = [
-  { keys: "enter", label: "send" },
-  { keys: "shift+tab", label: "mode", act: "mode" },
-  { keys: "ctrl+b", label: "panel", act: "panel" },
-  { keys: "ctrl+k", label: "cmds", act: "cmds" },
+  { keys: "Enter", label: "send" },
   { keys: "/", label: "command" },
   { keys: "@", label: "file" },
-  { keys: "ctrl+c", label: "quit" },
+  { keys: "Shift+Tab", label: "mode", act: "mode" },
+  { keys: "Ctrl+B", label: "panel", act: "panel" },
+  { keys: "Ctrl+G", label: "settings", act: "settings" },
+  { keys: "Ctrl+C", label: "quit" },
 ]
 
 /** One key hint. Actionable ones (mode/panel/cmds/?keys) brighten on hover and fire on click, so the
@@ -48,8 +48,8 @@ export function FooterHints() {
       ? () => app.toggleMode(1)
       : act === "panel"
         ? () => app.setRightOpen(!app.rightOpen())
-        : act === "cmds"
-          ? () => app.setPaletteOpen(true)
+        : act === "settings"
+          ? () => app.setSettingsModalOpen(true)
           : undefined
   return (
     <box flexDirection="row" height={1} paddingLeft={1} paddingRight={1} gap={1} alignItems="center">
@@ -58,7 +58,7 @@ export function FooterHints() {
           <FooterHint
             keys={h.keys}
             label={h.label}
-            armed={h.keys === "ctrl+c" && app.quitArmed()}
+            armed={h.keys === "Ctrl+C" && app.quitArmed()}
             onClick={handler(h.act)}
           />
         )}

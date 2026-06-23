@@ -117,9 +117,9 @@ export type EngineEvent = EngineEventBody & { sessionId: string }
 export type UICommand =
   | { type: "prompt"; text: string }
   | { type: "abort" }
-  // Steer a running agent without stopping it: `inject` folds a user note in at the next loop
-  // step; `inject-pause` makes the agent idle at the next step boundary while the user composes;
-  // `inject-resume` releases that pause (used by the modal's cancel path).
+  // Add context to a running agent without stopping it (the /pause feature): `inject` folds a user note
+  // in at the next loop step; `inject-pause` makes the agent idle at the next step boundary while the
+  // user composes; `inject-resume` releases that pause (used by the modal's cancel path).
   | { type: "inject"; id?: string; text: string; images?: ImagePart[]; interrupt?: boolean }
   | { type: "inject-pause"; interrupt?: boolean }
   | { type: "inject-resume" }

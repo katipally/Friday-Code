@@ -38,8 +38,8 @@ Ollama and llama.cpp are keyless and good for local models.
 
 ## Keys
 
-Keys come from environment variables or from `auth.json`, with environment
-variables winning on conflict. The `/model` picker writes `auth.json` for you.
+Keys come from `auth.json` or from environment variables, with `auth.json`
+winning on conflict. The `/model` picker writes `auth.json` for you.
 See [configuration](configuration.md) for details.
 
 ## Models and reasoning

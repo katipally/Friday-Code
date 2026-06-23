@@ -31,7 +31,7 @@ test("App mounts straight to the shell; untrusted dir shows the trust gate, then
   await t.mockMouse.click(2, 2)
   await t.flush()
   const bare = t.captureCharFrame()
-  expect(bare).toContain("STATS")
+  expect(bare).toContain("MODEL")
 
   t.renderer.destroy()
 })
@@ -50,7 +50,7 @@ test("Shift+Tab cycles modes, Ctrl+B toggles context panel, F1 overlay + mouse d
 
   t.mockInput.pressKey("b", { ctrl: true })
   await t.flush()
-  expect(t.captureCharFrame()).not.toContain("STATS")
+  expect(t.captureCharFrame()).not.toContain("MODEL")
 
   t.mockInput.pressKey("b", { ctrl: true })
   await t.flush()

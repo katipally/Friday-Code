@@ -1,6 +1,15 @@
 import { expect, test } from "bun:test"
 import type { Message } from "@friday/shared"
-import { collapseToolOutputs, estimateTokens, renderTranscript, safeCutIndex } from "../src/compaction.ts"
+import { COMPACTION, collapseToolOutputs, estimateTokens, renderTranscript, safeCutIndex } from "../src/compaction.ts"
+
+test("auto-compact default fires at 85% of the window; a config override changes the limit", () => {
+  // Default: maybeCompact uses COMPACTION.threshold (0.85) — see runner.maybeCompact.
+  expect(COMPACTION.threshold).toBe(0.85)
+  const window = 200_000
+  const limitFor = (frac: number) => Math.min(Math.floor(window * frac), window - COMPACTION.buffer)
+  expect(limitFor(COMPACTION.threshold)).toBe(170_000) // 85%
+  expect(limitFor(0.75)).toBe(150_000) // a Settings override lowers the trigger
+})
 
 const convo: Message[] = [
   { role: "user", text: "first request" },

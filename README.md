@@ -65,7 +65,7 @@ friday -h, --help
 | `Shift+Enter` | newline in composer |
 | `Shift+Tab` | cycle mode (plan → default → yolo) |
 | `Ctrl+B` | toggle context panel |
-| `Ctrl+K` | command palette |
+| `Shift+Esc` | pause the running agent & add context |
 | `Ctrl+Y` | session history |
 | `Ctrl+1-9` | jump between parallel sessions |
 | `/` | slash command autocomplete |
@@ -91,22 +91,22 @@ Shift+Tab cycles. Each mode recolors the whole frame and gates every tool call.
 
 `⬡‿⬡` lives above the composer. It changes expression: `⬡‿⬡` idle, `⬡⌄⬡` thinking, `[>‿<]` streaming, `⬡▰⬡` working, `\⬡‿⬡/` done, `⬡_⬡` error, `⬡⊙⬡` waiting. The mood also tints the color: green for done, red for error, amber for waiting, mode accent for everything else. You can tell what's happening from across the room.
 
-### Steering
+### Pause
 
 Agents go wrong when they guess at something you knew and then build on the
-guess. `/add` is how you catch it mid-flight. Type `/add <note>` while Friday is
-working and it pauses the current generation, folds your note in, and
-course-corrects right now. Use `/add! <note>` when the current step is fine to
-finish and you just want the note picked up on the next one.
+guess. `/pause` is how you catch it mid-flight. Type `/pause` (or press
+Shift+Esc) while Friday is working and it soft-interrupts the current generation
+and opens a composer. Write what it missed, press Enter, and your note folds in
+so the agent course-corrects right now.
 
 ```
-/add we are keeping the old auth API, do not rewrite it
-/add! the base url is staging.example.com, not prod
+/pause
+→ "we are keeping the old auth API, do not rewrite it"
 ```
 
-Full reference, including the cost model and the bare-`/add` composer, in
-[docs/steering.md](docs/steering.md). Every slash command is listed in
-[docs/commands.md](docs/commands.md).
+`/nudge` and `/add` are aliases for `/pause`. Full reference, including the cost
+model and the composer's `@file` mentions, in [docs/pause.md](docs/pause.md).
+Every slash command is listed in [docs/commands.md](docs/commands.md).
 
 ## Features
 
@@ -116,7 +116,7 @@ What's actually in `main`, no aspirational claims.
 
 **Tools.** `read`, `write`, `edit`, `multiEdit`, `applyPatch`, `ls`, `glob`, `grep`, `bash`, `webfetch`, `websearch`, `askUser`, `skill`, `task` (read-only sub-agent), `task_create` / `task_list` / `task_status` / `task_stop`, `spawn_agents` (swarm) / `spawn_team` + `board_*` (coordinated team), `todo_write`, `exit_plan`, `lsp_hover` / `lsp_definition` / `lsp_symbols`, `tool_search`, `memory`, `notebook_edit`, `cron_create` / `cron_list` / `cron_delete`, `enter_worktree` / `exit_worktree` / `worktree_list`, opt-in `browser_*` and `computer_*`. MCP client (stdio + streamable-http).
 
-**TUI.** Animated mascot (7 states, defined in `packages/shared/src/mascot.ts`), animated FRIDAY wordmark drawn from half-block subpixels in the TUI itself, 3-mode visual system with per-mode glyph + accent, responsive layout with auto-collapsing panels, motion layer with `FRIDAY_REDUCED_MOTION=1` accessibility fallback, multi-session tabs, context panel with plans/todos/files/context/tasks plus separate MCP and skills surfaces, dashboard (Sessions · Teams · Swarm · History, Ctrl+O), on-device speech-to-text mic with input-device select + live transcription (Ctrl+R), command palette, slash command + `@` mention autocomplete, markdown skills in `~/.friday/skills/`.
+**TUI.** Animated mascot (7 states, defined in `packages/shared/src/mascot.ts`), animated FRIDAY wordmark drawn from half-block subpixels in the TUI itself, 3-mode visual system with per-mode glyph + accent, responsive layout with auto-collapsing panels, motion layer with `FRIDAY_REDUCED_MOTION=1` accessibility fallback, multi-session tabs, context panel with plans/todos/files/context/tasks plus separate MCP and skills surfaces, dashboard (Sessions · Teams · Swarm · History, Ctrl+O), on-device speech-to-text mic with input-device select + live transcription (Ctrl+R), inline slash command + `@` mention autocomplete, markdown skills in `~/.friday/skills/`.
 
 **Providers (19).** Anthropic and Google Gemini ship dedicated adapters. 17 more (OpenAI, OpenRouter, OpenCode Zen, Groq, Moonshot/Kimi, DeepSeek, xAI, Mistral, Perplexity, Together, Cerebras, DeepInfra, Fireworks, Azure OpenAI, MiniMax, Ollama, llama.cpp / LM Studio) go through one OpenAI-compat adapter. Ollama and llama.cpp are keyless. Model catalog from [models.dev](https://models.dev) with an offline snapshot fallback. Reasoning effort via `/effort` slider.
 
@@ -210,7 +210,7 @@ If a stable build fails, the release is blocked. If a musl or Windows ARM build 
 Deep dives on every feature live in [docs/](docs/index.md):
 
 - [Slash commands](docs/commands.md): every command you can type.
-- [Steering](docs/steering.md): `/add` and `/add!`.
+- [Pause](docs/pause.md): `/pause`.
 - [Configuration](docs/configuration.md): `~/.friday/`, keys, hooks, project context, skills, custom agents and commands.
 - [Providers](docs/providers.md): the 19 providers and reasoning effort.
 - [Tools](docs/tools.md): the capabilities the model calls.

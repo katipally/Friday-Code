@@ -13,14 +13,21 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
-- Documentation for the `/add` and `/add!` steering commands, the way to redirect
-  a running agent without stopping it. See `docs/steering.md`.
+- `/pause` (Shift+Esc, aliases `/nudge` and `/add`): soft-interrupt a running
+  agent and fold in context it missed via a composer, without killing the task.
+  See `docs/pause.md`.
+- `/settings` (Ctrl+G, alias `/config`), `/theme`, and `/update` modals —
+  autoupdate, rebindable keybindings (`~/.friday/keybindings.json`), editor, and
+  theme, all in one place.
 - A `docs/` set covering every slash command and every feature
-  (`docs/commands.md`, `configuration.md`, `providers.md`, `tools.md`,
-  `agents-and-teams.md`, `integrations.md`), all linked from the README.
+  (`docs/commands.md`, `pause.md`, `configuration.md`, `providers.md`,
+  `tools.md`, `agents-and-teams.md`, `integrations.md`), all linked from the README.
 
 ### Changed
 
+- UI/UX overhaul: status pills, a bordered user prompt, borderless chrome, and
+  mode-accent colors confined to the chat/composer. Replaced the command palette
+  with the inline slash menu.
 - **Versions are no longer hardcoded in source.** All `package.json`, `friday.rb`,
   and `friday.json` files now have a placeholder `0.0.0-private` and are stamped
   at release time from the git tag. No more `bump` step, no more 11 files to

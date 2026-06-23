@@ -5,6 +5,27 @@ import { useApp } from "../store.tsx"
 import { useMascotFrame } from "../util/useMascot.ts"
 import { Pressable } from "./Pressable.tsx"
 
+/** Spell a chord string ("shift+escape") into proper Title-case key names ("Shift+Esc"). */
+function fmtChord(chord: string): string {
+  const name = (p: string) =>
+    p === "ctrl"
+      ? "Ctrl"
+      : p === "shift"
+        ? "Shift"
+        : p === "option" || p === "alt"
+          ? "Alt"
+          : p === "meta" || p === "cmd"
+            ? "Cmd"
+            : p === "escape"
+              ? "Esc"
+              : p === "return"
+                ? "Enter"
+                : p.length <= 1
+                  ? p.toUpperCase()
+                  : p.charAt(0).toUpperCase() + p.slice(1)
+  return chord.split("+").map(name).join("+")
+}
+
 /**
  * Strip directly above the composer: the animated mascot + live status on the left, an elapsed
  * timer and a Stop control in the middle, and the active model pinned to the far right.
@@ -87,6 +108,16 @@ export function StatusStrip() {
           paddingRight={1}
         >
           <text fg={app.stopArmed() ? theme.bg : theme.error}>■ stop{app.stopArmed() ? " · esc again" : " · esc"}</text>
+        </box>
+        {/* Pause — opens the /pause modal so you can course-correct the running agent by adding context.
+            The shown key mirrors the (rebindable) pause.open binding, default Shift+Esc. */}
+        <box
+          onMouseDown={() => app.runCommand("pause")}
+          backgroundColor={theme.bgElevated}
+          paddingLeft={1}
+          paddingRight={1}
+        >
+          <text fg={theme.warning}>⏸ Pause · {fmtChord(app.keymap()["pause.open"])}</text>
         </box>
       </Show>
       <box flexGrow={1} />

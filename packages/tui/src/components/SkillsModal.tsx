@@ -1,7 +1,7 @@
 import type { SkillInfo } from "@friday/core"
 import { theme } from "@friday/shared"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
-import { createSignal, For, Show } from "solid-js"
+import { createEffect, createSignal, For, Show } from "solid-js"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
 import { bandBg, HintChip, Meta, Overlay, Pill } from "./ui.tsx"
@@ -19,6 +19,13 @@ export function SkillsModal() {
   const [sel, setSel] = createSignal(0)
   const clamped = () => Math.min(sel(), Math.max(0, skills().length - 1))
   const current = () => skills()[clamped()]
+
+  // Keep the highlighted skill in view as the user arrows through a list longer than the viewport.
+  let sb: any
+  createEffect(() => {
+    const i = clamped()
+    queueMicrotask(() => sb?.scrollChildIntoView?.(`skill-${i}`))
+  })
 
   useKeyboard((key) => {
     if (!app.skillsModalOpen()) return
@@ -46,12 +53,13 @@ export function SkillsModal() {
             </box>
           }
         >
-          <scrollbox maxHeight={14}>
+          <scrollbox ref={(r: any) => (sb = r)} maxHeight={14}>
             <For each={skills()}>
               {(s, i) => {
                 const on = () => clamped() === i()
                 return (
                   <box
+                    id={`skill-${i()}`}
                     flexDirection="column"
                     paddingLeft={1}
                     paddingRight={1}

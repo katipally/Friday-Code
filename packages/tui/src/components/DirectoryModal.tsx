@@ -3,13 +3,31 @@ import path from "node:path"
 import { theme } from "@friday/shared"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { createMemo, createSignal, For, Show } from "solid-js"
+import { useHover } from "../motion/index.ts"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
-import { bandBg, HintChip, Overlay, Pill, SectionLabel } from "./ui.tsx"
+import { bandBg, Field, HintChip, Overlay, Pill, SectionLabel } from "./ui.tsx"
 
 function home(p: string): string {
   const h = process.env.HOME
   return h && p.startsWith(h) ? `~${p.slice(h.length)}` : p
+}
+
+/** A clickable recent-directory row that brightens on hover, so it reads as a target not a label. */
+function RecentRow(props: { label: string; onOpen: () => void }) {
+  const h = useHover({ base: "transparent", hover: theme.bgHover })
+  return (
+    <box
+      paddingLeft={1}
+      paddingRight={1}
+      backgroundColor={h.bg()}
+      onMouseOver={h.onMouseOver}
+      onMouseOut={h.onMouseOut}
+      onMouseDown={props.onOpen}
+    >
+      <text fg={h.hovered() ? theme.text : theme.textFaint}>{props.label}</text>
+    </box>
+  )
 }
 function expand(v: string): string {
   return v.startsWith("~") ? (process.env.HOME ?? "") + v.slice(1) : v
@@ -116,18 +134,11 @@ export function DirectoryModal() {
         <Show when={recent().length}>
           <box flexDirection="column">
             <SectionLabel text="recent" />
-            <For each={recent()}>
-              {(r) => (
-                <box onMouseDown={() => openDir(r)}>
-                  <text fg={theme.textFaint}>↩ {home(r)}</text>
-                </box>
-              )}
-            </For>
+            <For each={recent()}>{(r) => <RecentRow label={`↩ ${home(r)}`} onOpen={() => openDir(r)} />}</For>
           </box>
         </Show>
 
-        <box flexDirection="column">
-          <SectionLabel text="path" />
+        <Field label="path" hint="Tab to complete" focused>
           <input
             value={value()}
             onInput={(v) => {
@@ -137,10 +148,10 @@ export function DirectoryModal() {
             }}
             onSubmit={() => openDir()}
             focused
-            placeholder="~/path/to/project · ⭾ to complete"
+            placeholder="~/path/to/project"
             placeholderColor={theme.textFaint}
           />
-        </box>
+        </Field>
 
         <Show when={suggestions().length}>
           <box flexDirection="column">
@@ -170,8 +181,8 @@ export function DirectoryModal() {
         </box>
         <box flexDirection="row" gap={1}>
           <HintChip label="↑↓ pick" />
-          <HintChip label="⭾ complete" />
-          <HintChip label="⏎ open" accent={theme.success} onClick={() => openDir()} />
+          <HintChip label="Tab complete" />
+          <HintChip label="Enter open" accent={theme.success} onClick={() => openDir()} />
           <HintChip label="esc close" onClick={() => app.setDirModalOpen(false)} />
         </box>
       </Overlay>

@@ -9,6 +9,17 @@ test("applyTheme resets back to the default palette", () => {
   expect(theme.bg).toBe(defaultBg)
 })
 
-test("themeNames includes the dark preset (Friday is dark-only)", () => {
-  expect(themeNames()).toEqual(["dark"])
+test("themeNames lists the built-in presets with dark first", () => {
+  const names = themeNames()
+  expect(names[0]).toBe("dark")
+  expect(names).toContain("high-contrast")
+  expect(names).toContain("light")
+})
+
+test("applyTheme layers a preset, then resets to default", () => {
+  const defaultText = theme.text
+  applyTheme("light")
+  expect(theme.bg).toBe("#ffffff") // preset override applied
+  applyTheme("dark")
+  expect(theme.text).toBe(defaultText) // reset back to the default palette
 })

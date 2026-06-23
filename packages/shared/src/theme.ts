@@ -85,7 +85,65 @@ const BASE: Theme = { ...theme }
  * the next launch). Keep overrides to the high-impact surface/text/role tokens.
  */
 export const THEMES: Record<string, Partial<Theme>> = {
-  dark: {}, // the one theme — Friday is dark-only
+  dark: {}, // the default — Friday's signature near-black palette
+  // Brighter text + edges on the same black canvas; for low-vision / harsh-light terminals.
+  "high-contrast": {
+    text: "#ffffff",
+    textMuted: "#d4d6db",
+    textFaint: "#b3b6bd",
+    border: "#8a8d96",
+    borderMuted: "#4a4c54",
+    borderActive: "#ffffff",
+    bgSelected: "#5a5d68",
+  },
+  // A complete light palette — every token overridden so code blocks, markdown and diffs stay legible
+  // on white (a partial override would leave dark-theme text invisible on the light canvas). The
+  // selection band is a saturated mid-blue so the shared white `textOnAccent` reads on it AND on the
+  // semantic (warning/error) bands, matching how the dark theme's single on-accent text works.
+  light: {
+    bg: "#ffffff",
+    bgComposer: "#f1f2f4",
+    bgPanel: "#f3f4f6",
+    bgElevated: "#e9ebef",
+    bgHover: "#dfe2e8",
+    bgSelected: "#2f6fb0",
+    text: "#1a1c20",
+    textMuted: "#4a4f57",
+    textFaint: "#6b727c",
+    textOnAccent: "#ffffff",
+    brand: "#b36b00",
+    brandDim: "#8a5a14",
+    border: "#c3c7cf",
+    borderMuted: "#d9dce1",
+    borderActive: "#9197a0",
+    user: "#3a5a8c",
+    success: "#1f8f3f",
+    warning: "#9a6a00",
+    error: "#c0394f",
+    info: "#1f6fb0",
+    syntaxComment: "#6a737d",
+    syntaxKeyword: "#d73a49",
+    syntaxFunction: "#6f42c1",
+    syntaxVariable: "#24292e",
+    syntaxString: "#22863a",
+    syntaxNumber: "#005cc5",
+    syntaxType: "#005cc5",
+    syntaxOperator: "#d73a49",
+    syntaxPunctuation: "#24292e",
+    markdownHeading: "#005cc5",
+    markdownStrong: "#24292e",
+    markdownEmph: "#6f42c1",
+    markdownLink: "#0366d6",
+    markdownLinkText: "#22863a",
+    markdownCode: "#b31d28",
+    markdownQuote: "#6a737d",
+    markdownListMarker: "#005cc5",
+    diffAdded: "#22863a",
+    diffRemoved: "#b31d28",
+    diffAddedBg: "#e6ffed",
+    diffRemovedBg: "#ffeef0",
+    diffContextBg: "#ffffff",
+  },
 }
 
 /**

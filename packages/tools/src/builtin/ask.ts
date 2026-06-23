@@ -3,11 +3,15 @@ import { obj, type Tool } from "../tool.ts"
 const optionSchema = obj(
   {
     label: { type: "string", description: "the choice, 1-5 words, concise" },
-    description: { type: "string", description: "a short explanation of what this choice means or implies" },
+    description: {
+      type: "string",
+      description:
+        "ALWAYS provide this — a short explanation of what this choice means or implies. Shown in the option's info panel.",
+    },
     preview: {
       type: "string",
       description:
-        "(optional) a multi-line ASCII diagram, mockup, code snippet, or config example shown beside the options so the user can compare choices visually. Use when a picture helps (layouts, structures, before/after); keep lines ≤ 56 chars wide.",
+        "a multi-line ASCII diagram, mockup, code snippet, or config example shown in the option's info panel so the user can compare choices visually. Strongly preferred — add one whenever a picture helps (layouts, structures, before/after, trees). Keep lines ≤ 44 chars wide.",
     },
   },
   ["label"],

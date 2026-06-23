@@ -5,7 +5,6 @@ import { useApp } from "../store.tsx"
 import { G } from "../util/term.ts"
 import { CollapseTab } from "./Divider.tsx"
 import { CloseButton } from "./PanelChrome.tsx"
-import { Pressable } from "./Pressable.tsx"
 import { SectionLabel } from "./ui.tsx"
 
 function fmtTokens(n: number): string {
@@ -41,6 +40,40 @@ function QuickButton(props: { label: string; hint: string; onClick: () => void; 
       <text fg={h.hovered() ? props.accent : theme.textMuted}>{props.label}</text>
       <box flexGrow={1} />
       <text fg={theme.textFaint}>{props.hint}</text>
+    </box>
+  )
+}
+
+/** A thin full-width section divider — the opencode-style rule between sidebar groups. */
+function Rule(props: { width: number }) {
+  return <text fg={theme.borderMuted}>{"─".repeat(props.width)}</text>
+}
+
+/**
+ * A raised control chip — an elevated cell that brightens on hover, so the actionable controls (model,
+ * effort, compact/undo) read as tappable buttons lifted above the flat panel. The section LABELS stay
+ * flat dim text on the panel; only the controls are raised, so the elevation reads as "this is a button"
+ * rather than boxing the whole section.
+ */
+function Chip(props: { label: string; onClick?: () => void; fg?: string; right?: string; grow?: boolean }) {
+  const h = useHover({ base: theme.bgElevated, hover: theme.bgHover })
+  return (
+    <box
+      flexDirection="row"
+      flexGrow={props.grow ? 1 : 0}
+      gap={1}
+      paddingLeft={1}
+      paddingRight={1}
+      backgroundColor={h.bg()}
+      onMouseOver={h.onMouseOver}
+      onMouseOut={h.onMouseOut}
+      onMouseDown={props.onClick}
+    >
+      <text fg={props.fg ?? (h.hovered() ? theme.text : theme.textMuted)}>{props.label}</text>
+      <Show when={props.right}>
+        <box flexGrow={1} />
+        <text fg={h.hovered() ? theme.text : theme.textFaint}>{props.right}</text>
+      </Show>
     </box>
   )
 }
@@ -98,9 +131,8 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
   const [filesNew, setFilesNew] = createSignal(false)
   const [plansOpen, setPlansOpen] = createSignal(false)
   const [plansNew, setPlansNew] = createSignal(false)
-  const [tasksOpen, setTasksOpen] = createSignal(false)
-  const [tasksNew, setTasksNew] = createSignal(false)
   const [taskHov, setTaskHov] = createSignal(-1)
+  const agentsHover = useHover({ base: theme.bgPanel, hover: theme.bgHover })
 
   // Auto-reveal Todos/Files when their backing data changes (signature compare).
   const todoSig = () =>
@@ -143,22 +175,6 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
     }
     prevPlan = n
   })
-  // Reveal Tasks when the set of background tasks (or their statuses) changes.
-  const taskSig = () =>
-    app
-      .tasks()
-      .map((t) => `${t.id}:${t.status}`)
-      .join("|")
-  let prevTask = taskSig()
-  createEffect(() => {
-    const sig = taskSig()
-    if (sig !== prevTask && sig) {
-      setTasksOpen(true)
-      setTasksNew(true)
-    }
-    prevTask = sig
-  })
-
   const toggleTodos = () => {
     setTodosOpen(!todosOpen())
     setTodosNew(false)
@@ -170,10 +186,6 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
   const togglePlans = () => {
     setPlansOpen(!plansOpen())
     setPlansNew(false)
-  }
-  const toggleTasks = () => {
-    setTasksOpen(!tasksOpen())
-    setTasksNew(false)
   }
 
   const mcpHover = useHover({ base: theme.bgPanel, hover: theme.bgHover })
@@ -190,6 +202,24 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
   }
   const shownPct = useTween(targetPct, { duration: 600 })
   const barPct = () => Math.round(shownPct())
+  // Auto-compact fires at this fraction of the window (configurable in Settings — see config.autoCompactThreshold).
+  const thresholdPct = () => Math.round(app.autoCompactThreshold() * 100)
+  // Usage gauge: a single filled bar (▰ used · ▱ free) with a ┊ tick marking the auto-compact column.
+  // Returns cell counts so the filled/empty stretches and the tick can wear distinct colors.
+  const BAR_CELLS = () => Math.max(10, Math.min(20, innerW() - 5))
+  const zones = () => {
+    const n = BAR_CELLS()
+    const used = Math.max(0, Math.min(n, Math.round((barPct() / 100) * n)))
+    const compactCol = Math.max(0, Math.min(n, Math.round(app.autoCompactThreshold() * n)))
+    const over = used >= compactCol
+    return {
+      used,
+      preTick: over ? 0 : compactCol - used, // empty cells before the tick
+      postTick: over ? n - used : n - compactCol, // empty cells after the tick
+      tick: !over, // hide the tick once usage has crossed the compact line (the whole bar turns warning)
+      over,
+    }
+  }
   // Usable text width inside the panel (width minus borders/padding) — drives truncation so long
   // model ids and file paths never wrap and deform the layout at the minimum width.
   const innerW = () => Math.max(8, (props.fullscreen ? 60 : (props.widthOverride ?? app.rightWidth())) - 4)
@@ -215,24 +245,29 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
         <box flexDirection="row" paddingRight={1} alignItems="center">
           <CloseButton hint="ctrl+b" onClose={() => app.setRightOpen(false)} />
           <box flexGrow={1} />
-          <SectionLabel text="STATS" />
+          <SectionLabel text="context" />
         </box>
 
         <scrollbox flexGrow={1} minHeight={0} paddingLeft={1} paddingRight={1} paddingTop={1}>
           <box flexDirection="column" gap={1}>
-            {/* Always-on stat block. */}
-            <box flexDirection="column">
-              <Pressable
-                label={truncate(app.model(), innerW() - 2)}
+            {/* ── 1. MODEL ─── flat label, raised control chips ─── */}
+            <box flexDirection="column" gap={0}>
+              <SectionLabel text="model" />
+              <Chip
+                label={truncate(app.model(), innerW() - 6)}
                 fg={theme.text}
+                right="⌄"
+                grow
                 onClick={() => app.setModelModalOpen(true)}
               />
               <Show when={app.reasoningModel()}>
-                <Pressable label={`◇ ${app.effort()} · tap to change`} onClick={() => app.setEffortOpen(true)} />
+                <Chip label={`◇ ${app.effort()} · tap to change`} grow onClick={() => app.setEffortOpen(true)} />
               </Show>
             </box>
 
-            <box flexDirection="column">
+            {/* ── 1b. CONTEXT ─── flat label, gauge + raised compaction chips ── */}
+            <box flexDirection="column" gap={0}>
+              <SectionLabel text="context" />
               <Show
                 when={app.contextWindow() > 0}
                 fallback={
@@ -241,12 +276,24 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
                   </text>
                 }
               >
-                <text fg={app.compacting() ? accent() : barPct() > 80 ? theme.warning : accent()}>
-                  {"█".repeat(Math.round((barPct() / 100) * 12))}
-                  {"░".repeat(12 - Math.round((barPct() / 100) * 12))} {barPct()}%{app.compacting() ? " ↻" : ""}
-                </text>
+                {/* Usage bar + compact marker — ▰ used (accent/warning) · ▱ free · ┊ auto-compact tick. */}
+                <box flexDirection="row">
+                  <text fg={app.compacting() ? accent() : zones().over ? theme.warning : accent()}>
+                    {"▰".repeat(zones().used)}
+                  </text>
+                  <text fg={theme.textFaint}>{"▱".repeat(zones().preTick)}</text>
+                  <Show when={zones().tick}>
+                    <text fg={theme.brandDim}>┊</text>
+                  </Show>
+                  <text fg={theme.textFaint}>{"▱".repeat(zones().postTick)}</text>
+                  <text fg={theme.textMuted}>
+                    {" "}
+                    {barPct()}%{app.compacting() ? " ↻" : ""}
+                  </text>
+                </box>
+                <text fg={theme.textFaint}>└ auto-compact {thresholdPct()}%</text>
                 <text fg={theme.textFaint}>
-                  {fmtTokens(app.tokens())}/{fmtTokens(app.contextWindow())} · ${app.cost().toFixed(3)}
+                  {fmtTokens(app.tokens())} / {fmtTokens(app.contextWindow())} · ${app.cost().toFixed(3)}
                 </text>
               </Show>
               {/* Optional usage budget (/budget): warn when tokens or $ exceed it. */}
@@ -256,22 +303,84 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
                   {budgetOver() ? " exceeded" : ""}
                 </text>
               </Show>
+              {/* Compaction controls: trigger, stop (while running), undo (after a compaction). */}
+              <box flexDirection="row" gap={1} marginTop={1}>
+                <Show
+                  when={!app.compacting()}
+                  fallback={<Chip label="■ stop" fg={theme.error} onClick={() => app.stopCompact()} />}
+                >
+                  <Chip label="↻ compact" onClick={() => app.compactNow()} />
+                </Show>
+                <Show when={app.canUndoCompact() && !app.compacting()}>
+                  <Chip label="↶ undo" onClick={() => app.undoCompact()} />
+                </Show>
+              </box>
             </box>
 
-            {/* Compaction controls: trigger, stop (while running), undo (after a compaction). */}
-            <box flexDirection="row" gap={2}>
-              <Show
-                when={!app.compacting()}
-                fallback={<Pressable label="■ stop" fg={theme.error} onClick={() => app.stopCompact()} />}
-              >
-                <Pressable label="↻ compact chat" onClick={() => app.compactNow()} />
-              </Show>
-              <Show when={app.canUndoCompact() && !app.compacting()}>
-                <Pressable label="↶ undo" onClick={() => app.undoCompact()} />
-              </Show>
+            <Rule width={innerW()} />
+
+            {/* ── 2. NAV — voice · settings · dashboard (dashboard 3rd) ── */}
+            <box flexDirection="column" gap={0}>
+              <QuickButton label="🎙 voice" hint="Ctrl+R" onClick={() => app.toggleMic()} accent={accent()} />
+              <QuickButton
+                label="⚙ settings"
+                hint="Ctrl+G"
+                onClick={() => app.setSettingsModalOpen(true)}
+                accent={accent()}
+              />
+              <QuickButton label="▦ dashboard" hint="Ctrl+O" onClick={() => app.toggleDashboard()} accent={accent()} />
+              {/* AGENTS — always-visible status/metadata of the dashboard. Click the header to open the
+                  dashboard; click an agent to focus it (its transcript) and open the dashboard. */}
+              <box flexDirection="column" paddingLeft={2}>
+                <box
+                  flexDirection="row"
+                  gap={1}
+                  backgroundColor={agentsHover.bg()}
+                  onMouseOver={agentsHover.onMouseOver}
+                  onMouseOut={agentsHover.onMouseOut}
+                  onMouseDown={() => app.toggleDashboard()}
+                >
+                  <text fg={agentsHover.hovered() ? theme.text : theme.textFaint}>AGENTS</text>
+                  <text fg={theme.textFaint}>({app.tasks().length})</text>
+                  <box flexGrow={1} />
+                  <Show when={agentsHover.hovered()}>
+                    <text fg={theme.textFaint}>open ▦</text>
+                  </Show>
+                </box>
+                <Show when={app.tasks().length} fallback={<text fg={theme.textFaint}>none running</text>}>
+                  <For each={app.tasks()}>
+                    {(t, i) => (
+                      <box
+                        flexDirection="row"
+                        gap={1}
+                        backgroundColor={taskHov() === i() ? theme.bgHover : "transparent"}
+                        onMouseOver={() => setTaskHov(i())}
+                        onMouseOut={() => setTaskHov(-1)}
+                        onMouseDown={() => {
+                          app.switchSession(t.id) // focus that agent's transcript…
+                          app.toggleDashboard() // …and surface it in the dashboard
+                        }}
+                      >
+                        <text fg={t.status === "running" ? accent() : theme.success}>
+                          {t.status === "running" ? G.caret : G.todoDone}
+                        </text>
+                        <text fg={taskHov() === i() ? theme.text : theme.textMuted}>
+                          {truncate(t.title, innerW() - 8)}
+                        </text>
+                        <box flexGrow={1} />
+                        <Show when={taskHov() === i()}>
+                          <text fg={theme.textFaint}>focus</text>
+                        </Show>
+                      </box>
+                    )}
+                  </For>
+                </Show>
+              </box>
             </box>
 
-            {/* MCP and Skills are two distinct surfaces — separate buttons, each opens its own modal. */}
+            <Rule width={innerW()} />
+
+            {/* ── 3. MCP · SKILLS ────────────────────────────────── */}
             <box flexDirection="row" gap={1}>
               <box
                 flexGrow={1}
@@ -304,15 +413,9 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
               <text fg={theme.textFaint}>✓ {app.contextFiles().length} context files</text>
             </Show>
 
-            <text fg={theme.borderMuted}>{"─".repeat(innerW())}</text>
+            <Rule width={innerW()} />
 
-            {/* Quick actions — same as the Ctrl+R / Ctrl+O shortcuts, clickable for mouse users.
-                Stacked (mic above dashboard) so each is a full-width target. */}
-            <box flexDirection="column" gap={0}>
-              <QuickButton label="🎙 mic" hint="Ctrl+R" onClick={() => app.toggleMic()} accent={accent()} />
-              <QuickButton label="▦ dashboard" hint="Ctrl+O" onClick={() => app.toggleDashboard()} accent={accent()} />
-            </box>
-
+            {/* ── 4. PLANS · TODOS · FILES (AGENTS lives under the dashboard nav, above) ── */}
             {/* Plans proposed this session — click one to re-open the full plan + execute gate. */}
             <Section
               label="plans"
@@ -345,41 +448,6 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
                 </For>
               </Show>
             </Section>
-
-            {/* Background tasks (agent-spawned async sessions) — click to open one's transcript. */}
-            <Show when={app.tasks().length}>
-              <Section
-                label="tasks"
-                count={app.tasks().length}
-                open={tasksOpen()}
-                fresh={tasksNew()}
-                onToggle={toggleTasks}
-              >
-                <For each={app.tasks()}>
-                  {(t, i) => (
-                    <box
-                      flexDirection="row"
-                      gap={1}
-                      backgroundColor={taskHov() === i() ? theme.bgHover : "transparent"}
-                      onMouseOver={() => setTaskHov(i())}
-                      onMouseOut={() => setTaskHov(-1)}
-                      onMouseDown={() => app.switchSession(t.id)}
-                    >
-                      <text fg={t.status === "running" ? accent() : theme.success}>
-                        {t.status === "running" ? G.caret : G.todoDone}
-                      </text>
-                      <text fg={taskHov() === i() ? theme.text : theme.textMuted}>
-                        {truncate(t.title, innerW() - 6)}
-                      </text>
-                      <box flexGrow={1} />
-                      <Show when={taskHov() === i()}>
-                        <text fg={theme.textFaint}>open</text>
-                      </Show>
-                    </box>
-                  )}
-                </For>
-              </Section>
-            </Show>
 
             {/* Todos — auto-reveals when the agent rewrites the task list. */}
             <Section

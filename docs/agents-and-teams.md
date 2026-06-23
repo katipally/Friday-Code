@@ -27,19 +27,21 @@ and `send_to_task`) manage longer-running work that outlives a single turn.
 
 `spawn_team` creates a coordinated team with roles and a shared board. Members
 post updates, claim files so two agents do not edit the same thing, and release
-them when done. The board tools are `board_post`, `board_read`, `board_claim`,
-and `board_release`.
+them when done. The board tools are `board_post`, `board_read`,
+`board_claim_file`, and `board_release_file`.
 
 ## Watching them run
 
 | Surface | How to open | What it shows |
 |---|---|---|
-| Dashboard | `/dashboard` or Ctrl+O | Sessions, Teams, Swarm, and History in one view. |
+| Dashboard | `/dashboard` or Ctrl+O | Sessions, Teams, and Swarm in one view. |
 | Console | `/console` or Ctrl+T | The live team cockpit: the shared board plus the roster. |
 | Fleet | `/fleet` | One external terminal window per running agent. |
 
-`/fleet` needs a terminal backend (tmux on macOS, xterm on Linux, Windows
-Terminal on Windows). If none is found, use the Tasks panel in the dashboard
+`/fleet` needs a terminal backend: it uses tmux if you are already inside a tmux
+session, otherwise Terminal.app/iTerm on macOS or a detected emulator on Linux
+(wezterm, gnome-terminal, konsole, x-terminal-emulator). Windows is not
+supported. If no backend is found, watch the agents in the dashboard's Swarm tab
 instead.
 
 ## Scheduling and isolation

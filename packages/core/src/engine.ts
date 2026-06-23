@@ -845,6 +845,7 @@ export class Engine {
     reasoning: boolean
     contextWindow: number
     outputStyle?: string
+    autoCompactThreshold?: number
   } {
     return {
       providerId: this.providerId,
@@ -854,6 +855,7 @@ export class Engine {
       reasoning: this.modelReasoning,
       contextWindow: this.contextWindow,
       outputStyle: loadConfig().outputStyle,
+      autoCompactThreshold: loadConfig().autoCompactThreshold,
     }
   }
   private resolveProvider(): ProviderInfo {

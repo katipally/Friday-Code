@@ -12,8 +12,8 @@ and computer tools are opt-in and stay off until you activate them.
 | `read` | Read a file. |
 | `write` | Create or overwrite a file. |
 | `edit` | Make a targeted edit to a file. |
-| `multiEdit` | Make several edits to one file in a single call. |
-| `applyPatch` | Apply a unified diff. |
+| `multi_edit` | Make several edits to one file in a single call. |
+| `apply_patch` | Apply a unified diff. |
 | `ls` | List a directory. |
 | `glob` | Find files by pattern. |
 | `grep` | Search file contents with a regex. |
@@ -30,7 +30,7 @@ and computer tools are opt-in and stay off until you activate them.
 
 | Tool | What it does |
 |---|---|
-| `askUser` | Ask you a question, with inline options when it helps. |
+| `ask_user` | Ask you a question, with inline options when it helps. |
 | `todo_write` | Maintain the agent's todo list. |
 | `exit_plan` | Finalize a plan in plan mode. |
 | `skill` | Load and run a markdown skill. |
@@ -57,7 +57,7 @@ auto-detected and skipped if absent.
 | `task` | Spawn a read-only sub-agent. |
 | `spawn_agents` | Launch a swarm of independent agents. |
 | `spawn_team` | Create a coordinated team with a shared board. |
-| `board_post`, `board_read`, `board_claim`, `board_release` | Coordinate a team over the shared board. |
+| `board_post`, `board_read`, `board_claim_file`, `board_release_file` | Coordinate a team over the shared board. |
 | `task_create`, `task_list`, `task_status`, `task_stop`, `send_to_task` | Manage background tasks. |
 | `cron_create`, `cron_list`, `cron_delete` | Schedule recurring runs. |
 | `enter_worktree`, `exit_worktree`, `worktree_list` | Manage git worktrees. |

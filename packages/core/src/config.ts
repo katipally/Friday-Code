@@ -35,6 +35,14 @@ export interface FridayConfig {
   voice?: MicConfig
   /** directories the user has granted Friday access to (shown the trust prompt only once each) */
   trustedRoots?: string[]
+  /** which key inserts a newline in the composer (Enter always submits): "shift" | "alt" | "both" (default) */
+  composerNewline?: "shift" | "alt" | "both"
+  /** version-update behavior: "notify" (default) checks npm + shows a modal when newer; "off" disables */
+  autoupdate?: "notify" | "off"
+  /** epoch ms of the last update check — throttles the startup check to once/day */
+  lastUpdateCheck?: number
+  /** fraction of the context window at which the chat auto-compacts (0–1, default 0.85) */
+  autoCompactThreshold?: number
 }
 
 export function loadConfig(): FridayConfig {

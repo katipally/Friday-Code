@@ -7,21 +7,26 @@ import { Overlay, Row, SectionLabel, Tabs } from "./ui.tsx"
 
 const KEYS: { keys: string; label: string }[] = [
   { keys: "Enter", label: "send message" },
-  { keys: "Shift+Enter", label: "new line in composer" },
+  { keys: "Shift/Alt+Enter", label: "new line in composer (configurable in /settings)" },
+  { keys: "↑ / ↓", label: "recall previous prompts (caret on first line)" },
   { keys: "Shift+Tab", label: "cycle mode (plan → default → yolo)" },
+  { keys: "Shift+Esc", label: "pause the running agent & add context (/pause)" },
   { keys: "Ctrl+B", label: "toggle context panel" },
-  { keys: "Ctrl+K", label: "command palette" },
+  { keys: "Ctrl+G", label: "settings — autoupdate · keybindings · editor · theme" },
   { keys: "Ctrl+O", label: "dashboard — Sessions · Teams · Swarm · History (tab to switch)" },
   { keys: "Ctrl+T", label: "agent-team console (j/k · v visit · s stop · o pop-out)" },
   { keys: "Ctrl+R", label: "mic — press to record, press again to transcribe (on-device)" },
   { keys: "Ctrl+Y", label: "session history (all directories)" },
   { keys: "Ctrl+1-9", label: "switch working session" },
   { keys: "PgUp/PgDn", label: "scroll the conversation (Shift+↑/↓ · Ctrl+U/D)" },
-  { keys: "/ · @", label: "slash command · file mention" },
+  { keys: "/ · @", label: "slash command · file mention (@file#L1-20 for a range)" },
   { keys: "Esc Esc", label: "stop the agent (while busy) · checkpoint history (while idle)" },
   { keys: "? · F1", label: "this guide (or click ? keys)" },
   { keys: "Ctrl+C", label: "quit (press twice)" },
 ]
+
+// Shortcuts shown in the guide are the defaults; the active bindings live in ~/.friday/keybindings.json
+// (edit them in /settings → keybindings).
 
 const TAB_ITEMS = [
   { label: "commands", key: "commands" },

@@ -102,8 +102,8 @@ export const COLLAPSE = {
 }
 
 export const COMPACTION = {
-  /** Compact when the request would exceed this fraction of the model window. */
-  threshold: 0.8,
+  /** Compact when the request would exceed this fraction of the model window (config-overridable). */
+  threshold: 0.85,
   /** How many recent messages to always keep verbatim. */
   keepRecent: 8,
   /** Fallback context window when the model's is unknown. */
