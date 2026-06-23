@@ -78,6 +78,7 @@ import {
   gitStatus,
   gitWorktreeAdd,
   gitWorktreeList,
+  isGitRepo,
 } from "./git.ts"
 import { type HookEvent, type HookPayload, type HooksConfig, runHooks } from "./hooks.ts"
 import { deleteMemory, listMemory, memoryDigest, saveMemory } from "./memory.ts"
@@ -1042,10 +1043,14 @@ export class SessionRunner {
     // signals done, so the subprocess never outlives the turn (a lingering git holds a cwd lock on
     // Windows, which would EBUSY a test that rm's the dir).
     if (this.sessionBaseRef === undefined && !this.baseCapture) {
-      this.baseCapture = gitRevParse(this.cwd).then((base) => {
-        this.sessionBaseRef = base ?? "" // "" = checked, not a repo → fall back to snapshot tracking
-        if (base) this.persistMeta({ baseRef: base })
-      })
+      if (!isGitRepo(this.cwd)) {
+        this.sessionBaseRef = "" // not a repo (fs probe, no subprocess) → snapshot tracker only
+      } else {
+        this.baseCapture = gitRevParse(this.cwd).then((base) => {
+          this.sessionBaseRef = base ?? "" // "" = checked, not a repo → fall back to snapshot tracking
+          if (base) this.persistMeta({ baseRef: base })
+        })
+      }
     }
     this.currentCheckpoint = {
       id: this.host.nextId(),

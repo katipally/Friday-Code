@@ -1,5 +1,18 @@
 /** Lightweight, local-only git helpers (status, diff, commit, worktrees). No network. */
+import fs from "node:fs"
 import path from "node:path"
+
+/** Is `cwd` inside a git repo? An fs walk for `.git` — no subprocess, so it's safe to call on the hot
+ * path and avoids spawning `git` (and holding a cwd lock) in dirs that aren't repos. */
+export function isGitRepo(cwd: string): boolean {
+  let dir = path.resolve(cwd)
+  while (true) {
+    if (fs.existsSync(path.join(dir, ".git"))) return true
+    const parent = path.dirname(dir)
+    if (parent === dir) return false
+    dir = parent
+  }
+}
 
 export interface GitFile {
   path: string
