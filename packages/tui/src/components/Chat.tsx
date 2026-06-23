@@ -26,8 +26,9 @@ function fmtElapsed(ms?: number): string {
     .padStart(2, "0")}s`
 }
 
-/** User prompt: a right-aligned message on a clean elevated fill — separation comes from the
- * background step + padding + margin, not a border or accent block. */
+/** User prompt: a right-aligned elevated panel whose single-line border is tinted by the mode the
+ * message was SENT in (locked at send time, gently shimmering) — the one intentional border in the
+ * app, so you can always tell which mode each turn ran in. */
 function UserBubble(props: { item: Extract<ViewItem, { kind: "user" }> }) {
   const app = useApp()
   const renderer = useRenderer()
@@ -52,6 +53,9 @@ function UserBubble(props: { item: Extract<ViewItem, { kind: "user" }> }) {
           flexDirection="column"
           gap={1}
           maxWidth="85%"
+          border
+          borderStyle="single"
+          borderColor={accent()}
           backgroundColor={theme.bgElevated}
           paddingLeft={2}
           paddingRight={2}
@@ -69,13 +73,6 @@ function UserBubble(props: { item: Extract<ViewItem, { kind: "user" }> }) {
         </box>
       </box>
       <box flexDirection="row" justifyContent="flex-end" alignItems="center" gap={1} paddingRight={1}>
-        {/* mode tag — shown only for plan/yolo (default needs no label), as an elevated chip in the
-            run mode's accent so you can always tell which mode this turn ran in. Locked to item.mode. */}
-        <Show when={ranMode() === "plan" || ranMode() === "yolo"}>
-          <box backgroundColor={theme.bgElevated} paddingLeft={1} paddingRight={1}>
-            <text fg={accent()}>{getMode(ranMode()).label}</text>
-          </box>
-        </Show>
         <Pressable label="⧉ copy" onClick={copy} />
         <Pressable label="↶ undo" onClick={undo} />
       </box>
