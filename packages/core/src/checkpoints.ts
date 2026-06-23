@@ -1,7 +1,13 @@
 import fs from "node:fs"
 import path from "node:path"
+import type { TodoItem } from "@friday/shared"
+import type { PlanRow } from "./sessions.ts"
 
-/** A per-turn checkpoint: the conversation length + prior content of files the turn touched. */
+/**
+ * A per-turn checkpoint: the conversation length + prior content of files the turn touched, PLUS the
+ * pre-turn todo list and plans. Rewinding to a checkpoint restores everything Friday did since —
+ * files, conversation, todos and plans — not just the chat.
+ */
 export interface Checkpoint {
   id: string
   label: string
@@ -10,6 +16,70 @@ export interface Checkpoint {
   messageSeq: number
   /** absolute path -> prior content (null = the file did not exist) */
   files: Map<string, string | null>
+  /** todo list as it was BEFORE this turn — restore reverts to it */
+  todos?: TodoItem[]
+  /** plans as they were BEFORE this turn — restore reverts to them */
+  plans?: PlanRow[]
+}
+
+/** JSON-friendly checkpoint (the `files` Map flattened to entries) for SQLite persistence. */
+interface SerializedCheckpoint {
+  id: string
+  label: string
+  createdAt: number
+  messageSeq: number
+  files: [string, string | null][]
+  todos?: TodoItem[]
+  plans?: PlanRow[]
+}
+
+export function serializeCheckpoints(cps: Checkpoint[]): string {
+  const flat: SerializedCheckpoint[] = cps.map((c) => ({
+    id: c.id,
+    label: c.label,
+    createdAt: c.createdAt,
+    messageSeq: c.messageSeq,
+    files: [...c.files.entries()],
+    todos: c.todos,
+    plans: c.plans,
+  }))
+  return JSON.stringify(flat)
+}
+
+export function deserializeCheckpoints(json: string): Checkpoint[] {
+  try {
+    const arr = JSON.parse(json) as SerializedCheckpoint[]
+    if (!Array.isArray(arr)) return []
+    return arr.map((c) => ({ ...c, files: new Map(c.files) }))
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Line-level change counts (added/removed) between two file versions, via an LCS so inserts/deletes
+ * are counted honestly (not just positional mismatches). Used to tell the user how much code a
+ * rewind would revert.
+ */
+export function lineDelta(before: string | null, after: string | null): { added: number; removed: number } {
+  if (before === after) return { added: 0, removed: 0 }
+  const a = before === null ? [] : before.split("\n")
+  const b = after === null ? [] : after.split("\n")
+  // ponytail: LCS is O(n·m) time; cap large files with a coarse full-rewrite count rather than stall.
+  if (a.length > 5000 || b.length > 5000) return { added: b.length, removed: a.length }
+  const m = a.length
+  const n = b.length
+  // Rolling two-row LCS — O(n) memory (not O(m·n)), so listing many checkpoints stays cheap.
+  let prev = new Int32Array(n + 1)
+  let cur = new Int32Array(n + 1)
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      cur[j] = a[i - 1] === b[j - 1] ? prev[j - 1]! + 1 : Math.max(prev[j]!, cur[j - 1]!)
+    }
+    ;[prev, cur] = [cur, prev]
+  }
+  const lcs = prev[n]!
+  return { added: n - lcs, removed: m - lcs }
 }
 
 export function readOrNull(file: string): string | null {

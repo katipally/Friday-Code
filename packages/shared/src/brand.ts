@@ -1,7 +1,7 @@
-/** Product identity — kept in one place so the wordmark/version are consistent everywhere. */
+/** Product identity — kept in one place so the wordmark is consistent everywhere.
+ *  The version is resolved at runtime (build-stamped, or `git describe` in dev) and
+ *  threaded through the store as `app.version`. */
 export const BRAND = {
   name: "friday",
   suffix: "code",
-  /** Bump per milestone; surfaced in the top rail and exit screen. */
-  version: "0.14.0",
 } as const

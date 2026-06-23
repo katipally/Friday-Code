@@ -1,6 +1,7 @@
 import { theme } from "@friday/shared"
 import { type Accessor, createEffect, createSignal, on, onCleanup, onMount } from "solid-js"
 import { lighten, mix } from "../util/colors.ts"
+import { hasTruecolor } from "../util/term.ts"
 import { type AnimateOpts, animate } from "./animate.ts"
 import { motion } from "./config.ts"
 import { easeOutQuad } from "./easing.ts"
@@ -32,37 +33,6 @@ export function useTween(target: Accessor<number>, opts: AnimateOpts = {}): Acce
 }
 
 /**
- * Reveal-on-mount counter: returns how many of `count` items are visible,
- * incrementing on a stagger interval so lists cascade in. Snaps when reduced.
- */
-export function useStagger(count: Accessor<number>, stepMs = 22): Accessor<number> {
-  const [visible, setVisible] = createSignal(motion.reduced() ? count() : 0)
-  createEffect(
-    on(count, (n) => {
-      if (motion.reduced()) {
-        setVisible(n)
-        return
-      }
-      if (visible() >= n) {
-        setVisible(n)
-        return
-      }
-      const timer = setInterval(() => {
-        setVisible((v) => {
-          if (v >= n) {
-            clearInterval(timer)
-            return n
-          }
-          return v + 1
-        })
-      }, stepMs)
-      onCleanup(() => clearInterval(timer))
-    }),
-  )
-  return visible
-}
-
-/**
  * A "breathing" accent color — oscillates toward a lighter tint via a sine wave.
  * Used to signal focus / live activity without a hard blink. Pass active=false to rest.
  */
@@ -74,7 +44,8 @@ export function useBreathe(accent: Accessor<string>, active: Accessor<boolean>, 
     onCleanup(() => clearInterval(timer))
   })
   return () => {
-    if (!active() || motion.reduced()) return accent()
+    // Solid on 256-color terminals: the pulse toward white would band into palette cells.
+    if (!active() || motion.reduced() || !hasTruecolor) return accent()
     const wave = (Math.sin(phase() * Math.PI * 2) + 1) / 2 // 0..1
     return lighten(accent(), wave * 0.35)
   }
@@ -98,7 +69,8 @@ export function useHover(opts: { hover?: string; base?: string; duration?: numbe
   const [hovered, setHovered] = createSignal(false)
   let stop: (() => void) | undefined
   const go = (to: number) => {
-    if (motion.reduced()) return setP(to)
+    // No tween on 256-color terminals — the mix() fade only shows 2-3 stepped cells; snap instead.
+    if (motion.reduced() || !hasTruecolor) return setP(to)
     stop?.()
     stop = animate(p(), to, setP, { duration: opts.duration ?? 120, ease: easeOutQuad })
   }

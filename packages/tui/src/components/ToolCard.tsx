@@ -5,10 +5,15 @@ import { G } from "../util/term.ts"
 import { useSpinner } from "../util/useSpinner.ts"
 import { DiffCard } from "./DiffCard.tsx"
 
-const MAX_OUTPUT_LINES = 12
+// First reveal shows a head+tail digest — never the whole dump. The full output sits behind a
+// second "view full" gate so even an opened tool stays digestible. Head carries the command/start,
+// tail carries the result (pass/fail line), which is what matters most in logs and test runs.
+const HEAD_LINES = 8
+const TAIL_LINES = 4
+const DIGEST_MAX = HEAD_LINES + TAIL_LINES + 1 // below this, just show it all (digest would be pointless)
 
 /** A tool step on the timeline: ⏺ marker + title; output / diff hangs off a ╰ branch. */
-export function ToolCard(props: { item: Extract<ViewItem, { kind: "tool" }> }) {
+export function ToolCard(props: { item: Extract<ViewItem, { kind: "tool" }>; last?: boolean }) {
   const app = useApp()
   const spin = useSpinner()
   const accent = () => getMode(app.mode()).accent
@@ -18,16 +23,21 @@ export function ToolCard(props: { item: Extract<ViewItem, { kind: "tool" }> }) {
     props.item.status === "running" ? accent() : props.item.status === "error" ? theme.error : theme.success
 
   const hasBody = () => !!props.item.diff || !!props.item.output
-  // Auto-collapse once the tool finishes (like the thinking block): show the body live while running,
-  // then collapse to just the title on done. Click the title to expand/re-collapse.
-  const expanded = () => props.item.status === "running" || props.item.open
+  // Stream-then-collapse, like the thinking block: the output (tools emit it only on completion) stays
+  // visible while this is the running or last/active step, then collapses to just the title once the
+  // turn moves on. Click the title to re-expand any finished tool.
+  const expanded = () => props.item.status === "running" || props.item.open || !!props.last
   const outputLines = () => props.item.output.split("\n")
-  const clippedOutput = () => {
+  // Two-gate disclosure: the first reveal is a head+tail digest; `full` (second gate) shows everything.
+  // While a tool is still running we show the raw tail of what's streamed (no digest mid-stream).
+  const digested = () => !props.item.full && props.item.status !== "running" && outputLines().length > DIGEST_MAX
+  const hiddenCount = () => outputLines().length - HEAD_LINES - TAIL_LINES
+  const shownOutput = () => {
     const lines = outputLines()
-    if (!props.item.open && lines.length > MAX_OUTPUT_LINES) {
-      return `${lines.slice(0, MAX_OUTPUT_LINES).join("\n")}\n… ${lines.length - MAX_OUTPUT_LINES} more lines`
-    }
-    return props.item.output
+    if (!digested()) return props.item.output
+    const head = lines.slice(0, HEAD_LINES).join("\n")
+    const tail = lines.slice(-TAIL_LINES).join("\n")
+    return `${head}\n  ⋯ +${hiddenCount()} lines\n${tail}`
   }
 
   return (
@@ -52,11 +62,22 @@ export function ToolCard(props: { item: Extract<ViewItem, { kind: "tool" }> }) {
         </Show>
 
         <Show when={!props.item.diff && props.item.output}>
-          <box flexDirection="row" gap={1}>
-            <text fg={theme.borderMuted}>{GLYPH.branch}</text>
-            <text fg={props.item.status === "error" ? theme.error : theme.textMuted} selectable>
-              {clippedOutput()}
-            </text>
+          <box flexDirection="column">
+            <box flexDirection="row" gap={1}>
+              <text fg={theme.borderMuted}>{GLYPH.branch}</text>
+              <text fg={props.item.status === "error" ? theme.error : theme.textMuted} selectable>
+                {shownOutput()}
+              </text>
+            </box>
+            {/* Second gate: reveal the complete output (or fold it back to the digest). */}
+            <Show when={digested() || props.item.full}>
+              <box flexDirection="row" gap={1} onMouseDown={() => app.toggleToolFull(props.item.id)}>
+                <text fg={theme.borderMuted}> </text>
+                <text fg={accent()}>
+                  {props.item.full ? "▴ show less" : `▾ view full output (+${hiddenCount()} lines)`}
+                </text>
+              </box>
+            </Show>
           </box>
         </Show>
       </Show>

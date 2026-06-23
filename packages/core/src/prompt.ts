@@ -14,15 +14,47 @@ function skillsSection(skills?: SkillSummary[]): string {
 }
 
 function agentsSection(agents?: { name: string; description: string }[]): string {
-  if (!agents?.length) return ""
-  const lines = agents.map((a) => `- ${a.name}: ${a.description}`)
-  return `\n# Sub-agents\nSpawn a focused read-only sub-agent with task({ agent, prompt }). Besides the built-in "explore", these custom agents are available:\n${lines.join("\n")}`
+  // Always promote the synchronous sub-agent — it's how Friday should offload investigation, not a
+  // feature gated on the user having authored custom agents.
+  const custom = agents?.length
+    ? `\nCustom agents available (pass as { agent }):\n${agents.map((a) => `- ${a.name}: ${a.description}`).join("\n")}`
+    : ""
+  return (
+    `\n# Sub-agents\n` +
+    `Delegate read-only investigation with task({ prompt }) — it spawns a focused sub-agent that searches/reads the codebase and returns just the answer, keeping your own context clean. Reach for it whenever a question means sweeping many files ("where is X handled", "how does Y work", "find everything that calls Z") instead of reading them all yourself. The built-in agent is "explore"; spawn several in parallel for independent questions.` +
+    custom
+  )
 }
 
 function deferredToolsSection(deferred?: { name: string; description: string }[]): string {
   if (!deferred?.length) return ""
   const lines = deferred.map((d) => `- ${d.name}: ${d.description}`)
   return `\n# More tools (on demand)\nThese tools exist but aren't loaded by default. Call tool_search({ query }) to load the ones you need before using them:\n${lines.join("\n")}`
+}
+
+/** Small per-provider overlay. The base prompt is Claude-tuned; nudge other families where it pays off. */
+function providerOverlay(providerId?: string): string {
+  switch (providerId) {
+    case "openai":
+    case "azure":
+      return "\n# Provider notes\n- Keep responses tight; minimize preamble and meta-commentary.\n- For multi-file changes, prefer apply_patch with a single unified diff over many edit calls."
+    case "google":
+      return "\n# Provider notes\n- Be explicit and well-structured; lay out changes as clear ordered steps."
+    default:
+      return ""
+  }
+}
+
+/** Output-style overlay (config.outputStyle). Base behavior is already concise. */
+function outputStyleOverlay(style?: string): string {
+  switch (style) {
+    case "explanatory":
+      return "\n# Output style\nAlongside the work, add brief teaching notes explaining the why behind non-obvious changes."
+    case "minimal":
+      return "\n# Output style\nMinimize prose. Reply with the smallest correct answer; skip summaries unless asked."
+    default:
+      return ""
+  }
 }
 
 /** Assemble the system prompt: identity + environment + behavior + mode posture + project context. */
@@ -35,6 +67,8 @@ export function systemPrompt(opts: {
   agents?: { name: string; description: string }[]
   deferredTools?: { name: string; description: string }[]
   memory?: string
+  providerId?: string
+  outputStyle?: string
 }): string {
   const mode = getMode(opts.mode)
   const extraRoots = (opts.roots ?? []).slice(1)
@@ -63,12 +97,16 @@ export function systemPrompt(opts: {
     "- ask_user: pause and ask the user clarifying question(s) with selectable { label, description } options when you need a decision; a free-text answer is always offered too.",
     "- todo_write: for any task with 3+ steps, maintain a live task list. Pass the FULL list each call; keep one item 'active', mark items 'done' as you finish. This keeps the user oriented.",
     "- Language server (when available): lsp_hover / lsp_definition / lsp_symbols give real type info, jump-to-def, and symbol search. After you edit a file, its compiler diagnostics are appended to the tool result automatically — read them and fix real errors before moving on.",
+    "- For web/UI work you can drive the user's real browser: load the browser_* tools via tool_search, then browser_navigate + browser_snapshot to inspect a page and browser_click/browser_type to act. For OS-level control (only when the task truly needs it) the computer_* tools exist if the user has installed that backend. ALWAYS computer_screenshot FIRST and read the returned image to locate elements before computer_click/computer_type — never click at guessed coordinates blind — then screenshot again to verify the action landed (the OS can silently drop input if permissions are missing; the screenshot is your only proof it worked). If a screenshot/action returns an error about support or permissions, STOP and tell the user exactly what to fix rather than continuing. They prompt for permission unless the user is in yolo mode.",
+    "- Parallel work — pick the right one of three distinct modes: (1) SWARM = spawn_agents fans out INDEPENDENT throwaway subtasks that never talk to each other; you collect results yourself with task_status. Use for unrelated tasks done at once. (2) TEAM = spawn_team is for ONE goal that must be COORDINATED and MERGED: define a goal + roles and it launches a team that shares a blackboard; members board_post findings and board_claim_file to avoid collisions, and you are AUTOMATICALLY re-prompted with a digest when all finish so you can merge their worktrees and report. Prefer spawn_team for multi-part features, broad refactors, and research that needs synthesis. (3) SESSIONS are the USER's own parallel projects — never spawn those yourself. Don't poll in a loop — board_read when you want to peek.",
     opts.memory
       ? `\n# Memory\nDurable facts you saved previously (use them; update via the memory tool when they change):\n${opts.memory}`
       : "",
     skillsSection(opts.skills),
     agentsSection(opts.agents),
     deferredToolsSection(opts.deferredTools),
+    providerOverlay(opts.providerId),
+    outputStyleOverlay(opts.outputStyle),
     modePostureNote(opts.mode),
   ]
     .filter(Boolean)

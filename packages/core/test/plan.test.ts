@@ -125,19 +125,19 @@ test("executing a plan switches the engine mode before the carry-out turn runs",
   expect(engine.selection().mode).toBe("plan")
 
   // Mirror store.executePlan: switch mode, then submit the carry-out prompt.
-  engine.setMode("accept-edit")
-  engine.send({ type: "set-mode", mode: "accept-edit" })
+  engine.setMode("yolo")
+  engine.send({ type: "set-mode", mode: "yolo" })
 
   const events: EngineEvent[] = []
   engine.subscribe((e) => events.push(e))
   engine.send({ type: "prompt", text: "Carry out the plan you just proposed, step by step." })
   await Bun.sleep(40)
 
-  // The carry-out turn ran under accept-edit, so its message-start is stamped accept-edit
+  // The carry-out turn ran under yolo, so its message-start is stamped yolo
   // and (crucially) no fresh plan-ready fires (that only happens while still in plan mode).
-  expect(engine.selection().mode).toBe("accept-edit")
+  expect(engine.selection().mode).toBe("yolo")
   const start = events.find((e) => e.type === "message-start") as Extract<EngineEvent, { type: "message-start" }>
-  expect(start?.mode).toBe("accept-edit")
+  expect(start?.mode).toBe("yolo")
   expect(events.some((e) => e.type === "plan-ready")).toBe(false)
   fs.rmSync(dir, { recursive: true, force: true })
 })

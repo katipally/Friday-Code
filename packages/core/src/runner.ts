@@ -8,6 +8,7 @@ import {
   type Effort,
   type EngineEventBody,
   getMode,
+  type ImagePart,
   type Message,
   type ModeId,
   type PermissionCategory,
@@ -18,6 +19,10 @@ import {
 } from "@friday/shared"
 import {
   ASK_USER,
+  BOARD_CLAIM,
+  BOARD_POST,
+  BOARD_READ,
+  BOARD_RELEASE,
   CRON_CREATE,
   CRON_DELETE,
   CRON_LIST,
@@ -30,7 +35,10 @@ import {
   LSP_SYMBOLS,
   LSP_TOOLS,
   MEMORY_TOOL,
+  SEND_TO_TASK,
   SKILL_TOOL,
+  SPAWN_AGENTS,
+  SPAWN_TEAM,
   searchTools,
   TASK_CREATE,
   TASK_LIST,
@@ -46,18 +54,28 @@ import {
   WORKTREE_LIST,
 } from "@friday/tools"
 import { type AgentDef, loadAgents } from "./agents.ts"
-import { applyFiles, type Checkpoint, readOrNull, snapshotFile } from "./checkpoints.ts"
+import type { PostKind as BoardPostKind, TeamSnapshot as BoardSnapshot } from "./board.ts"
+import {
+  applyFiles,
+  type Checkpoint,
+  deserializeCheckpoints,
+  lineDelta,
+  readOrNull,
+  serializeCheckpoints,
+  snapshotFile,
+} from "./checkpoints.ts"
 import { type CustomCommand, loadCommands } from "./commands.ts"
 import { COMPACTION, collapseToolOutputs, estimateTokens, renderTranscript, safeCutIndex } from "./compaction.ts"
 import { loadProjectContext, type ProjectContext } from "./context.ts"
+import { formatFile } from "./format.ts"
 import { gitCommitAll, gitDiff, gitIsTracked, gitShowHead, gitStatus, gitWorktreeAdd, gitWorktreeList } from "./git.ts"
 import { type HookEvent, type HookPayload, type HooksConfig, runHooks } from "./hooks.ts"
 import { deleteMemory, listMemory, memoryDigest, saveMemory } from "./memory.ts"
 import { collectImages, expandMentions } from "./mentions.ts"
 import { customAgentPrompt, subagentPrompt, systemPrompt } from "./prompt.ts"
 import { bashRisk, matchesList } from "./safety.ts"
-import type { SessionStore } from "./sessions.ts"
-import { loadSkills, type Skill } from "./skills.ts"
+import type { PlanRow, SessionStore } from "./sessions.ts"
+import { loadSkills, type Skill, type SkillInfo } from "./skills.ts"
 import type { StreamFn } from "./stream.ts"
 
 const now = () => Date.now()
@@ -234,7 +252,11 @@ function describeWork(name: string, input: unknown): string {
 }
 
 /** Render ask_user answers back to the model: a single answer verbatim, or labeled Q/A pairs. */
-function formatAskAnswers(questions: AskQuestion[], answers: Record<string, string>): string {
+export function formatAskAnswers(questions: AskQuestion[], answers: Record<string, string>): string {
+  // Empty map = the user dismissed the question (Esc-Esc) or the run was aborted — tell the model plainly
+  // instead of emitting a wall of "(no answer)".
+  if (Object.keys(answers).length === 0)
+    return "(the user dismissed the question without answering — proceed with your best judgment, and only ask again if you are truly blocked)"
   if (questions.length === 1) return answers[questions[0]!.id] ?? "(no answer)"
   return questions.map((q) => `Q: ${q.question}\nA: ${answers[q.id] ?? "(no answer)"}`).join("\n\n")
 }
@@ -260,6 +282,10 @@ export interface RunnerHost {
     mode: ModeId
     contextWindow: number
     cost?: { input: number; output: number }
+    /** config.outputStyle — nudges prompt verbosity (concise | explanatory | minimal) */
+    outputStyle?: string
+    /** config.autoCompactThreshold — fraction of the window at which we auto-compact (default COMPACTION.threshold) */
+    autoCompactThreshold?: number
   }
   resolveProvider: () => ProviderInfo
   /** globally-unique id source (so permission/ask requestIds don't collide across sessions) */
@@ -270,12 +296,18 @@ export interface RunnerHost {
   hooks: () => HooksConfig | undefined
   /** bash allow/deny lists */
   bashPolicy: () => { allow?: string[]; deny?: string[] } | undefined
+  /** config.formatter — false disables auto-format-on-edit (undefined = on) */
+  formatterEnabled: () => boolean | undefined
   /** per-project "always allow" rules (bash prefixes + categories) */
   projectPermissions: (root: string) => { bash?: string[]; categories?: PermissionCategory[] }
   /** persist an "allow always" decision for a project root */
   persistPermission: (root: string, rule: { category: PermissionCategory; command?: string }) => void
   /** spawn a detached background task (agent-driven session); optional isolated worktree; returns its id */
   spawnTask: (prompt: string, description: string, worktree?: string) => string
+  /** fan out several subtasks as parallel background agents; returns their ids */
+  spawnAgents: (jobs: { description: string; prompt: string; worktree?: string }[]) => string[]
+  /** inject a follow-up prompt into a background task (queued if it's mid-turn) */
+  sendToTask: (id: string, text: string) => boolean
   /** list background tasks with status */
   taskList: () => { id: string; title: string; description: string; status: "running" | "done"; summary?: string }[]
   /** stop a running background task */
@@ -286,6 +318,20 @@ export interface RunnerHost {
   cronList: () => { id: string; description: string; everyMs: number; nextRun: number }[]
   /** delete a scheduled task */
   cronDelete: (id: string) => void
+  /** launch a coordinated team of agents toward `goal` (orchestrator = the calling session); returns the team id */
+  spawnTeam: (
+    orchestrator: string,
+    goal: string,
+    roles: { role: string; prompt: string; worktree?: string }[],
+  ) => string
+  /** post to the caller's team board (no-op / false if not in a team) */
+  boardPost: (sessionId: string, kind: BoardPostKind, text: string, toRole?: string) => boolean
+  /** read the caller's team board (null if not in a team) */
+  boardRead: (sessionId: string, since?: number, role?: string) => BoardSnapshot | null
+  /** advisory file claim on the caller's team board (null if not in a team) */
+  boardClaim: (sessionId: string, path: string, ttlMs: number) => { ok: boolean; heldBy?: string } | null
+  /** release a file claim (false if not in a team) */
+  boardRelease: (sessionId: string, path: string) => boolean
 }
 
 /**
@@ -299,6 +345,8 @@ export class SessionRunner {
   private cwd: string
   private messages: Message[]
   private seq: number
+  /** Whether this session's row is in the store yet. New, empty sessions persist on their first message. */
+  private persisted: boolean
   private startedAt = now()
   private totalTokens = 0
   /** input tokens the provider reported for the most recent request — the real size of the current
@@ -322,15 +370,38 @@ export class SessionRunner {
   needsInput = false
   private pending = new Map<string, Pending>()
   private pendingAsk = new Map<string, (answers: Record<string, string>) => void>()
+  /** Notes the user injected mid-task via /pause — drained into history at the top of the next loop step.
+   * `id` correlates with the optimistic UI chip so it flips pending → attached once folded in. */
+  private pendingInjections: { id?: string; msg: Message }[] = []
+  /** Set while the agent is soft-paused at a step boundary waiting for the /pause modal; resolving it resumes the loop. */
+  private injectResume?: () => void
+  private injectPauseArmed = false
+  /** Per-step aborter for the interrupting /pause: cancels ONLY the current model generation (not the run,
+   * not a running tool) so the loop can keep the partial reply, fold in the note, and regenerate. */
+  private stepAbort?: AbortController
   private sessionAllow = new Set<PermissionCategory>()
   /** Deferred tools the model has activated via tool_search this session (their schemas are then sent). */
   private activatedTools = new Set<string>()
 
+  /** Force-activate deferred tools whose name starts with `prefix` (e.g. "browser_"), so the model can
+   * use them without first calling tool_search. Returns how many tools were activated. */
+  activateTools(prefix: string): number {
+    let n = 0
+    for (const t of this.host.registry().list) {
+      if (t.deferred && t.name.startsWith(prefix) && !this.activatedTools.has(t.name)) {
+        this.activatedTools.add(t.name)
+        n++
+      }
+    }
+    return n
+  }
+
   private checkpoints: Checkpoint[] = []
   private currentCheckpoint?: Checkpoint
-  private redoState?: { files: Map<string, string | null>; messages: Message[] }
+  private redoState?: { files: Map<string, string | null>; messages: Message[]; todos: TodoItem[]; plans: PlanRow[] }
 
   private todos: TodoItem[] = []
+  private plans: PlanRow[] = []
   private compaction?: { summary: string; throughIndex: number }
   /** Abort controller for an in-flight compaction summarize call — lets the user STOP it. */
   private compactionAbort?: AbortController
@@ -350,6 +421,11 @@ export class SessionRunner {
     this.cwd = this.roots[0]!
     this.messages = host.store.loadMessages(row.id)
     this.seq = this.messages.length
+    this.persisted = this.messages.length > 0 // a resumed session already has a stored row
+    // Restore per-session UI state (todos, plans, rewind checkpoints) so resuming feels continuous.
+    this.todos = host.store.loadTodos(row.id)
+    this.plans = host.store.loadPlans(row.id)
+    this.checkpoints = deserializeCheckpoints(host.store.loadCheckpointsJson(row.id))
     this.context = loadProjectContext(this.roots)
     this.skills = loadSkills(this.roots)
     this.agents = loadAgents(this.roots)
@@ -490,8 +566,14 @@ export class SessionRunner {
   contextInfo(): { files: string[] } {
     return { files: this.context.files }
   }
-  listSkills(): { name: string; description: string }[] {
-    return this.skills.map((s) => ({ name: s.name, description: s.description }))
+  listSkills(): SkillInfo[] {
+    return this.skills.map((s) => ({
+      name: s.name,
+      description: s.description,
+      whenToUse: s.whenToUse,
+      source: s.source,
+      path: s.path,
+    }))
   }
   listCommands(): CustomCommand[] {
     return loadCommands(this.roots)
@@ -500,13 +582,47 @@ export class SessionRunner {
     const messages = this.messages.filter((m) => m.role === "user" || m.role === "assistant").length
     return { messages, tokens: this.totalTokens, durationMs: now() - this.startedAt }
   }
-  listCheckpoints(): { id: string; label: string; createdAt: number; files: number }[] {
-    return this.checkpoints
-      .map((c) => ({ id: c.id, label: c.label, createdAt: c.createdAt, files: c.files.size }))
-      .reverse()
+  listCheckpoints(): { id: string; label: string; createdAt: number; files: number; added: number; removed: number }[] {
+    // Chronological: oldest first, newest last (the UI focuses the newest at the bottom).
+    // `added`/`removed` = how much code rewinding to this checkpoint would REVERT (its turn + every
+    // turn after), so the user can see what they're dealing with before rewinding. Computed on demand
+    // (modal open), so the per-checkpoint tail scan + line diff is fine. ponytail: O(n²·files) here.
+    return this.checkpoints.map((c, idx) => {
+      const tail = this.checkpoints.slice(idx)
+      // Earliest prior content per file across the tail = the file as it was BEFORE this checkpoint.
+      const prior = new Map<string, string | null>()
+      for (const t of tail) for (const [p, before] of t.files) if (!prior.has(p)) prior.set(p, before)
+      let added = 0
+      let removed = 0
+      let files = 0
+      for (const [p, before] of prior) {
+        const d = lineDelta(before, readOrNull(p))
+        if (d.added || d.removed) files++
+        added += d.added
+        removed += d.removed
+      }
+      return { id: c.id, label: c.label, createdAt: c.createdAt, files, added, removed }
+    })
   }
   hasRedo(): boolean {
     return !!this.redoState
+  }
+
+  private persistCheckpoints(): void {
+    this.host.store.setCheckpointsJson(this.sessionId, serializeCheckpoints(this.checkpoints))
+  }
+  /** Record a plan (title = first non-empty line), persist it, and surface the execute gate. */
+  private recordPlan(plan: string): void {
+    const title =
+      plan
+        .split("\n")
+        .map((s) => s.trim())
+        .find(Boolean)
+        ?.replace(/^#+\s*/, "")
+        .slice(0, 60) ?? "plan"
+    this.plans.push({ id: this.host.nextId(), title, text: plan })
+    this.host.store.setPlans(this.sessionId, this.plans)
+    this.emit({ type: "plan-ready", plan })
   }
 
   /** Emit this session's full current state (on focus / resume). */
@@ -528,11 +644,13 @@ export class SessionRunner {
         messages: this.messages,
       })
     this.emit({ type: "todos", items: this.todos })
+    this.emit({ type: "plans", items: this.plans })
     this.emitSessionFiles()
   }
 
   addRoot(dir: string): void {
     if (this.roots.includes(dir)) return
+    this.ensurePersisted() // adding a workspace dir is a real action — persist so it survives
     this.roots = this.host.store.addRoot(this.sessionId, dir, now())
     this.context = loadProjectContext(this.roots)
     this.skills = loadSkills(this.roots)
@@ -599,12 +717,25 @@ export class SessionRunner {
   /** Release any in-flight permission/ask awaits (deny / no-answer) so the agent loop unwinds on
    * abort instead of hanging forever on a promise the user will never answer. */
   private settleInputWaiters(): void {
+    // Release a soft-pause too, so aborting while the /pause modal is open unwinds the loop instead of hanging.
+    this.injectPauseArmed = false
+    this.injectResume?.()
+    this.injectResume = undefined
     if (this.pending.size === 0 && this.pendingAsk.size === 0) return
     for (const p of this.pending.values()) p.resolve("deny")
     this.pending.clear()
     for (const r of this.pendingAsk.values()) r({})
     this.pendingAsk.clear()
     this.needsInput = false
+  }
+  /** Append injected /pause notes to history as user messages. */
+  private drainInjections(): void {
+    if (this.pendingInjections.length === 0) return
+    for (const { id, msg } of this.pendingInjections) {
+      this.addMessage(msg)
+      if (id) this.emit({ type: "inject-attached", id })
+    }
+    this.pendingInjections = []
   }
   handlePermissionReply(requestId: string, decision: "allow-once" | "allow-always" | "deny"): boolean {
     const p = this.pending.get(requestId)
@@ -628,7 +759,62 @@ export class SessionRunner {
     return true
   }
 
+  // ---- /pause: add context to a running agent without stopping it ----
+  /** Fold a user note into the conversation. If the agent is idle, it's just a normal prompt; if busy,
+   * it's queued and drained as a user message at the top of the next loop step (and releases a soft-pause). */
+  async injectMessage(text: string, images?: ImagePart[], id?: string, interrupt = false): Promise<void> {
+    if (!this.busy) {
+      // Idle: it's just a normal prompt. Resolve the UI chip (if any) since runPrompt adds it to context.
+      if (id) this.emit({ type: "inject-attached", id })
+      void this.runPrompt(text)
+      return
+    }
+    const { text: expanded, files } = expandMentions(text, this.roots)
+    const promptText = await this.augmentSymbols(text, expanded, files)
+    const mentioned = collectImages(text, this.roots)
+    const all = [...(images ?? []), ...mentioned]
+    this.pendingInjections.push({ id, msg: { role: "user", text: promptText, images: all.length ? all : undefined } })
+    // The note has arrived → disarm any pending soft-pause (no reason to idle-wait) and release the loop
+    // if it's already parked. Disarming is what prevents a deadlock when the note is sent BEFORE the loop
+    // reached the pause point (it would otherwise park later with no one left to resume it).
+    this.injectPauseArmed = false
+    this.injectResume?.()
+    // /pause: cut the in-flight generation NOW so the note lands this step instead of the next. Aborts only
+    // the model stream (stepAbort) — a running tool keeps its run-level signal and finishes untouched.
+    if (interrupt) this.stepAbort?.abort()
+  }
+  /** Make the agent idle at the next step boundary so the user can compose a note in the /pause modal.
+   * `interrupt` (bare /pause) also cuts the in-flight generation now so it parks immediately rather than
+   * after the current step finishes. */
+  armInjectPause(interrupt = false): void {
+    if (!this.busy) return
+    this.injectPauseArmed = true
+    if (interrupt) this.stepAbort?.abort()
+  }
+  /** Release a soft-pause (the modal's cancel path) without adding anything. */
+  resumeInject(): void {
+    this.injectPauseArmed = false
+    this.injectResume?.()
+  }
+
+  /** Persist this session's row if it isn't stored yet (new, empty sessions stay out of history until
+   * they do something real — a first message or an explicit workspace change). Idempotent. */
+  private ensurePersisted(): void {
+    if (this.persisted) return
+    const ts = now()
+    this.host.store.ensure({
+      id: this.sessionId,
+      title: this.title,
+      cwd: this.cwd,
+      roots: this.roots,
+      createdAt: ts,
+      updatedAt: ts,
+    })
+    this.persisted = true
+  }
+
   private addMessage(msg: Message): void {
+    this.ensurePersisted()
     this.messages.push(msg)
     this.host.store.appendMessage(this.sessionId, this.seq++, msg)
     this.host.store.touch(this.sessionId, now())
@@ -677,10 +863,10 @@ export class SessionRunner {
     const cp = this.checkpoints[idx]!
     const tail = this.checkpoints.slice(idx)
 
-    // Always snapshot current state first so the rewind itself can be redone.
+    // Always snapshot current state first so the rewind itself can be redone (files + todos + plans).
     const redoFiles = new Map<string, string | null>()
     for (const c of tail) for (const p of c.files.keys()) if (!redoFiles.has(p)) redoFiles.set(p, readOrNull(p))
-    this.redoState = { files: redoFiles, messages: [...this.messages] }
+    this.redoState = { files: redoFiles, messages: [...this.messages], todos: [...this.todos], plans: [...this.plans] }
 
     if (scope !== "conversation") {
       const restore = new Map<string, string | null>()
@@ -692,6 +878,13 @@ export class SessionRunner {
       this.messages = this.messages.slice(0, cp.messageSeq)
       this.seq = cp.messageSeq
       this.host.store.truncateMessages(this.sessionId, cp.messageSeq)
+      // Revert todos + plans to their pre-turn snapshot so the whole workspace rewinds, not just chat.
+      this.todos = [...(cp.todos ?? [])]
+      this.plans = [...(cp.plans ?? [])]
+      this.host.store.setTodos(this.sessionId, this.todos)
+      this.host.store.setPlans(this.sessionId, this.plans)
+      this.emit({ type: "todos", items: this.todos })
+      this.emit({ type: "plans", items: this.plans })
       this.checkpoints = this.checkpoints.slice(0, idx)
       this.currentCheckpoint = undefined
       // Drop any compaction summary — its throughIndex points into the now-truncated history and
@@ -699,6 +892,7 @@ export class SessionRunner {
       this.compaction = undefined
     }
 
+    if (scope !== "code") this.persistCheckpoints() // the checkpoint list was truncated
     const what = scope === "code" ? "files" : scope === "conversation" ? "conversation" : `to “${cp.label}”`
     this.emit({ type: "status", text: `rewound ${what}` })
     this.emit({
@@ -721,6 +915,13 @@ export class SessionRunner {
     this.messages.forEach((m, i) => {
       this.host.store.appendMessage(this.sessionId, i, m)
     })
+    // Restore the todos/plans that were live before the rewind, too.
+    this.todos = [...this.redoState.todos]
+    this.plans = [...this.redoState.plans]
+    this.host.store.setTodos(this.sessionId, this.todos)
+    this.host.store.setPlans(this.sessionId, this.plans)
+    this.emit({ type: "todos", items: this.todos })
+    this.emit({ type: "plans", items: this.plans })
     this.redoState = undefined
     this.emit({ type: "status", text: "redone" })
     this.emit({
@@ -763,6 +964,9 @@ export class SessionRunner {
       createdAt: now(),
       messageSeq: this.messages.length,
       files: new Map(),
+      // Snapshot pre-turn todos/plans so a rewind reverts them too — not just files + chat.
+      todos: [...this.todos],
+      plans: [...this.plans],
     }
     this.checkpoints.push(this.currentCheckpoint)
     this.redoState = undefined
@@ -790,13 +994,15 @@ export class SessionRunner {
       }
       void this.hook("Stop")
       this.emitSessionFiles()
+      // The turn's checkpoint now has all its file snapshots — persist so rewind survives a restart.
+      this.persistCheckpoints()
       // Fallback: if the model finished a plan-mode turn WITHOUT calling exit_plan, still surface
       // something so the gate isn't lost — the plan is the last assistant message produced this turn.
       // The deterministic path (exit_plan) is preferred; this only runs when it wasn't used.
       if (!aborted && !this.planEmitted && this.host.selection().mode === "plan") {
         const last = [...this.messages].reverse().find((m) => m.role === "assistant" && !!m.text)
         if (last && last.role === "assistant" && last.text && last.text.trim().length > 12) {
-          this.emit({ type: "plan-ready", plan: last.text })
+          this.recordPlan(last.text)
         }
       }
       this.emit({ type: "mascot", state: "idle" })
@@ -817,39 +1023,45 @@ export class SessionRunner {
     let reasoning = ""
     let reasoningSignature = ""
     const calls = new Map<number, { id: string; name: string; args: string }>()
-    for await (const ev of gen) {
-      if (signal.aborted) break
-      switch (ev.type) {
-        case "text":
-          text += ev.delta
-          on.text?.(ev.delta)
-          break
-        case "reasoning":
-          reasoning += ev.delta
-          on.reasoning?.(ev.delta)
-          break
-        case "reasoning_signature":
-          reasoningSignature += ev.signature
-          break
-        case "tool_start": {
-          const c = calls.get(ev.index) ?? { id: "", name: "", args: "" }
-          if (ev.id) c.id = ev.id
-          if (ev.name) c.name = ev.name
-          calls.set(ev.index, c)
-          break
+    try {
+      for await (const ev of gen) {
+        if (signal.aborted) break
+        switch (ev.type) {
+          case "text":
+            text += ev.delta
+            on.text?.(ev.delta)
+            break
+          case "reasoning":
+            reasoning += ev.delta
+            on.reasoning?.(ev.delta)
+            break
+          case "reasoning_signature":
+            reasoningSignature += ev.signature
+            break
+          case "tool_start": {
+            const c = calls.get(ev.index) ?? { id: "", name: "", args: "" }
+            if (ev.id) c.id = ev.id
+            if (ev.name) c.name = ev.name
+            calls.set(ev.index, c)
+            break
+          }
+          case "tool_delta": {
+            const c = calls.get(ev.index) ?? { id: "", name: "", args: "" }
+            if (c.args.length + ev.argsDelta.length > MAX_TOOL_ARGS)
+              throw new Error("tool arguments exceeded the size limit")
+            c.args += ev.argsDelta
+            calls.set(ev.index, c)
+            break
+          }
+          case "usage":
+            on.usage?.(ev.input, ev.output)
+            break
         }
-        case "tool_delta": {
-          const c = calls.get(ev.index) ?? { id: "", name: "", args: "" }
-          if (c.args.length + ev.argsDelta.length > MAX_TOOL_ARGS)
-            throw new Error("tool arguments exceeded the size limit")
-          c.args += ev.argsDelta
-          calls.set(ev.index, c)
-          break
-        }
-        case "usage":
-          on.usage?.(ev.input, ev.output)
-          break
       }
+    } catch (e) {
+      // Aborting the stream (true Stop or an interrupting /pause) rejects the underlying fetch read mid-await.
+      // That's expected — return whatever streamed so far so the caller can keep the partial reply.
+      if (!signal.aborted) throw e
     }
     const toolCalls: ToolCall[] = [...calls.values()]
       .filter((c) => c.name)
@@ -883,7 +1095,8 @@ export class SessionRunner {
     const window = this.host.selection().contextWindow || COMPACTION.defaultWindow
     // Trigger off the real input-token count of the last request (most accurate proxy for the
     // current context size); fall back to the char estimate before the first usage arrives.
-    const limit = Math.min(Math.floor(window * COMPACTION.threshold), window - COMPACTION.buffer)
+    const threshold = this.host.selection().autoCompactThreshold ?? COMPACTION.threshold
+    const limit = Math.min(Math.floor(window * threshold), window - COMPACTION.buffer)
     const used = this.lastInputTokens > 0 ? this.lastInputTokens : estimateTokens(this.sendMessages())
     if (!force && used < limit) return
     const floor = this.compaction?.throughIndex ?? 0
@@ -1016,6 +1229,18 @@ export class SessionRunner {
 
     for (let step = 0; step < MAX_STEPS; step++) {
       if (signal.aborted) return
+      // /pause: fold any injected notes into history before building the next request. They land at the
+      // END of the conversation, so the cached prefix is preserved — the model sees them on this step.
+      this.drainInjections()
+      if (this.injectPauseArmed) {
+        this.injectPauseArmed = false
+        this.emit({ type: "mascot", state: "idle" })
+        this.emit({ type: "status", text: "waiting for you…" })
+        await new Promise<void>((res) => (this.injectResume = res))
+        this.injectResume = undefined
+        if (signal.aborted) return
+        this.drainInjections()
+      }
       const id = this.host.nextId()
       this.activeAssistantId = id
       this.emit({ type: "message-start", role: "assistant", id, mode: sel.mode })
@@ -1041,6 +1266,8 @@ export class SessionRunner {
                 .filter((t) => t.deferred && !this.activatedTools.has(t.name))
                 .map((t) => ({ name: t.name, description: t.description })),
               memory: memoryDigest(),
+              providerId: provider.id,
+              outputStyle: sel.outputStyle,
             }),
           } as Message,
           ...this.sendMessages(),
@@ -1052,6 +1279,8 @@ export class SessionRunner {
         tools: registry.defs.filter((d) => {
           const t = registry.get(d.name)
           if (t?.deferred && !this.activatedTools.has(d.name)) return false
+          // Plan mode is read-only for the filesystem/shell, but browser & computer actions are
+          // permitted with a prompt (they ask in plan), so only edit/bash are hidden here.
           if (sel.mode === "plan") return !t || (t.permission !== "edit" && t.permission !== "bash")
           return d.name !== EXIT_PLAN
         }),
@@ -1091,21 +1320,39 @@ export class SessionRunner {
           this.emit({ type: "usage", input: inTok, output: outTok, costUsd: cost })
         },
       }
+      // Per-step aborter for the interrupting /pause. The model stream listens to BOTH the run-level
+      // signal (true Stop) and this step signal (interrupt); tool execution below keeps `signal` only,
+      // so an interrupt cuts generation without killing a running tool.
+      const stepAbort = new AbortController()
+      this.stepAbort = stepAbort
+      const genSignal = AbortSignal.any([signal, stepAbort.signal])
       let turn: { text: string; reasoning: string; reasoningSignature: string; toolCalls: ToolCall[] }
       try {
-        turn = await this.collectTurn(this.host.streamFn(provider, apiKey, req, signal), signal, handlers)
+        turn = await this.collectTurn(this.host.streamFn(provider, apiKey, req, genSignal), genSignal, handlers)
       } catch (e) {
         // Reactive compaction: a proactive trigger can under-estimate (a huge tool result, a bad
         // estimate) and the request overflows the window. Compact once and retry the same step —
         // nothing streamed yet on an overflow, so re-running the handlers is safe.
-        if (signal.aborted || !isOverflowError(e) || streamedText || streamedReasoning) throw e
+        if (genSignal.aborted || !isOverflowError(e) || streamedText || streamedReasoning) throw e
         this.emit({ type: "status", text: "context overflow — compacting…", elapsedMs: now() - start })
         await this.maybeCompact(provider, apiKey, signal, true)
         req.messages = [req.messages[0]!, ...this.sendMessages()]
-        turn = await this.collectTurn(this.host.streamFn(provider, apiKey, req, signal), signal, handlers)
+        turn = await this.collectTurn(this.host.streamFn(provider, apiKey, req, genSignal), genSignal, handlers)
       }
+      this.stepAbort = undefined
       const { text, reasoning, reasoningSignature, toolCalls } = turn
-      if (signal.aborted) return
+      if (signal.aborted) return // true Stop: discard the partial turn (history stays clean)
+
+      // interrupting /pause: the user cut this generation mid-stream. Keep the partial reply as a
+      // clean text-only assistant message (drop reasoning/signature + any incomplete tool calls so the
+      // next request stays valid), then continue — the loop top folds in the queued note and the step
+      // regenerates with both the truncated reply and the note in view.
+      if (stepAbort.signal.aborted) {
+        if (text.trim()) this.addMessage({ role: "assistant", text })
+        this.emit({ type: "message-stop", id, intermediate: true, interrupted: true })
+        this.activeAssistantId = undefined
+        continue
+      }
 
       this.addMessage({
         role: "assistant",
@@ -1134,6 +1381,7 @@ export class SessionRunner {
             .filter((t) => t.text)
             .map((t, i) => ({ id: `t${i}`, text: t.text!, status: normTodoStatus(t.status) }))
           this.emit({ type: "todos", items: this.todos })
+          this.host.store.setTodos(this.sessionId, this.todos)
           const rendered = this.todos.length
             ? this.todos
                 .map((t) => `${t.status === "done" ? "[x]" : t.status === "active" ? "[~]" : "[ ]"} ${t.text}`)
@@ -1161,7 +1409,7 @@ export class SessionRunner {
             result: "Plan presented to the user for approval.",
           })
           this.emit({ type: "tool-result", callId: tc.id, ok: true, output: plan, title: "plan ready" })
-          this.emit({ type: "plan-ready", plan })
+          this.recordPlan(plan)
           this.emit({ type: "turn-done", id })
           this.activeAssistantId = undefined
           return
@@ -1223,6 +1471,111 @@ export class SessionRunner {
           const output = `Stopped task ${a.id}.`
           this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output })
           this.emit({ type: "tool-result", callId: tc.id, ok: true, output, title: `task_stop ${a.id ?? ""}` })
+          continue
+        }
+        if (tc.name === SPAWN_AGENTS) {
+          const a = safeParse(tc.arguments) as {
+            jobs?: { description?: string; prompt?: string; worktree?: string }[]
+          }
+          const jobs = (a.jobs ?? [])
+            .filter((j) => j?.prompt)
+            .map((j) => ({ description: j.description ?? "agent", prompt: j.prompt!, worktree: j.worktree }))
+          const ids = jobs.length ? this.host.spawnAgents(jobs) : []
+          const output = ids.length
+            ? `Spawned ${ids.length} parallel agent(s):\n${ids.map((id, i) => `- ${id} — “${clip(jobs[i]!.description)}”`).join("\n")}\nCheck them with task_status / task_list.`
+            : "No agents spawned (each job needs a prompt)."
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output, isError: !ids.length })
+          this.emit({
+            type: "tool-result",
+            callId: tc.id,
+            ok: !!ids.length,
+            output,
+            title: `spawn_agents ×${ids.length}`,
+          })
+          continue
+        }
+        if (tc.name === SEND_TO_TASK) {
+          const a = safeParse(tc.arguments) as { id?: string; text?: string }
+          const ok = a.id && a.text ? this.host.sendToTask(a.id, a.text) : false
+          const output = ok ? `Delivered to task ${a.id}.` : `Could not deliver to task ${a.id ?? "(missing id)"}.`
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output, isError: !ok })
+          this.emit({ type: "tool-result", callId: tc.id, ok, output, title: `send_to_task ${a.id ?? ""}` })
+          continue
+        }
+
+        if (tc.name === SPAWN_TEAM) {
+          const a = safeParse(tc.arguments) as {
+            goal?: string
+            roles?: { role?: string; prompt?: string; worktree?: string }[]
+          }
+          const roles = (a.roles ?? [])
+            .filter((r) => r?.prompt && r?.role)
+            .map((r) => ({ role: r.role!, prompt: r.prompt!, worktree: r.worktree?.trim() || undefined }))
+          if (!a.goal || !roles.length) {
+            const output = "spawn_team needs a goal and at least one role with a prompt."
+            this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output, isError: true })
+            this.emit({ type: "tool-result", callId: tc.id, ok: false, output, title: "spawn_team" })
+            continue
+          }
+          const teamId = this.host.spawnTeam(this.sessionId, a.goal, roles)
+          const output = `Launched team ${teamId} for “${clip(a.goal)}” with ${roles.length} member(s):\n${roles
+            .map((r) => `- ${r.role}`)
+            .join(
+              "\n",
+            )}\nThey post to the shared board as they work; you'll be re-prompted with a digest when all finish. Inspect progress anytime with board_read.`
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output })
+          this.emit({ type: "tool-result", callId: tc.id, ok: true, output, title: `spawn_team ×${roles.length}` })
+          continue
+        }
+        if (tc.name === BOARD_POST) {
+          const a = safeParse(tc.arguments) as { kind?: BoardPostKind; text?: string; to_role?: string }
+          const ok = a.kind && a.text ? this.host.boardPost(this.sessionId, a.kind, a.text, a.to_role) : false
+          const output = ok ? `Posted to the team board (${a.kind}).` : "Not part of a team (or missing kind/text)."
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output, isError: !ok })
+          this.emit({ type: "tool-result", callId: tc.id, ok, output, title: `board_post ${a.kind ?? ""}` })
+          continue
+        }
+        if (tc.name === BOARD_READ) {
+          const a = safeParse(tc.arguments) as { since?: number; role?: string }
+          const snap = this.host.boardRead(this.sessionId, a.since, a.role)
+          let output: string
+          if (!snap) output = "You are not part of a team."
+          else {
+            const roster = snap.members
+              .map((m) => `- ${m.role} [${m.status}]${m.activity ? ` — ${m.activity}` : ""}`)
+              .join("\n")
+            const posts = snap.posts.length
+              ? snap.posts
+                  .map((p) => `[${p.id}] ${p.role} ${p.kind}${p.toRole ? `→${p.toRole}` : ""}: ${p.text}`)
+                  .join("\n")
+              : "(no posts yet)"
+            const claims = snap.claims.length ? `\nClaimed files: ${snap.claims.map((c) => c.path).join(", ")}` : ""
+            output = `Team “${snap.goal}” [${snap.status}]\nMembers:\n${roster}\n\nBoard:\n${posts}${claims}`
+          }
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output })
+          this.emit({ type: "tool-result", callId: tc.id, ok: true, output, title: "board_read" })
+          continue
+        }
+        if (tc.name === BOARD_CLAIM) {
+          const a = safeParse(tc.arguments) as { path?: string; ttl_minutes?: number }
+          const res = a.path
+            ? this.host.boardClaim(this.sessionId, a.path, Math.max(1, a.ttl_minutes ?? 10) * 60_000)
+            : null
+          const output = !res
+            ? "Not part of a team (or missing path)."
+            : res.ok
+              ? `Claimed ${a.path} — safe to edit.`
+              : `${a.path} is currently claimed by another agent (${res.heldBy}); pick a different file or coordinate via board_post.`
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output, isError: !!res && !res.ok })
+          this.emit({ type: "tool-result", callId: tc.id, ok: !!res?.ok, output, title: `board_claim ${a.path ?? ""}` })
+          continue
+        }
+        if (tc.name === BOARD_RELEASE) {
+          const a = safeParse(tc.arguments) as { path?: string }
+          const ok = a.path ? this.host.boardRelease(this.sessionId, a.path) : false
+          const output = ok ? `Released ${a.path}.` : "Not part of a team (or missing path)."
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output })
+          this.emit({ type: "tool-result", callId: tc.id, ok, output, title: `board_release ${a.path ?? ""}` })
           continue
         }
 
@@ -1433,14 +1786,23 @@ export class SessionRunner {
 
         if (bashBefore) await this.snapshotBashChanges(bashBefore)
 
-        // Ground edits in real compiler output: feed back LSP diagnostics for the changed file.
+        // Auto-format the touched file, then ground the edit in real compiler output (diagnostics).
         if (tool.permission === "edit" && !result.isError && typeof (args as any)?.path === "string") {
-          const diag = await this.diagnoseEdited(path.resolve(this.cwd, (args as any).path))
+          const abs = path.resolve(this.cwd, (args as any).path)
+          await formatFile(this.cwd, abs, this.host.formatterEnabled())
+          const diag = await this.diagnoseEdited(abs)
           if (diag) result = { ...result, output: result.output + diag }
         }
 
         void this.hook("PostToolUse", { tool_name: tc.name, tool_input: args, tool_response: result.output }, tc.name)
-        this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: result.output, isError: result.isError })
+        this.addMessage({
+          role: "tool",
+          callId: tc.id,
+          name: tc.name,
+          result: result.output,
+          isError: result.isError,
+          images: result.images, // vision loop: e.g. a screenshot fed back to the model
+        })
         this.emit({
           type: "tool-result",
           callId: tc.id,
@@ -1539,7 +1901,14 @@ export class SessionRunner {
             )
           }
         }
-        messages.push({ role: "tool", callId: tc.id, name: tc.name, result: result.output, isError: result.isError })
+        messages.push({
+          role: "tool",
+          callId: tc.id,
+          name: tc.name,
+          result: result.output,
+          isError: result.isError,
+          images: result.images,
+        })
       }
     }
     return lastText || "(subagent reached its step limit)"

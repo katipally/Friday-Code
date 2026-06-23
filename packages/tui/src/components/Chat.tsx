@@ -26,11 +26,15 @@ function fmtElapsed(ms?: number): string {
     .padStart(2, "0")}s`
 }
 
-/** User prompt: a right-aligned rounded bubble whose border is colored by the mode it was sent in. */
+/** User prompt: a right-aligned elevated panel whose single-line border is tinted by the mode the
+ * message was SENT in (locked at send time, gently shimmering) — the one intentional border in the
+ * app, so you can always tell which mode each turn ran in. */
 function UserBubble(props: { item: Extract<ViewItem, { kind: "user" }> }) {
   const app = useApp()
   const renderer = useRenderer()
-  const accent = () => shimmerAccent(getMode((props.item.mode as ModeId) ?? app.mode()).accent)
+  // The mode this turn ACTUALLY ran in — locked at send time, never re-tinted by later mode switches.
+  const ranMode = (): ModeId => (props.item.mode as ModeId) ?? app.mode()
+  const accent = () => shimmerAccent(getMode(ranMode()).accent)
   // What the user saw (compact, with inline paste tokens) — falls back to the sent text.
   const shown = () => props.item.display ?? props.item.text
   // File references in the prompt show as click-to-open chips beneath the text.
@@ -50,11 +54,11 @@ function UserBubble(props: { item: Extract<ViewItem, { kind: "user" }> }) {
           gap={1}
           maxWidth="85%"
           border
-          borderStyle="rounded"
+          borderStyle="single"
           borderColor={accent()}
-          backgroundColor={theme.bgComposer}
-          paddingLeft={1}
-          paddingRight={1}
+          backgroundColor={theme.bgElevated}
+          paddingLeft={2}
+          paddingRight={2}
         >
           <text fg={theme.text} selectable>
             {shown()}
@@ -68,7 +72,7 @@ function UserBubble(props: { item: Extract<ViewItem, { kind: "user" }> }) {
           </Show>
         </box>
       </box>
-      <box flexDirection="row" justifyContent="flex-end" paddingRight={1}>
+      <box flexDirection="row" justifyContent="flex-end" alignItems="center" gap={1} paddingRight={1}>
         <Pressable label="⧉ copy" onClick={copy} />
         <Pressable label="↶ undo" onClick={undo} />
       </box>
@@ -77,7 +81,7 @@ function UserBubble(props: { item: Extract<ViewItem, { kind: "user" }> }) {
 }
 
 /** Assistant reply: rendered flush on the background with a ⏺ marker tinted by the mode the reply
- * ran in (so you can tell at a glance whether it was plan/default/accept/yolo); reasoning is a ╰ branch. */
+ * ran in (so you can tell at a glance whether it was plan/default/yolo); reasoning is a ╰ branch. */
 function AssistantMessage(props: { item: Extract<ViewItem, { kind: "assistant" }> }) {
   const app = useApp()
   const renderer = useRenderer()
@@ -122,6 +126,9 @@ function AssistantMessage(props: { item: Extract<ViewItem, { kind: "assistant" }
               <Show when={!props.item.done}>
                 <text fg={theme.textFaint}>▋</text>
               </Show>
+              <Show when={props.item.interrupted}>
+                <text fg={theme.warning}>⏸ paused — adding context…</text>
+              </Show>
               <Show when={props.item.done && !props.item.intermediate}>
                 <box flexDirection="row" alignItems="center" paddingTop={0}>
                   <Pressable label="⧉ copy" onClick={copy} />
@@ -149,9 +156,7 @@ function NoticeBubble(props: { item: Extract<ViewItem, { kind: "notice" }> }) {
   return (
     <box flexDirection="row" justifyContent="center" marginBottom={1}>
       <box
-        border
-        borderStyle="rounded"
-        borderColor={theme.border}
+        backgroundColor={theme.bgElevated}
         paddingLeft={1}
         paddingRight={1}
         onMouseDown={() => props.item.summary && app.viewCompaction(props.item.summary)}
@@ -180,7 +185,7 @@ function BreakerRow(props: { item: Extract<ViewItem, { kind: "breaker" }> }) {
         <box flexGrow={1} flexBasis={0} minWidth={0} height={1} overflow="hidden">
           <text fg={tint()}>{rule}</text>
         </box>
-        <box border borderStyle="rounded" borderColor={tint()} paddingLeft={1} paddingRight={1} flexShrink={0}>
+        <box backgroundColor={theme.bgElevated} paddingLeft={1} paddingRight={1} flexShrink={0}>
           <text fg={tint()}>
             {modeGlyph(props.item.mode)} {props.item.label}
           </text>
@@ -209,8 +214,50 @@ function ErrorBubble(props: { item: Extract<ViewItem, { kind: "error" }> }) {
   )
 }
 
-export function Chat() {
+/** HH:MM clock for an injected note's timestamp. */
+function clock(ms: number): string {
+  const d = new Date(ms)
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+}
+
+/**
+ * A /pause note injected mid-task. Two states, rendered as a centered pill flanked by rules (like the
+ * plan breaker) so it reads as an interleaved insertion into the flow:
+ *   • pending  — sent, about to be folded in at the next step. Warm, *pulsing* so the user sees it's
+ *                in flight ("⏳ adding to context…").
+ *   • attached — now part of the agent's context, stamped with the time it landed ("✓ added · HH:MM").
+ * The note text is shown as a quoted subtitle so the user sees exactly what was added.
+ */
+function InjectRow(props: { item: Extract<ViewItem, { kind: "inject" }> }) {
+  const pending = () => props.item.state === "pending"
+  // Pulse while pending (shimmerAccent reads the shared phase → re-renders each tick); solid once attached.
+  const tint = () => (pending() ? shimmerAccent(theme.warning) : theme.success)
+  const label = () =>
+    pending() ? "⏳ adding to context…" : `✓ added to context · ${clock(props.item.attachedAt ?? props.item.at)}`
+  const rule = "─".repeat(240)
+  return (
+    <box flexDirection="column" alignItems="center" marginTop={1} marginBottom={1}>
+      <box flexDirection="row" alignItems="center" gap={1} width="100%">
+        <box flexGrow={1} flexBasis={0} minWidth={0} height={1} overflow="hidden">
+          <text fg={tint()}>{rule}</text>
+        </box>
+        <box backgroundColor={theme.bgElevated} paddingLeft={1} paddingRight={1} flexShrink={0}>
+          <text fg={tint()}>{label()}</text>
+        </box>
+        <box flexGrow={1} flexBasis={0} minWidth={0} height={1} overflow="hidden">
+          <text fg={tint()}>{rule}</text>
+        </box>
+      </box>
+      <box maxWidth="80%">
+        <text fg={theme.textMuted}>“{props.item.text}”</text>
+      </box>
+    </box>
+  )
+}
+
+export function Chat(props: { pad?: number }) {
   const app = useApp()
+  const pad = () => props.pad ?? 1
   let sb: any
   // Freeze scroll-back keys whenever a modal owns the keyboard (single source of truth in store).
   const canScroll = () => app.view() === "shell" && !app.anyModalOpen()
@@ -228,7 +275,8 @@ export function Chat() {
 
   return (
     <Show when={app.items().length > 0} fallback={<EmptyHome />}>
-      {/* paddingRight leaves a buffer so the scrollbar never overlaps the message text. */}
+      {/* The scrollbar sits on the far-right edge with a 1-col gap (paddingLeft) so it never touches
+          the message text; track/thumb are subtle so it reads as a quiet edge affordance. */}
       <scrollbox
         ref={(r: any) => (sb = r)}
         flexGrow={1}
@@ -236,34 +284,58 @@ export function Chat() {
         stickyScroll
         stickyStart="bottom"
         paddingTop={1}
-        paddingRight={1}
+        verticalScrollbarOptions={{
+          showArrows: false,
+          paddingLeft: 1,
+          trackOptions: { backgroundColor: theme.borderMuted, foregroundColor: theme.borderActive },
+        }}
       >
-        <For each={app.items()}>
-          {(item) => (
-            <Appear distance={1} duration={170}>
-              <Switch>
-                <Match when={item.kind === "user"}>
-                  <UserBubble item={item as any} />
-                </Match>
-                <Match when={item.kind === "assistant"}>
-                  <AssistantMessage item={item as any} />
-                </Match>
-                <Match when={item.kind === "tool"}>
-                  <ToolCard item={item as any} />
-                </Match>
-                <Match when={item.kind === "error"}>
-                  <ErrorBubble item={item as any} />
-                </Match>
-                <Match when={item.kind === "notice"}>
-                  <NoticeBubble item={item as any} />
-                </Match>
-                <Match when={item.kind === "breaker"}>
-                  <BreakerRow item={item as any} />
-                </Match>
-              </Switch>
-            </Appear>
-          )}
-        </For>
+        {/* Content inset keeps the conversation centered/aligned with the composer while the
+            scrollbox (and its scrollbar) spans to the terminal edge. */}
+        <box flexDirection="column" paddingLeft={pad()} paddingRight={pad()}>
+          <For each={app.items()}>
+            {(item, i) => {
+              // The last item is the "active" one: a just-finished tool stays expanded while it's last,
+              // then collapses to its title once the turn appends something new (stream-then-collapse).
+              const last = () => i() === app.items().length - 1
+              const body = (
+                <Switch>
+                  <Match when={item.kind === "user"}>
+                    <UserBubble item={item as any} />
+                  </Match>
+                  <Match when={item.kind === "assistant"}>
+                    <AssistantMessage item={item as any} />
+                  </Match>
+                  <Match when={item.kind === "tool"}>
+                    <ToolCard item={item as any} last={last()} />
+                  </Match>
+                  <Match when={item.kind === "error"}>
+                    <ErrorBubble item={item as any} />
+                  </Match>
+                  <Match when={item.kind === "notice"}>
+                    <NoticeBubble item={item as any} />
+                  </Match>
+                  <Match when={item.kind === "breaker"}>
+                    <BreakerRow item={item as any} />
+                  </Match>
+                  <Match when={item.kind === "inject"}>
+                    <InjectRow item={item as any} />
+                  </Match>
+                </Switch>
+              )
+              // A streaming assistant reply re-renders every flush as tokens arrive; wrapping it in the
+              // enter-animation makes that growth look glitchy. Animate only settled items.
+              const streaming = item.kind === "assistant" && !(item as any).done
+              return streaming ? (
+                body
+              ) : (
+                <Appear distance={1} duration={170}>
+                  {body}
+                </Appear>
+              )
+            }}
+          </For>
+        </box>
       </scrollbox>
     </Show>
   )

@@ -43,8 +43,8 @@ test("dragging the grip past minimum collapses the panel (collapse tab appears)"
   t.mockInput.pressEnter()
   await t.flush()
 
-  // Panel is open initially -> its "stats" header is visible.
-  expect(t.captureCharFrame()).toContain("stats")
+  // Panel is open initially -> its "MODEL" header is visible.
+  expect(t.captureCharFrame()).toContain("MODEL")
 
   // Panel is on the LEFT now; grab the grip (the 2-col handle just right of the panel, ~col 28
   // at the default width) and drag hard to the left. A leftward drag of >14 cols pushes the target
@@ -53,7 +53,7 @@ test("dragging the grip past minimum collapses the panel (collapse tab appears)"
   for (const startX of [28, 27, 29, 26]) {
     await t.mockMouse.drag(startX, 14, startX - 22, 14)
     await t.flush()
-    if (!t.captureCharFrame().includes("stats")) {
+    if (!t.captureCharFrame().includes("MODEL")) {
       collapsed = true
       break
     }

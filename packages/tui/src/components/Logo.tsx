@@ -1,9 +1,9 @@
-import { getMode } from "@friday/shared"
+import { theme } from "@friday/shared"
 import { For } from "solid-js"
 import { motion } from "../motion/config.ts"
 import { shimmerPhase } from "../motion/index.ts"
-import { useApp } from "../store.tsx"
 import { lighten } from "../util/colors.ts"
+import { hasTruecolor } from "../util/term.ts"
 
 /**
  * The `friday` wordmark, hand-built from half-block subpixels (▀ ▄ █) like opencode's logo.
@@ -25,11 +25,13 @@ const GLYPHS: Record<string, string[]> = {
 
 const WORD = "FRIDAY"
 // Three full-width rows; letters joined by a single-column gap.
-const ROWS: string[] = [0, 1, 2].map((r) =>
+// Exported so the plain-stdout exit screen prints the IDENTICAL wordmark (App.tsx) — one source.
+export const WORDMARK_ROWS: string[] = [0, 1, 2].map((r) =>
   WORD.split("")
     .map((c) => GLYPHS[c]![r]!)
     .join(" "),
 )
+const ROWS = WORDMARK_ROWS
 const WIDTH = ROWS[0]!.length
 
 // Sweep tuning (lively): a soft gaussian highlight travels across the mark each cycle.
@@ -38,10 +40,12 @@ const HILITE_AMT = 0.6 // peak lighten toward white at the crest
 const BREATHE_BASE = 0.1 // resting glow so the mark never goes flat
 
 export function Logo() {
-  const app = useApp()
-
   const colorAt = (col: number): string => {
-    const accent = getMode(app.mode()).accent
+    // The wordmark is Friday's identity — always the brand amber, never the per-mode accent.
+    const accent = theme.brand
+    // 256-color terminals (Terminal.app) can't render the smooth per-column sweep without banding,
+    // so hold the solid accent — an exact palette member — for a clean, identical wordmark.
+    if (!hasTruecolor) return accent
     if (motion.reduced()) return lighten(accent, 0.12)
     const phase = shimmerPhase() // 0..1, shared clock
     // Highlight center travels across the full width plus a margin so it enters/exits cleanly.

@@ -1,10 +1,11 @@
-import { allowedEfforts, type Effort, getMode, theme } from "@friday/shared"
-import { useKeyboard } from "@opentui/solid"
+import { allowedEfforts, type Effort, theme } from "@friday/shared"
+import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { createSignal, Show } from "solid-js"
 import { shimmerAccent } from "../motion/index.ts"
 import { useApp } from "../store.tsx"
 import { narrowGlyphs } from "../util/term.ts"
 import { Scrim } from "./Scrim.tsx"
+import { bandBg, Overlay } from "./ui.tsx"
 
 const BLURB: Record<Effort, string> = {
   low: "quick, minimal thinking",
@@ -74,12 +75,14 @@ export function EffortGauge(props: {
           <box
             paddingLeft={1}
             paddingRight={1}
-            backgroundColor={hov() === i ? theme.bgHover : "transparent"}
+            backgroundColor={bandBg(hov() === i)}
             onMouseOver={() => setHov(i)}
             onMouseOut={() => setHov(-1)}
             onMouseDown={() => props.onPick(i)}
           >
-            <text fg={i === props.index ? RAMP[lv].color : hov() === i ? theme.text : theme.textFaint}>{lv}</text>
+            <text fg={hov() === i ? theme.textOnAccent : i === props.index ? RAMP[lv].color : theme.textFaint}>
+              {lv}
+            </text>
           </box>
         ))}
       </box>
@@ -94,7 +97,7 @@ export function EffortGauge(props: {
  */
 export function EffortSlider() {
   const app = useApp()
-  const accent = () => getMode(app.mode()).accent
+  const dims = useTerminalDimensions()
   const levels = () => allowedEfforts(app.providerProtocol(), app.reasoningModel())
 
   const initial = () => {
@@ -118,26 +121,10 @@ export function EffortSlider() {
 
   return (
     <Scrim onClose={() => app.setEffortOpen(false)}>
-      <box
-        flexDirection="column"
-        width={52}
-        border
-        borderStyle="rounded"
-        borderColor={accent()}
-        backgroundColor={theme.bgElevated}
-        paddingLeft={2}
-        paddingRight={2}
-        paddingTop={1}
-        paddingBottom={1}
-        gap={1}
-      >
-        <box flexDirection="row" gap={1}>
-          <text fg={accent()}>/effort</text>
-          <text fg={theme.textFaint}>· reasoning effort for this model</text>
-        </box>
+      <Overlay title="/effort" hint="reasoning effort for this model" width={Math.min(52, dims().width - 4)}>
         <EffortGauge levels={levels()} index={idx()} onScrub={setIdx} onPick={setTo} />
         <text fg={theme.textFaint}>←/→ move · click · ⏎ set · esc cancel</text>
-      </box>
+      </Overlay>
     </Scrim>
   )
 }

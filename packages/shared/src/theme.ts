@@ -1,31 +1,41 @@
 /**
  * Friday Code theme tokens.
  *
- * Clean, readable neutral dark theme with crisp borders and clear surface separation.
- * The single dynamic value is `accent`, which the UI swaps to the current mode's color
- * (see modes.ts) and applies to the frame border + active focus rings.
+ * Clean, readable neutral dark theme. Chrome is greyscale; color carries meaning only.
+ *
+ * Two distinct accents:
+ *  - `brand` (amber) — Friday's identity. Used (sparingly) for chrome: panel/overlay titles,
+ *    the wordmark, chrome selection bands, active chrome affordances. Never the per-mode color.
+ *  - the per-mode `accent` (see modes.ts) — scoped to the CHAT view + COMPOSER only. It must not
+ *    leak into chrome; the rest of the UI uses `brand`.
  */
 export const theme = {
-  // surfaces — true-black canvas (like opencode) with neutral grey layers stepped far
-  // enough apart to survive 256-color quantization (Terminal.app has no truecolor).
+  // brand — Friday amber. Reserved for IDENTITY only (titles, wordmark, brand marks). Never used
+  // for selection/hover, so the brand color and the "this row is selected" cue can't be confused.
+  brand: "#ffaf00", // exact xterm-256 cube member (214)
+  brandDim: "#a6731f", // resting brand where full amber would shout
+  // selection — a neutral grey fill band, clearly brighter than bgHover, distinct from brand.
+  bgSelected: "#3a3c45",
+  textOnAccent: "#ffffff", // bright text drawn ON a selection / colored fill band (high contrast)
+
+  // surfaces — true-black canvas (like opencode) with neutral grey layers stepped far enough apart
+  // to read clearly against black AND survive 256-color quantization (Terminal.app has no truecolor).
   bg: "#000000", // chat / base canvas — true black
-  bgComposer: "#0d0d0f", // the input box — first step above black
-  bgPanel: "#0d0d0f", // side panels — distinct from canvas
-  bgElevated: "#161618", // cards / modals — a clear step up
-  bgHover: "#1f1f23", // selection / hover — readable without shouting
+  bgComposer: "#141518", // the input box — a clear, visible step above black
+  bgPanel: "#141518", // side panels — distinct from canvas
+  bgElevated: "#1f2025", // cards / modals — a clear step up again
+  bgHover: "#2b2c33", // selection / hover — readable without shouting
 
   // text — high contrast, but never harsh
   text: "#f2f3f5",
   textMuted: "#9aa0a8", // secondary info
   textFaint: "#7a818c", // tertiary info, still legible
 
-  // lines — borders are visible enough to define panels but not noisy
-  border: "#2a2a2e", // panel / card edges
-  borderMuted: "#1f1f23",
+  // lines — borders are bright enough to clearly define panels/cards against the dark surfaces
+  border: "#3a3c44", // panel / card edges — visible
+  borderMuted: "#26272d",
   /** hover / active edge — brighter than `border` for clear affordance */
-  borderActive: "#3a3a42",
-  /** the single outermost frame around the whole app — subtle, clean */
-  frame: "#161618",
+  borderActive: "#50525d",
 
   // roles
   user: "#9aa5ce", // user message accent (calm)
@@ -75,43 +85,92 @@ const BASE: Theme = { ...theme }
  * the next launch). Keep overrides to the high-impact surface/text/role tokens.
  */
 export const THEMES: Record<string, Partial<Theme>> = {
-  dark: {}, // the default
+  dark: {}, // the default — Friday's signature near-black palette
+  // Brighter text + edges on the same black canvas; for low-vision / harsh-light terminals.
+  "high-contrast": {
+    text: "#ffffff",
+    textMuted: "#d4d6db",
+    textFaint: "#b3b6bd",
+    border: "#8a8d96",
+    borderMuted: "#4a4c54",
+    borderActive: "#ffffff",
+    bgSelected: "#5a5d68",
+  },
+  // A complete light palette — every token overridden so code blocks, markdown and diffs stay legible
+  // on white (a partial override would leave dark-theme text invisible on the light canvas). The
+  // selection band is a saturated mid-blue so the shared white `textOnAccent` reads on it AND on the
+  // semantic (warning/error) bands, matching how the dark theme's single on-accent text works.
   light: {
     bg: "#ffffff",
-    bgComposer: "#f3f4f6",
+    bgComposer: "#f1f2f4",
     bgPanel: "#f3f4f6",
     bgElevated: "#e9ebef",
     bgHover: "#dfe2e8",
-    text: "#1b1f24",
-    textMuted: "#4b525c",
-    textFaint: "#6b7280",
-    border: "#d0d4da",
-    borderMuted: "#e2e5ea",
-    borderActive: "#b3b9c2",
-    frame: "#d0d4da",
-    success: "#2f8f3e",
-    warning: "#b3791a",
-    error: "#c0384b",
-    info: "#1f6feb",
+    bgSelected: "#2f6fb0",
+    text: "#1a1c20",
+    textMuted: "#4a4f57",
+    textFaint: "#6b727c",
+    textOnAccent: "#ffffff",
+    brand: "#b36b00",
+    brandDim: "#8a5a14",
+    border: "#c3c7cf",
+    borderMuted: "#d9dce1",
+    borderActive: "#9197a0",
+    user: "#3a5a8c",
+    success: "#1f8f3f",
+    warning: "#9a6a00",
+    error: "#c0394f",
+    info: "#1f6fb0",
+    syntaxComment: "#6a737d",
+    syntaxKeyword: "#d73a49",
+    syntaxFunction: "#6f42c1",
+    syntaxVariable: "#24292e",
+    syntaxString: "#22863a",
+    syntaxNumber: "#005cc5",
+    syntaxType: "#005cc5",
+    syntaxOperator: "#d73a49",
+    syntaxPunctuation: "#24292e",
+    markdownHeading: "#005cc5",
+    markdownStrong: "#24292e",
+    markdownEmph: "#6f42c1",
+    markdownLink: "#0366d6",
+    markdownLinkText: "#22863a",
+    markdownCode: "#b31d28",
+    markdownQuote: "#6a737d",
+    markdownListMarker: "#005cc5",
+    diffAdded: "#22863a",
+    diffRemoved: "#b31d28",
+    diffAddedBg: "#e6ffed",
+    diffRemovedBg: "#ffeef0",
+    diffContextBg: "#ffffff",
   },
-  nord: {
-    bg: "#2e3440",
-    bgComposer: "#323846",
-    bgPanel: "#323846",
-    bgElevated: "#3b4252",
-    bgHover: "#434c5e",
-    text: "#eceff4",
-    textMuted: "#d8dee9",
-    textFaint: "#9aa3b2",
-    border: "#434c5e",
-    borderMuted: "#3b4252",
-    borderActive: "#5e81ac",
-    frame: "#434c5e",
-    success: "#a3be8c",
-    warning: "#ebcb8b",
-    error: "#bf616a",
-    info: "#88c0d0",
-  },
+}
+
+/**
+ * 256-color-safe surface/border greys for the default dark theme. The values are exact members of
+ * xterm's 24-step grey ramp (232–255), so they survive 256-color quantization unchanged instead of
+ * collapsing into each other the way the finely-stepped truecolor greys do on Terminal.app. Applied
+ * only when the terminal lacks truecolor AND the default dark theme is active.
+ */
+const COARSE_DARK: Partial<Theme> = {
+  bgComposer: "#1c1c1c", // 234 — clearly above black
+  bgPanel: "#1c1c1c",
+  bgElevated: "#262626", // 235 — cards / modals step up
+  bgHover: "#3a3a3a", // 237
+  borderMuted: "#303030", // 236
+  border: "#585858", // 240 — visible panel edges
+  borderActive: "#6c6c6c", // 242
+  bgSelected: "#4e4e4e", // 239 — selection band stays clearly above bgHover (237) on 256-color
+}
+
+/**
+ * Layer the terminal color profile onto the live `theme`. Call AFTER applyTheme(). When the terminal
+ * has no truecolor and we're on the default dark theme, swap in the 256-safe greys so panels/borders
+ * read the same as they do in a truecolor terminal.
+ */
+export function applyTerminalProfile(opts: { truecolor: boolean; themeName?: string }): void {
+  const isDefaultDark = !opts.themeName || opts.themeName === "dark"
+  if (!opts.truecolor && isDefaultDark) Object.assign(theme, COARSE_DARK)
 }
 
 export function themeNames(): string[] {

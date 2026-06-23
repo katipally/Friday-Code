@@ -20,14 +20,40 @@ import {
   type ProviderInfo,
   type UICommand,
 } from "@friday/shared"
-import { BUILTIN_TOOLS, buildRegistry, type Tool } from "@friday/tools"
+import {
+  BUILTIN_TOOLS,
+  buildRegistry,
+  closeBrowser,
+  computerInstalled,
+  computerSupport,
+  findBrowser,
+  installComputerUse,
+  startBrowser,
+  type Tool,
+  uninstallComputerUse,
+} from "@friday/tools"
+import { TeamBoard } from "./board.ts"
 import { type CustomCommand, loadCommands } from "./commands.ts"
 import { loadConfig, saveConfig } from "./config.ts"
 import { type CronJob, loadCron, parseInterval, saveCron } from "./cron.ts"
+import { openFleetWindows, openInteractiveWindow } from "./fleet.ts"
+import {
+  cancelMic,
+  type InputDevice,
+  listInputDevices,
+  micRecording,
+  micSetupSteps,
+  micStatus,
+  prewarmMic,
+  startMic,
+  stopMic,
+  transcribePartial,
+} from "./mic.ts"
 import { notify } from "./notify.ts"
 import { persistPermission, projectPermissions, revokeProjectPermissions } from "./permissions.ts"
 import { type RunnerHost, SessionRunner, type SessionStats } from "./runner.ts"
 import { SessionStore } from "./sessions.ts"
+import type { SkillInfo } from "./skills.ts"
 import type { StreamFn } from "./stream.ts"
 
 export type { SessionStats } from "./runner.ts"
@@ -72,7 +98,14 @@ export class Engine {
   private runners = new Map<string, SessionRunner>()
   /** sessionIds that are agent-spawned background tasks (vs user sessions), with their description. */
   private taskMeta = new Map<string, { description: string; createdAt: number }>()
+  /** follow-up prompts queued for a background task while it was busy; drained when it goes idle */
+  private taskQueue = new Map<string, string[]>()
   private focusedId!: string
+
+  /** the shared agent-team blackboard */
+  private board = new TeamBoard()
+  /** sessionId -> teamId for agents that belong to a team */
+  private teamOf = new Map<string, string>()
 
   private host: RunnerHost = {
     streamFn: undefined as any, // set in constructor (needs `this.streamFn`)
@@ -86,20 +119,53 @@ export class Engine {
       mode: this.mode,
       contextWindow: this.contextWindow,
       cost: this.modelCost,
+      outputStyle: loadConfig().outputStyle,
     }),
     resolveProvider: () => this.resolveProvider(),
     nextId: () => this.nextId(),
     emit: (sessionId, body) => this.dispatch(sessionId, body),
     hooks: () => loadConfig().hooks,
     bashPolicy: () => loadConfig().bash,
+    formatterEnabled: () => loadConfig().formatter,
     projectPermissions: (root) => projectPermissions(root),
     persistPermission: (root, rule) => persistPermission(root, rule),
     spawnTask: (prompt, description, worktree) => this.spawnTask(prompt, description, worktree),
+    spawnAgents: (jobs) => this.spawnAgents(jobs),
+    sendToTask: (id, text) => this.sendToTask(id, text),
     taskList: () => this.taskList(),
     stopTask: (id) => this.stopTask(id),
     cronCreate: (description, prompt, every) => this.cronCreate(description, prompt, every),
     cronList: () => this.cronList(),
     cronDelete: (id) => this.cronDelete(id),
+    spawnTeam: (orchestrator, goal, roles) => this.spawnTeam(orchestrator, goal, roles),
+    boardPost: (sessionId, kind, text, toRole) => {
+      const teamId = this.teamOf.get(sessionId)
+      if (!teamId) return false
+      this.board.post(teamId, sessionId, kind, text, toRole)
+      this.emitTeam(teamId)
+      return true
+    },
+    boardRead: (sessionId, since, role) => {
+      const teamId = this.teamOf.get(sessionId)
+      if (!teamId) return null
+      const snap = this.board.snapshot(teamId)
+      if (!snap) return null
+      return since || role ? { ...snap, posts: this.board.readPosts(teamId, since ?? 0, role) } : snap
+    },
+    boardClaim: (sessionId, claimPath, ttlMs) => {
+      const teamId = this.teamOf.get(sessionId)
+      if (!teamId) return null
+      const res = this.board.claimFile(teamId, claimPath, sessionId, ttlMs)
+      this.emitTeam(teamId)
+      return res
+    },
+    boardRelease: (sessionId, claimPath) => {
+      const teamId = this.teamOf.get(sessionId)
+      if (!teamId) return false
+      this.board.releaseFile(teamId, claimPath, sessionId)
+      this.emitTeam(teamId)
+      return true
+    },
   }
 
   constructor(opts: EngineOptions) {
@@ -123,7 +189,7 @@ export class Engine {
       : opts.continueLast
         ? this.store.latest(this.cwd)
         : undefined
-    const row = resumed ?? this.store.create([this.cwd], crypto.randomUUID(), now())
+    const row = resumed ?? this.store.buildRow([this.cwd], crypto.randomUUID(), now())
     const runner = this.makeRunner(row)
     this.focusedId = runner.sessionId
   }
@@ -145,9 +211,20 @@ export class Engine {
         notify("Friday", `“${label}” needs your input`)
     }
     this.emit({ ...body, sessionId } as EngineEvent)
-    // When a background task finishes (or errors), refresh the Tasks panel once `busy` has settled.
-    if (this.taskMeta.has(sessionId) && (body.type === "turn-done" || body.type === "error")) {
-      setTimeout(() => this.emitTasks(), 0)
+    // When a session finishes (or errors), refresh the Tasks panel, drain queued follow-ups, and —
+    // if it's a team member — mark it done on the board and check whether the team can gather. All on
+    // the next tick so `busy` has settled. This is the only completion hook; no polling anywhere.
+    if (body.type === "turn-done" || body.type === "error") {
+      setTimeout(() => {
+        if (this.taskMeta.has(sessionId)) this.emitTasks()
+        this.drainTask(sessionId)
+        const teamId = this.teamOf.get(sessionId)
+        if (teamId) {
+          this.board.setMemberStatus(teamId, sessionId, body.type === "error" ? "dead" : "done")
+          this.emitTeam(teamId)
+          this.maybeGather(teamId)
+        }
+      }, 0)
     }
   }
 
@@ -158,7 +235,7 @@ export class Engine {
   spawnTask(prompt: string, description: string, worktree?: string): string {
     const roots = this.focused().currentRoots()
     const title = (description || "task").slice(0, 60)
-    const runner = this.makeRunner(this.store.create(roots, crypto.randomUUID(), now(), title))
+    const runner = this.makeRunner(this.store.buildRow(roots, crypto.randomUUID(), now(), title))
     this.taskMeta.set(runner.sessionId, { description, createdAt: now() })
     void (async () => {
       if (worktree) await runner.enterWorktree(worktree)
@@ -186,6 +263,256 @@ export class Engine {
   stopTask(id: string): void {
     this.runners.get(id)?.abortRun()
     this.emitTasks()
+  }
+  /** Stop (if running) and drop a background/swarm agent from the list entirely. */
+  removeTask(id: string): void {
+    const r = this.runners.get(id)
+    if (r) {
+      r.abortRun()
+      r.dispose()
+      this.runners.delete(id)
+    }
+    this.taskMeta.delete(id)
+    this.teamOf.delete(id)
+    this.emitTasks()
+  }
+  /** Dismiss the current team: stop any running members and clear the team panel. */
+  dismissTeam(): void {
+    const teamId = this.board.latestTeamId()
+    if (!teamId) return
+    for (const m of this.board.members(teamId)) this.runners.get(m.sessionId)?.abortRun()
+    this.board.finishTeam(teamId, "done")
+    this.dispatch(this.focusedId, { type: "team", team: null })
+  }
+  /** Inject a follow-up prompt into a background task. Queues it if the task is mid-turn. */
+  sendToTask(id: string, text: string): boolean {
+    const r = this.runners.get(id)
+    if (!r) return false
+    if (r.busy) {
+      const q = this.taskQueue.get(id) ?? []
+      q.push(text)
+      this.taskQueue.set(id, q)
+      return true
+    }
+    void r.runPrompt(text)
+    this.emitTasks()
+    return true
+  }
+  private drainTask(id: string): void {
+    const r = this.runners.get(id)
+    if (!r || r.busy) return
+    const q = this.taskQueue.get(id)
+    if (!q?.length) return
+    const next = q.shift()!
+    if (!q.length) this.taskQueue.delete(id)
+    void r.runPrompt(next)
+  }
+  /** Fan out a list of subtasks as parallel background agents; returns their ids. */
+  spawnAgents(jobs: { description: string; prompt: string; worktree?: string }[]): string[] {
+    return jobs.map((j) => this.spawnTask(j.prompt, j.description, j.worktree?.trim() || undefined))
+  }
+
+  // ---- agent teams (orchestrator + shared board) ----
+  /** Max wall-clock a team runs before stragglers are stopped and results gathered (no hang). */
+  private static TEAM_TIMEOUT_MS = 20 * 60_000
+  /** Launch a coordinated team: spawn one worker per role (each in its own worktree), register them on
+   * the shared board, and arm a gather timeout. Workers post findings to the board; when all finish the
+   * orchestrator is automatically re-prompted to merge & report. Returns the team id. */
+  spawnTeam(orchestrator: string, goal: string, roles: { role: string; prompt: string; worktree?: string }[]): string {
+    const teamId = this.board.createTeam(goal, orchestrator)
+    for (const r of roles) {
+      const wt = r.worktree || `team-${teamId}-${r.role}`.replace(/[^a-zA-Z0-9._/-]/g, "-")
+      const briefing =
+        `You are the “${r.role}” member of an agent team. Team goal: ${goal}\n` +
+        `You work in an isolated git worktree (${wt}). Coordinate via the shared board: board_post your findings/handoffs, board_read to see teammates, and board_claim_file before editing a file others might touch. ` +
+        `When done, board_post a 'finding' summarizing exactly what you changed (files + branch).\n\nYour task:\n${r.prompt}`
+      const sid = this.spawnTask(briefing, `${r.role} · ${goal.slice(0, 40)}`, wt)
+      // Register on the board + team map synchronously, before the worker's async run can complete.
+      this.board.addMember(teamId, sid, r.role, wt)
+      this.teamOf.set(sid, teamId)
+      this.runners.get(sid)?.activateTools("board_")
+    }
+    // The orchestrator needs the board tools too (to read progress / be re-prompted with context).
+    this.runners.get(orchestrator)?.activateTools("board_")
+    // ponytail: no auto-popout. The in-TUI Console (Ctrl+T) tails the team live; popping a real OS
+    // terminal per member whenever the model forms a team surprised users ("terminals open randomly").
+    // Opt in instead: `/fleet`, or `o` on a member in the Console.
+    const timer = setTimeout(() => this.gatherTimeout(teamId), Engine.TEAM_TIMEOUT_MS)
+    timer.unref?.()
+    this.emitTeam(teamId)
+    return teamId
+  }
+
+  /** When every member has finished (done/dead/timed-out), gather their results and re-prompt the
+   * orchestrator to merge & report. Guarded so it runs exactly once per team. Event-driven, no polling. */
+  private maybeGather(teamId: string): void {
+    const t = this.board.team(teamId)
+    if (t?.status !== "running") return
+    const members = this.board.members(teamId)
+    if (!members.length || members.some((m) => m.status === "running")) return
+    this.board.finishTeam(teamId, "gathering")
+    const digest = members
+      .map((m) => {
+        const r = this.runners.get(m.sessionId)
+        const msgs = r?.snapshotMessages() ?? []
+        const last = [...msgs]
+          .reverse()
+          .find((x) => x.role === "assistant" && "text" in x && (x as { text?: string }).text) as
+          | { text?: string }
+          | undefined
+        const wt = m.worktree ? ` (worktree: ${m.worktree})` : ""
+        return `## ${m.role} [${m.status}]${wt}\n${last?.text?.slice(0, 1200) ?? "(no output)"}`
+      })
+      .join("\n\n")
+    const findings = this.board.readPosts(teamId).filter((p) => p.kind === "finding" || p.kind === "handoff")
+    const board = findings.length
+      ? `\n\nBoard posts:\n${findings.map((p) => `- ${p.role} (${p.kind}): ${p.text}`).join("\n")}`
+      : ""
+    const stragglers = members.filter((m) => m.status !== "done").map((m) => m.role)
+    const note = stragglers.length ? `\n\nMembers that did NOT finish cleanly: ${stragglers.join(", ")}.` : ""
+    const prompt =
+      `TEAM COMPLETE — goal: “${t.goal}”.\n\nEach member worked in its own git worktree. Their results:\n\n${digest}${board}${note}\n\n` +
+      `Review the work, merge the worktrees into the working branch (resolve conflicts), then report a concise summary to the user. Use board_read for full detail.`
+    this.board.finishTeam(teamId, "done")
+    this.emitTeam(teamId)
+    this.injectToOrchestrator(t.orchestratorSession, prompt)
+  }
+
+  /** Force-stop any still-running members after the timeout, then gather whatever exists. */
+  private gatherTimeout(teamId: string): void {
+    const t = this.board.team(teamId)
+    if (t?.status !== "running") return
+    for (const m of this.board.members(teamId)) {
+      if (m.status === "running") {
+        this.runners.get(m.sessionId)?.abortRun()
+        this.board.setMemberStatus(teamId, m.sessionId, "timed-out")
+      }
+    }
+    this.emitTeam(teamId)
+    this.maybeGather(teamId)
+  }
+
+  /** Deliver a prompt to the orchestrator session — runs now if idle, else queued and drained at the
+   * next turn boundary (reusing the task follow-up machinery). Never blocks. */
+  private injectToOrchestrator(sessionId: string, text: string): void {
+    const r = this.runners.get(sessionId)
+    if (!r) {
+      this.dispatch(this.focusedId, { type: "notice", text })
+      return
+    }
+    if (r.busy) {
+      const q = this.taskQueue.get(sessionId) ?? []
+      q.push(text)
+      this.taskQueue.set(sessionId, q)
+    } else void r.runPrompt(text)
+  }
+
+  /** The bus-shaped payload for a team (or null). */
+  private teamPayload(teamId: string): Extract<EngineEventBody, { type: "team" }>["team"] {
+    const snap = this.board.snapshot(teamId)
+    if (!snap) return null
+    return {
+      teamId: snap.teamId,
+      goal: snap.goal,
+      status: snap.status,
+      members: snap.members.map((m) => ({
+        sessionId: m.sessionId,
+        role: m.role,
+        status: m.status,
+        activity: m.activity,
+      })),
+      posts: snap.posts,
+      claims: snap.claims,
+    }
+  }
+  private emitTeam(teamId: string): void {
+    this.dispatch(this.focusedId, { type: "team", team: this.teamPayload(teamId) })
+  }
+  /** Current team snapshot for the console's initial render (most recently active team). */
+  teamSnapshot(): Extract<EngineEventBody, { type: "team" }>["team"] {
+    const id = this.board.latestTeamId()
+    return id ? this.teamPayload(id) : null
+  }
+  /** Pop a single agent out into a real terminal window (tmux pane / OS terminal). */
+  popoutAgent(sessionId: string): { ok: boolean; backend: string; opened: number } {
+    return openFleetWindows([sessionId])
+  }
+  /** Open a NEW interactive friday window: fresh chat (no args) or resume `-s <id>`, in `cwd`. */
+  openInteractive(args: string[] = [], cwd?: string): { ok: boolean; backend: string; opened: number } {
+    return openInteractiveWindow(args, cwd ?? this.currentCwd())
+  }
+  /** Force-activate deferred tools (by name prefix) for the focused session so the model can use them
+   * immediately without calling tool_search first. Returns the number activated. */
+  activateTools(prefix: string): number {
+    return this.focused().activateTools(prefix)
+  }
+  /** Launch / connect the user's browser for CDP automation (the /chrome command). */
+  async startBrowser(): Promise<string> {
+    if (!findBrowser()) throw new Error("no Chrome/Brave/Edge/Chromium found — install one first")
+    return startBrowser(loadConfig().browser)
+  }
+  closeBrowser(): void {
+    closeBrowser()
+  }
+  /** Whether an automatable browser binary is installed (for /doctor). */
+  browserAvailable(): boolean {
+    return !!findBrowser()
+  }
+  // ---- mic (on-device speech-to-text via whisper-tiny.en) ----
+  micStatus(): { ok: boolean; reason: string } {
+    return micStatus(loadConfig().voice)
+  }
+  /** OS-aware enablement checklist for the mic setup screen. */
+  micSetupSteps(): { ready: boolean; lines: string[] } {
+    return micSetupSteps(loadConfig().voice)
+  }
+  micRecording(): boolean {
+    return micRecording()
+  }
+  /** Selectable mic inputs (for the device picker in the mic modal). */
+  micInputDevices(): InputDevice[] {
+    return listInputDevices()
+  }
+  /** Begin capturing the mic (press-to-talk). `device` is an id from micInputDevices(). */
+  startMic(device?: string): void {
+    startMic(loadConfig().voice, device)
+  }
+  /** Transcribe captured-so-far audio without stopping — drives the live preview. */
+  transcribePartial(): Promise<string> {
+    return transcribePartial(loadConfig().voice)
+  }
+  /** Stop capture and return the locally-transcribed text ("" if nothing heard). */
+  stopMic(): Promise<string> {
+    return stopMic(loadConfig().voice)
+  }
+  cancelMic(): void {
+    cancelMic()
+  }
+  /** Warm the whisper model in the background so the first transcription isn't slow. */
+  prewarmMic(): void {
+    prewarmMic(loadConfig().voice)
+  }
+  // ---- computer use (opt-in native backend) ----
+  computerInstalled(): boolean {
+    return computerInstalled()
+  }
+  /** Whether the current OS/session can drive the desktop, with a human-readable note. */
+  computerSupport(): { ok: boolean; platform: string; note: string } {
+    return computerSupport()
+  }
+  installComputerUse(): Promise<{ ok: boolean; log: string }> {
+    return installComputerUse()
+  }
+  uninstallComputerUse(): boolean {
+    return uninstallComputerUse()
+  }
+  /** Open a viewer window per running task (tmux pane / OS terminal); returns the chosen backend. */
+  openFleet(): { ok: boolean; backend: string; opened: number } {
+    const ids = this.taskList()
+      .filter((t) => t.status === "running")
+      .map((t) => t.id)
+    if (!ids.length) return { ok: false, backend: "none", opened: 0 }
+    return openFleetWindows(ids)
   }
   private emitTasks(): void {
     this.dispatch(this.focusedId, { type: "tasks", items: this.taskList() })
@@ -327,6 +654,20 @@ export class Engine {
     this.dispatch(this.focusedId, { type: "ready", needsModel: !this.model || !this.providerId })
   }
 
+  // ---- workspace trust ----
+  /** Has the user granted Friday access to the cwd — or to an ancestor of it (prefix trust)? */
+  isCwdTrusted(): boolean {
+    const trusted = loadConfig().trustedRoots ?? []
+    return trusted.some(
+      (root) => this.cwd === root || this.cwd.startsWith(root.endsWith(path.sep) ? root : root + path.sep),
+    )
+  }
+  /** Remember the current directory as trusted so the prompt isn't shown again for it. */
+  trustCwd(): void {
+    const trusted = loadConfig().trustedRoots ?? []
+    if (!trusted.includes(this.cwd)) saveConfig({ trustedRoots: [...trusted, this.cwd] })
+  }
+
   // ---- sessions ----
   /**
    * "Active" sessions = those opened in THIS process run (the live runners), tagged with their
@@ -373,7 +714,7 @@ export class Engine {
   contextInfo(): { files: string[] } {
     return this.focused().contextInfo()
   }
-  listSkills(): { name: string; description: string }[] {
+  listSkills(): SkillInfo[] {
     return this.focused().listSkills()
   }
   listCommands(): CustomCommand[] {
@@ -382,7 +723,7 @@ export class Engine {
   stats(): SessionStats {
     return this.focused().stats()
   }
-  listCheckpoints(): { id: string; label: string; createdAt: number; files: number }[] {
+  listCheckpoints(): { id: string; label: string; createdAt: number; files: number; added: number; removed: number }[] {
     return this.focused().listCheckpoints()
   }
   hasRedo(): boolean {
@@ -403,7 +744,7 @@ export class Engine {
       focused.emitState(true)
       return
     }
-    const runner = this.makeRunner(this.store.create(focused.currentRoots(), crypto.randomUUID(), now()))
+    const runner = this.makeRunner(this.store.buildRow(focused.currentRoots(), crypto.randomUUID(), now()))
     this.focusedId = runner.sessionId
     runner.emitState(true)
   }
@@ -447,19 +788,20 @@ export class Engine {
   }
   /** Open a new session rooted at `dir` and focus it. */
   setRoot(dir: string): void {
-    const runner = this.makeRunner(this.store.create([dir], crypto.randomUUID(), now()))
+    const runner = this.makeRunner(this.store.buildRow([dir], crypto.randomUUID(), now()))
     this.focusedId = runner.sessionId
     runner.emitState(true)
   }
   deleteSession(id: string): void {
     const r = this.runners.get(id)
     if (r) {
+      if (r.busy) r.abortRun() // stop a mid-turn session before discarding it
       r.dispose()
       this.runners.delete(id)
     }
     this.store.delete(id)
     if (id === this.focusedId) {
-      const next = this.store.latest(this.cwd) ?? this.store.create([this.cwd], crypto.randomUUID(), now())
+      const next = this.store.latest(this.cwd) ?? this.store.buildRow([this.cwd], crypto.randomUUID(), now())
       const runner = this.runnerFor(next.id) ?? this.makeRunner(next)
       this.focusedId = runner.sessionId
       runner.emitState(true)
@@ -495,13 +837,25 @@ export class Engine {
     }
     return out
   }
-  selection(): { providerId?: string; model?: string; effort: Effort; mode: ModeId; reasoning: boolean } {
+  selection(): {
+    providerId?: string
+    model?: string
+    effort: Effort
+    mode: ModeId
+    reasoning: boolean
+    contextWindow: number
+    outputStyle?: string
+    autoCompactThreshold?: number
+  } {
     return {
       providerId: this.providerId,
       model: this.model,
       effort: this.effort,
       mode: this.mode,
       reasoning: this.modelReasoning,
+      contextWindow: this.contextWindow,
+      outputStyle: loadConfig().outputStyle,
+      autoCompactThreshold: loadConfig().autoCompactThreshold,
     }
   }
   private resolveProvider(): ProviderInfo {
@@ -582,6 +936,15 @@ export class Engine {
         break
       case "abort":
         this.focused().abortRun()
+        break
+      case "inject":
+        void this.focused().injectMessage(cmd.text, cmd.images, cmd.id, cmd.interrupt)
+        break
+      case "inject-pause":
+        this.focused().armInjectPause(cmd.interrupt)
+        break
+      case "inject-resume":
+        this.focused().resumeInject()
         break
       case "set-mode":
         this.mode = cmd.mode

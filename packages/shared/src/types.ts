@@ -36,7 +36,7 @@ export type Message =
   | { role: "system"; text: string }
   | { role: "user"; text: string; images?: ImagePart[] }
   | { role: "assistant"; text?: string; reasoning?: string; reasoningSignature?: string; toolCalls?: ToolCall[] }
-  | { role: "tool"; callId: string; name: string; result: string; isError?: boolean }
+  | { role: "tool"; callId: string; name: string; result: string; isError?: boolean; images?: ImagePart[] }
 
 /** Tool description handed to the model (JSON-Schema parameters). */
 export interface ToolDef {
@@ -100,7 +100,7 @@ export type ProviderEvent =
   | { type: "done"; stopReason: string }
 
 /** Tool permission categories, matched against a mode's PermissionPolicy. */
-export type PermissionCategory = "read" | "edit" | "bash" | "network"
+export type PermissionCategory = "read" | "edit" | "bash" | "network" | "browser" | "computer"
 
 /** A single item in the agent's live task list (maintained via the todo_write tool). */
 export type TodoStatus = "pending" | "active" | "done"

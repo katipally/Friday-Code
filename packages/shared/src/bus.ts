@@ -5,7 +5,7 @@
 
 import type { MascotState } from "./mascot.ts"
 import type { ModeId } from "./modes.ts"
-import type { Message, TodoItem } from "./types.ts"
+import type { ImagePart, Message, TodoItem } from "./types.ts"
 
 /**
  * The event payloads. Every event is additionally tagged with the `sessionId` it
@@ -25,7 +25,7 @@ export type EngineEventBody =
   | { type: "turn-done"; id: string }
   /** Finalize an intermediate assistant bubble (one that ended in tool calls) mid-turn: stops its
    * streaming caret without ending the turn (busy stays true; usage stays on the final bubble). */
-  | { type: "message-stop"; id: string; intermediate: boolean }
+  | { type: "message-stop"; id: string; intermediate: boolean; interrupted?: boolean }
   /** A plan-mode turn finished with a proposed plan; the UI offers an execute/keep-planning gate. */
   | { type: "plan-ready"; plan: string }
   | { type: "usage"; input: number; output: number; costUsd?: number }
@@ -34,6 +34,8 @@ export type EngineEventBody =
   | { type: "session-changed"; sessionId: string; title: string; cwd: string; roots: string[] }
   | { type: "session-loaded"; sessionId: string; title: string; cwd: string; roots: string[]; messages: Message[] }
   | { type: "todos"; items: TodoItem[] }
+  /** The session's persisted plan list (emitted on resume so the Context panel rebuilds it). */
+  | { type: "plans"; items: { id: string; title: string; text: string }[] }
   | { type: "diagnostics"; items: { path: string; errors: number; warnings: number }[] }
   | {
       type: "changed-files"
@@ -65,7 +67,30 @@ export type EngineEventBody =
       type: "tasks"
       items: { id: string; title: string; description: string; status: "running" | "done"; summary?: string }[]
     }
+  /** Agent-team shared board — drives the console/dashboard view. Null when no team is active. */
+  | {
+      type: "team"
+      team: {
+        teamId: string
+        goal: string
+        status: string
+        members: { sessionId: string; role: string; status: string; activity: string }[]
+        posts: {
+          id: number
+          sessionId: string
+          role: string
+          kind: string
+          toRole?: string
+          text: string
+          createdAt: number
+        }[]
+        claims: { path: string; sessionId: string }[]
+      } | null
+    }
   | { type: "error"; message: string }
+  // A /add note (id correlates with the optimistic UI item) has been folded into the agent's context
+  // at a step boundary — the UI flips its "pending" chip to "attached".
+  | { type: "inject-attached"; id: string }
 
 /**
  * One selectable choice in an ask_user question — a short label, an optional explanation, and an
@@ -92,6 +117,12 @@ export type EngineEvent = EngineEventBody & { sessionId: string }
 export type UICommand =
   | { type: "prompt"; text: string }
   | { type: "abort" }
+  // Add context to a running agent without stopping it (the /pause feature): `inject` folds a user note
+  // in at the next loop step; `inject-pause` makes the agent idle at the next step boundary while the
+  // user composes; `inject-resume` releases that pause (used by the modal's cancel path).
+  | { type: "inject"; id?: string; text: string; images?: ImagePart[]; interrupt?: boolean }
+  | { type: "inject-pause"; interrupt?: boolean }
+  | { type: "inject-resume" }
   | { type: "set-mode"; mode: ModeId }
   | { type: "set-model"; model: string }
   | { type: "set-effort"; effort: string }

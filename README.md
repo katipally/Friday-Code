@@ -63,17 +63,17 @@ friday -h, --help
 |---|---|
 | `Enter` | send message |
 | `Shift+Enter` | newline in composer |
-| `Shift+Tab` | cycle mode (plan → default → accept → yolo) |
+| `Shift+Tab` | cycle mode (plan → default → yolo) |
 | `Ctrl+B` | toggle context panel |
-| `Ctrl+K` | command palette |
+| `Shift+Esc` | pause the running agent & add context |
 | `Ctrl+Y` | session history |
 | `Ctrl+1-9` | jump between parallel sessions |
 | `/` | slash command autocomplete |
 | `@` | file or image mention |
-| `?` or `F1` | full keymap |
+| `?` or `F1` | full guide: slash commands · keyboard · modes |
 | `Esc` | close overlay |
 | `Esc Esc` | rewind last change |
-| `Ctrl+C` | quit |
+| `Ctrl+C` | quit (press twice to confirm) |
 
 Mouse works too. Drag panel borders, click buttons, select to copy.
 
@@ -85,12 +85,28 @@ Shift+Tab cycles. Each mode recolors the whole frame and gates every tool call.
 |---|---|---|
 | `◐` | plan | read-only. Investigates, then shows a card with the full plan for you to review and run. |
 | `◈` | default | asks before edits and commands. |
-| `✎` | accept edits | auto-applies file edits. Asks for bash and network. |
 | `⚡` | yolo | full auto. No prompts. |
 
 ### Mascot
 
 `⬡‿⬡` lives above the composer. It changes expression: `⬡‿⬡` idle, `⬡⌄⬡` thinking, `[>‿<]` streaming, `⬡▰⬡` working, `\⬡‿⬡/` done, `⬡_⬡` error, `⬡⊙⬡` waiting. The mood also tints the color: green for done, red for error, amber for waiting, mode accent for everything else. You can tell what's happening from across the room.
+
+### Pause
+
+Agents go wrong when they guess at something you knew and then build on the
+guess. `/pause` is how you catch it mid-flight. Type `/pause` (or press
+Shift+Esc) while Friday is working and it soft-interrupts the current generation
+and opens a composer. Write what it missed, press Enter, and your note folds in
+so the agent course-corrects right now.
+
+```
+/pause
+→ "we are keeping the old auth API, do not rewrite it"
+```
+
+`/nudge` and `/add` are aliases for `/pause`. Full reference, including the cost
+model and the composer's `@file` mentions, in [docs/pause.md](docs/pause.md).
+Every slash command is listed in [docs/commands.md](docs/commands.md).
 
 ## Features
 
@@ -98,9 +114,9 @@ What's actually in `main`, no aspirational claims.
 
 **Engine.** Streaming everywhere, tool-calling loop, auto-compaction at ~80% (or `/compact`), 8 hook events (`PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop`, `SessionStart`, `SubagentStop`, `PreCompact`, `Notification`), sub-agents with custom Markdown agents in `~/.friday/agents/`, checkpoints + rewind (including files bash created), bash safety with allow/deny lists and risky-command detection, LSP grounding (typescript-language-server, pyright, gopls, rust-analyzer, auto-detected).
 
-**Tools.** `read`, `write`, `edit`, `multiEdit`, `applyPatch`, `ls`, `glob`, `grep`, `bash`, `webfetch`, `websearch`, `askUser`, `skill`, `task_create` / `task_list` / `task_status` / `task_stop`, `todo_write`, `exit_plan`, `lsp_hover` / `lsp_definition` / `lsp_symbols`, `tool_search`, `memory`, `notebook_edit`, `cron_create` / `cron_list` / `cron_delete`, `enter_worktree` / `exit_worktree` / `worktree_list`. MCP client (stdio + streamable-http).
+**Tools.** `read`, `write`, `edit`, `multiEdit`, `applyPatch`, `ls`, `glob`, `grep`, `bash`, `webfetch`, `websearch`, `askUser`, `skill`, `task` (read-only sub-agent), `task_create` / `task_list` / `task_status` / `task_stop`, `spawn_agents` (swarm) / `spawn_team` + `board_*` (coordinated team), `todo_write`, `exit_plan`, `lsp_hover` / `lsp_definition` / `lsp_symbols`, `tool_search`, `memory`, `notebook_edit`, `cron_create` / `cron_list` / `cron_delete`, `enter_worktree` / `exit_worktree` / `worktree_list`, opt-in `browser_*` and `computer_*`. MCP client (stdio + streamable-http).
 
-**TUI.** Animated mascot (7 states, defined in `packages/shared/src/mascot.ts`), animated FRIDAY wordmark drawn from half-block subpixels in the TUI itself, 4-mode visual system with per-mode glyph + accent, responsive layout with auto-collapsing panels, motion layer with `FRIDAY_REDUCED_MOTION=1` accessibility fallback, multi-session tabs, context panel with plans/todos/files/context/tasks/MCP tabs, command palette, slash command + `@` mention autocomplete, markdown skills in `~/.friday/skills/`.
+**TUI.** Animated mascot (7 states, defined in `packages/shared/src/mascot.ts`), animated FRIDAY wordmark drawn from half-block subpixels in the TUI itself, 3-mode visual system with per-mode glyph + accent, responsive layout with auto-collapsing panels, motion layer with `FRIDAY_REDUCED_MOTION=1` accessibility fallback, multi-session tabs, context panel with plans/todos/files/context/tasks plus separate MCP and skills surfaces, dashboard (Sessions · Teams · Swarm · History, Ctrl+O), on-device speech-to-text mic with input-device select + live transcription (Ctrl+R), inline slash command + `@` mention autocomplete, markdown skills in `~/.friday/skills/`.
 
 **Providers (19).** Anthropic and Google Gemini ship dedicated adapters. 17 more (OpenAI, OpenRouter, OpenCode Zen, Groq, Moonshot/Kimi, DeepSeek, xAI, Mistral, Perplexity, Together, Cerebras, DeepInfra, Fireworks, Azure OpenAI, MiniMax, Ollama, llama.cpp / LM Studio) go through one OpenAI-compat adapter. Ollama and llama.cpp are keyless. Model catalog from [models.dev](https://models.dev) with an offline snapshot fallback. Reasoning effort via `/effort` slider.
 
@@ -158,7 +174,7 @@ To add a tool: implement in `packages/tools/src/builtin/`, register in `packages
 
 ## Releases
 
-`git tag v2.0.7 && git push origin v2.0.7` is the whole release. Versions are derived from the tag, nothing in source is hardcoded. The pipeline:
+`git tag v2.0.9 && git push origin v2.0.9` is the whole release. Versions are derived from the tag, nothing in source is hardcoded. The pipeline:
 
 1. 8 builds run in parallel on native runners (5 stable, 2 musl, 1 best-effort Windows ARM)
 2. GitHub Release with all binaries + `SHASUMS256.txt`
@@ -170,7 +186,7 @@ If a stable build fails, the release is blocked. If a musl or Windows ARM build 
 
 ## Roadmap
 
-**Shipped.** 4 permission modes with per-mode glyph + accent. 7-state animated mascot in TUI. Animated FRIDAY wordmark in TUI. 8 native binaries + 9 npm packages with launcher auto-resolve. 19 built-in providers (Anthropic, Gemini, OpenAI-compat for 17 more). 8 hook events. Sub-agents with custom Markdown agents. Auto-compaction + manual `/compact`. Checkpoints + rewind (bash file snapshotting). LSP grounding (4 languages). MCP client. Background tasks, cron, worktree. Headless mode with JSON output. `FRIDAY.md` / `AGENTS.md` project context. Slash command + `@` mention autocomplete.
+**Shipped.** 3 permission modes with per-mode glyph + accent. 7-state animated mascot in TUI. Animated FRIDAY wordmark in TUI. 8 native binaries + 9 npm packages with launcher auto-resolve. 19 built-in providers (Anthropic, Gemini, OpenAI-compat for 17 more). 8 hook events. Sub-agents (read-only `task`), swarms (`spawn_agents`) and coordinated teams (`spawn_team` + shared board), each opening in its own terminal window. Dashboard over sessions/teams/swarm/history (Ctrl+O). On-device speech-to-text mic with input-device select + live transcription (Ctrl+R). Auto-compaction + manual `/compact`. Checkpoints + rewind (bash file snapshotting). LSP grounding (4 languages). MCP client. Background tasks, cron, worktree. Opt-in browser + computer-use control. Headless mode with JSON output. `FRIDAY.md` / `AGENTS.md` project context. Slash command + `@` mention autocomplete.
 
 **In progress.** Custom agents via Markdown frontmatter (loader works, picker is not done). Windows ARM64 build (best-effort, smoke tested only). Session export/import.
 
@@ -188,6 +204,18 @@ If a stable build fails, the release is blocked. If a musl or Windows ARM build 
 - **macOS Gatekeeper.** The binary isn't signed. Right-click → Open → confirm. Or `xattr -d com.apple.quarantine $(which friday)`.
 - **Windows SmartScreen.** Click "More info" → "Run anyway". Or use Scoop.
 - **Something else.** `~/.friday/logs/`. If logs don't help, open an issue with `friday --version` and the relevant log lines.
+
+## Documentation
+
+Deep dives on every feature live in [docs/](docs/index.md):
+
+- [Slash commands](docs/commands.md): every command you can type.
+- [Pause](docs/pause.md): `/pause`.
+- [Configuration](docs/configuration.md): `~/.friday/`, keys, hooks, project context, skills, custom agents and commands.
+- [Providers](docs/providers.md): the 19 providers and reasoning effort.
+- [Tools](docs/tools.md): the capabilities the model calls.
+- [Agents and teams](docs/agents-and-teams.md): sub-agents, swarms, and coordinated teams.
+- [Integrations](docs/integrations.md): browser, computer use, voice, LSP, headless mode.
 
 ## Contributing, security, license
 

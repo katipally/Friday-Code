@@ -11,17 +11,15 @@ export function FileChip(props: { chip: Chip; accent: string; onOpen: () => void
   }
   return (
     <box
-      border
-      borderStyle="rounded"
-      borderColor={props.chip.abs ? props.accent : h.hovered() ? theme.borderActive : theme.border}
-      backgroundColor={h.bg()}
+      backgroundColor={h.hovered() ? theme.bgHover : theme.bgElevated}
       paddingLeft={1}
       paddingRight={1}
       onMouseOver={h.onMouseOver}
       onMouseOut={h.onMouseOut}
       onMouseDown={props.onOpen}
     >
-      <text fg={props.chip.abs || h.hovered() ? theme.text : theme.textFaint}>
+      {/* borderless chip — an absolute-path ref is flagged by tinting its label with the accent. */}
+      <text fg={props.chip.abs ? props.accent : h.hovered() ? theme.text : theme.textMuted}>
         {chipIcon(props.chip.kind)} {name()}
       </text>
     </box>

@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process"
 import type { Engine } from "@friday/core"
 import { theme } from "@friday/shared"
 import { useKeyboard, useRenderer, useSelectionHandler, useTerminalDimensions } from "@opentui/solid"
@@ -5,28 +6,51 @@ import { createEffect, createMemo, createSignal, Match, onMount, Show, Switch, u
 import { AskCard } from "./components/AskCard.tsx"
 import { Chat } from "./components/Chat.tsx"
 import { CheckpointHistory } from "./components/CheckpointHistory.tsx"
-import { CommandPalette } from "./components/CommandPalette.tsx"
 import { CompactionCard, CompactionSummary } from "./components/CompactionCard.tsx"
 import { Composer } from "./components/Composer.tsx"
+import { ComputerModal } from "./components/ComputerModal.tsx"
+import { ConsoleView } from "./components/ConsoleView.tsx"
 import { ContextPanel } from "./components/ContextPanel.tsx"
+import { Dashboard } from "./components/Dashboard.tsx"
 import { DirectoryModal } from "./components/DirectoryModal.tsx"
 import { CollapseTab, GripDivider } from "./components/Divider.tsx"
 import { EffortSlider } from "./components/EffortSlider.tsx"
-import { ExitScreen } from "./components/ExitScreen.tsx"
 import { FooterHints } from "./components/FooterHints.tsx"
 import { ForkPicker } from "./components/ForkPicker.tsx"
 import { KeymapOverlay } from "./components/KeymapOverlay.tsx"
+import { WORDMARK_ROWS } from "./components/Logo.tsx"
 import { McpModal } from "./components/McpModal.tsx"
+import { MicModal } from "./components/MicModal.tsx"
 import { ModelModal } from "./components/ModelModal.tsx"
-import { Onboarding } from "./components/Onboarding.tsx"
+import { PauseModal } from "./components/PauseModal.tsx"
 import { PermissionCard } from "./components/PermissionCard.tsx"
 import { PlanCard } from "./components/PlanCard.tsx"
 import { SessionHistory } from "./components/SessionHistory.tsx"
-import { Splash } from "./components/Splash.tsx"
+import { SettingsModal } from "./components/SettingsModal.tsx"
+import { SkillsModal } from "./components/SkillsModal.tsx"
 import { StatusStrip } from "./components/StatusStrip.tsx"
+import { ThemeModal } from "./components/ThemeModal.tsx"
 import { Toasts } from "./components/Toasts.tsx"
 import { TopBar } from "./components/TopBar.tsx"
+import { TrustPrompt } from "./components/TrustPrompt.tsx"
+import { UpdateModal } from "./components/UpdateModal.tsx"
+import { YoloConfirm } from "./components/YoloConfirm.tsx"
 import { AppProvider, createAppStore, useApp } from "./store.tsx"
+
+function fmtTokens(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
+}
+function fmtDuration(ms: number): string {
+  const s = Math.round(ms / 1000)
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`
+}
+
+// Wordmark left in the terminal on exit — the SAME half-block glyphs as the empty-state Logo
+// (shared WORDMARK_ROWS), printed statically in brand amber (xterm-256 #214). The live logo's
+// per-column shimmer can't render to stdout, but the glyph rows themselves print fine.
+const AMBER = "\x1b[38;5;214m"
+const RESET = "\x1b[0m"
+const EXIT_LOGO = WORDMARK_ROWS.map((r) => `  ${AMBER}${r}${RESET}`).join("\n")
 
 function Shell() {
   const app = useApp()
@@ -74,7 +98,7 @@ function Shell() {
   const TARGET = 100
   const contentPad = createMemo(() => {
     const sidebar = !narrow() && app.rightOpen() ? app.rightWidth() + 1 : 0
-    const mainW = dims().width - 2 /* frame */ - sidebar
+    const mainW = dims().width - sidebar
     return 1 + Math.max(0, Math.floor((mainW - TARGET) / 2))
   })
 
@@ -95,15 +119,9 @@ function Shell() {
 
   return (
     <box width="100%" height="100%" backgroundColor={theme.bg}>
-      {/* The single outermost frame stays subtle; mode accent lives on badges, focus rings, active divider. */}
-      <box
-        flexGrow={1}
-        flexDirection="column"
-        border
-        borderStyle="rounded"
-        borderColor={theme.frame}
-        backgroundColor={theme.bg}
-      >
+      {/* No outer app frame (opencode-style): the canvas is borderless. Chrome is greyscale + brand
+          amber; the per-mode accent is confined to the chat transcript + composer focus ring. */}
+      <box flexGrow={1} flexDirection="column" backgroundColor={theme.bg}>
         {/* The side panel is a full-height LEFT sidebar that PUSHES the main column (it never hovers).
             Drag is handled at the row so resize keeps tracking once the cursor leaves the grip. */}
         <box
@@ -126,14 +144,11 @@ function Shell() {
               chat area, which narrows as the sidebar opens, keeping the UI balanced. */}
           <box flexGrow={1} minHeight={0} flexDirection="column">
             <TopBar />
-            <box
-              flexGrow={1}
-              minHeight={0}
-              flexDirection="column"
-              paddingLeft={contentPad()}
-              paddingRight={contentPad()}
-            >
-              <Chat />
+            {/* The chat area spans the FULL column width so its scrollbar sits on the terminal's
+                right edge; the conversation content is inset by `pad` internally to stay centered
+                and aligned with the composer below. */}
+            <box flexGrow={1} minHeight={0} flexDirection="column">
+              <Chat pad={contentPad()} />
             </box>
             {/* Status + composer share the chat's inset so the input box stays aligned with the
                 conversation column as it centers on wide terminals. */}
@@ -148,13 +163,7 @@ function Shell() {
 
       {/* Narrow-terminal fullscreen overlay for the right panel. */}
       <Show when={narrow() && app.rightOpen()}>
-        <box
-          position="absolute"
-          top={1}
-          left={1}
-          width={Math.max(0, dims().width - 2)}
-          height={Math.max(0, dims().height - 2)}
-        >
+        <box position="absolute" top={0} left={0} width={dims().width} height={dims().height}>
           <ContextPanel fullscreen />
         </box>
       </Show>
@@ -165,11 +174,14 @@ function Shell() {
       <Show when={app.modelModalOpen()}>
         <ModelModal />
       </Show>
+      <Show when={app.yoloConfirmOpen()}>
+        <YoloConfirm />
+      </Show>
+      <Show when={app.micModalOpen()}>
+        <MicModal />
+      </Show>
       <Show when={app.effortOpen()}>
         <EffortSlider />
-      </Show>
-      <Show when={app.paletteOpen()}>
-        <CommandPalette />
       </Show>
       <Show when={app.historyOpen()}>
         <SessionHistory />
@@ -177,8 +189,26 @@ function Shell() {
       <Show when={app.dirModalOpen()}>
         <DirectoryModal />
       </Show>
+      <Show when={app.pauseModalOpen()}>
+        <PauseModal />
+      </Show>
       <Show when={app.mcpModalOpen()}>
         <McpModal />
+      </Show>
+      <Show when={app.skillsModalOpen()}>
+        <SkillsModal />
+      </Show>
+      <Show when={app.computerModalOpen()}>
+        <ComputerModal />
+      </Show>
+      <Show when={app.settingsModalOpen()}>
+        <SettingsModal />
+      </Show>
+      <Show when={app.themeModalOpen()}>
+        <ThemeModal />
+      </Show>
+      <Show when={app.updateModalOpen()}>
+        <UpdateModal />
       </Show>
       <Show when={app.checkpointsOpen()}>
         <CheckpointHistory />
@@ -186,9 +216,7 @@ function Shell() {
       <Show when={app.forkOpen()}>
         <ForkPicker />
       </Show>
-      <Show when={app.onboardingOpen()}>
-        <Onboarding />
-      </Show>
+      <TrustPrompt />
       {/* HITL prompts render as centered overlays above the (dimmed) shell. */}
       <PermissionCard />
       <AskCard />
@@ -208,11 +236,32 @@ function AppRoot() {
 
   let lastEsc = 0
   let stopArmedAt = 0
+  let quitArmedAt = 0
   useKeyboard((key) => {
-    if (app.view() === "exit") return // ExitScreen owns keys
-    if (key.ctrl && key.name === "c") return app.quit()
-    if (app.view() === "splash") {
-      if (["return", "enter", "space", "escape"].includes(key.name)) app.setView("shell")
+    if (app.view() === "exit") return // exit is finalizing; ignore keys
+    if (key.ctrl && key.name === "c") {
+      // Gated quit: first Ctrl+C arms (footer shows "press again to exit"), a second within 2s
+      // actually exits. Prevents a stray Ctrl+C from dropping the user out of a long session.
+      const t = Date.now()
+      if (app.quitArmed() && t - quitArmedAt < 2000) {
+        app.setQuitArmed(false)
+        return app.quit()
+      }
+      quitArmedAt = t
+      app.setQuitArmed(true)
+      setTimeout(() => {
+        if (Date.now() - quitArmedAt >= 1950) app.setQuitArmed(false)
+      }, 2000)
+      return
+    }
+    if (app.view() === "console") {
+      // ConsoleView owns its keys; only the toggle is global so it can close from here too.
+      if (key.ctrl && key.name === "t") return app.toggleConsole()
+      return
+    }
+    if (app.view() === "dashboard") {
+      // Dashboard owns its keys; only the toggle is global so it can close from here too.
+      if (key.ctrl && key.name === "o") return app.toggleDashboard()
       return
     }
     // KeymapOverlay has no useKeyboard of its own — close it on Esc here.
@@ -223,15 +272,34 @@ function AppRoot() {
     // Every other modal / HITL prompt owns its own keyboard; global shortcuts must not fire under
     // them. anyModalOpen() is the single source of truth (store), so nothing can be forgotten here.
     if (app.anyModalOpen()) return
-    if (key.shift && key.name === "tab") return app.toggleMode(1)
-    if (key.ctrl && key.name === "b") {
-      app.setRightOpen(!app.rightOpen())
-      return
+    // Rebindable named actions (see ~/.friday/keybindings.json). Resolved before the bespoke
+    // arming keys below; a plain Esc never matches a chord (shift+escape ≠ escape) so stop/checkpoint
+    // arming still works.
+    const action = app.keyAction(key)
+    if (action) {
+      switch (action) {
+        case "panel.toggle":
+          return app.setRightOpen(!app.rightOpen())
+        case "mic.toggle":
+          return app.toggleMic()
+        case "console.toggle":
+          return app.toggleConsole()
+        case "dashboard.toggle":
+          return app.toggleDashboard()
+        case "history.open":
+          return app.setHistoryOpen(true)
+        case "mode.cycle":
+          return app.toggleMode(1)
+        case "pause.open":
+          return void app.runCommand("pause") // pause the agent & add context (Shift+Esc)
+        case "settings.open":
+          return app.setSettingsModalOpen(true)
+        case "help.open":
+          return app.setOverlayOpen(true)
+      }
     }
     if (key.ctrl && /^[1-9]$/.test(key.name)) return app.switchSessionByIndex(Number(key.name) - 1)
-    if (key.ctrl && key.name === "k") return app.setPaletteOpen(true)
-    if (key.ctrl && key.name === "y") return app.setHistoryOpen(true)
-    if (key.name?.toLowerCase() === "f1" || (key.ctrl && key.name === "/")) return app.setOverlayOpen(true)
+    if (key.ctrl && key.name === "/") return app.setOverlayOpen(true)
     // `?` opens the keymap, but only when the composer is empty so it never eats a literal "?".
     if ((key.name === "?" || (key.name === "/" && key.shift)) && app.composerEmpty()) {
       app.setOverlayOpen(true)
@@ -269,20 +337,52 @@ function AppRoot() {
     if (txt) renderer.copyToClipboardOSC52(txt)
   })
 
+  // Clean exit: no full-screen farewell. Tear down the TUI, then leave the wordmark, session stats and
+  // the resume command in the normal terminal scrollback.
+  let exited = false
+  function finalizeExit() {
+    if (exited) return
+    exited = true
+    const id = app.engine.currentSessionId()
+    const title = app.engine.currentTitle()
+    const empty = app.engine.currentIsEmpty()
+    const s = app.exitStats()
+    app.engine.dispose() // close MCP + discard empty placeholder sessions so history stays clean
+    renderer.destroy() // leave the alt-screen and restore the normal terminal
+    const name = title ? `  “${title}”\n` : ""
+    const stats = s ? `  ${s.messages} messages · ${fmtTokens(s.tokens)} tokens · ${fmtDuration(s.durationMs)}\n` : ""
+    const resume = empty ? "" : `  resume:  friday -s ${id}\n` // empty sessions are discarded on dispose
+    process.stdout.write(`\n${EXIT_LOGO}\n\n${name}${stats}${resume}\n`)
+    // After a /update, relaunch the (now-upgraded) binary so the user lands straight back in friday.
+    // ponytail: best-effort re-exec; if the spawn fails the printed `resume:` line still tells them how.
+    if (app.wantsRestart()) {
+      try {
+        spawn(process.execPath, process.argv.slice(1), { detached: true, stdio: "inherit" }).unref()
+      } catch {
+        /* fall back to manual relaunch */
+      }
+    }
+    process.exit(0)
+  }
+  createEffect(() => {
+    if (app.view() === "exit") finalizeExit()
+  })
+
   return (
-    <Switch fallback={<Splash />}>
-      <Match when={app.view() === "exit"}>
-        <ExitScreen />
+    <Switch fallback={<Shell />}>
+      <Match when={app.view() === "exit"}>{null}</Match>
+      <Match when={app.view() === "console"}>
+        <ConsoleView />
       </Match>
-      <Match when={app.view() === "shell"}>
-        <Shell />
+      <Match when={app.view() === "dashboard"}>
+        <Dashboard />
       </Match>
     </Switch>
   )
 }
 
-export function App(props: { engine: Engine }) {
-  const store = createAppStore(props.engine)
+export function App(props: { engine: Engine; version?: string }) {
+  const store = createAppStore(props.engine, props.version)
   return (
     <AppProvider store={store}>
       <AppRoot />

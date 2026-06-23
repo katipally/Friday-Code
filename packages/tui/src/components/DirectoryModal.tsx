@@ -1,14 +1,33 @@
 import fs from "node:fs"
 import path from "node:path"
-import { getMode, theme } from "@friday/shared"
-import { useKeyboard } from "@opentui/solid"
+import { theme } from "@friday/shared"
+import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { createMemo, createSignal, For, Show } from "solid-js"
+import { useHover } from "../motion/index.ts"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
+import { bandBg, Field, HintChip, Overlay, Pill, SectionLabel } from "./ui.tsx"
 
 function home(p: string): string {
   const h = process.env.HOME
   return h && p.startsWith(h) ? `~${p.slice(h.length)}` : p
+}
+
+/** A clickable recent-directory row that brightens on hover, so it reads as a target not a label. */
+function RecentRow(props: { label: string; onOpen: () => void }) {
+  const h = useHover({ base: "transparent", hover: theme.bgHover })
+  return (
+    <box
+      paddingLeft={1}
+      paddingRight={1}
+      backgroundColor={h.bg()}
+      onMouseOver={h.onMouseOver}
+      onMouseOut={h.onMouseOut}
+      onMouseDown={props.onOpen}
+    >
+      <text fg={h.hovered() ? theme.text : theme.textFaint}>{props.label}</text>
+    </box>
+  )
 }
 function expand(v: string): string {
   return v.startsWith("~") ? (process.env.HOME ?? "") + v.slice(1) : v
@@ -17,7 +36,7 @@ function expand(v: string): string {
 /** Change the working directory (new session) or add a directory to the current session. */
 export function DirectoryModal() {
   const app = useApp()
-  const accent = () => getMode(app.mode()).accent
+  const dims = useTerminalDimensions()
   const [value, setValue] = createSignal("")
   const [error, setError] = createSignal("")
   const [sel, setSel] = createSignal(0)
@@ -99,26 +118,9 @@ export function DirectoryModal() {
 
   return (
     <Scrim onClose={() => app.setDirModalOpen(false)}>
-      <box
-        flexDirection="column"
-        width={68}
-        border
-        borderStyle="rounded"
-        borderColor={accent()}
-        backgroundColor={theme.bgElevated}
-        paddingLeft={2}
-        paddingRight={2}
-        paddingTop={1}
-        paddingBottom={1}
-        gap={1}
-      >
-        <box flexDirection="row" gap={1}>
-          <text fg={accent()}>/dir</text>
-          <text fg={theme.textFaint}>· workspace directories</text>
-        </box>
-
+      <Overlay title="dir" hint="workspace directories" width={Math.min(68, dims().width - 4)}>
         <box flexDirection="column">
-          <text fg={theme.textMuted}>current roots</text>
+          <SectionLabel text="current roots" />
           <For each={app.roots()}>
             {(r, i) => (
               <text fg={i() === 0 ? theme.text : theme.textMuted}>
@@ -131,34 +133,25 @@ export function DirectoryModal() {
 
         <Show when={recent().length}>
           <box flexDirection="column">
-            <text fg={theme.textMuted}>recent</text>
-            <For each={recent()}>
-              {(r) => (
-                <box onMouseDown={() => openDir(r)}>
-                  <text fg={theme.textFaint}>↩ {home(r)}</text>
-                </box>
-              )}
-            </For>
+            <SectionLabel text="recent" />
+            <For each={recent()}>{(r) => <RecentRow label={`↩ ${home(r)}`} onOpen={() => openDir(r)} />}</For>
           </box>
         </Show>
 
-        <box flexDirection="column">
-          <text fg={theme.textFaint}>path</text>
-          <box border borderStyle="rounded" borderColor={accent()} paddingLeft={1} paddingRight={1}>
-            <input
-              value={value()}
-              onInput={(v) => {
-                setValue(v)
-                setSel(0)
-                setError("")
-              }}
-              onSubmit={() => openDir()}
-              focused
-              placeholder="~/path/to/project · ⭾ to complete"
-              placeholderColor={theme.textFaint}
-            />
-          </box>
-        </box>
+        <Field label="path" hint="Tab to complete" focused>
+          <input
+            value={value()}
+            onInput={(v) => {
+              setValue(v)
+              setSel(0)
+              setError("")
+            }}
+            onSubmit={() => openDir()}
+            focused
+            placeholder="~/path/to/project"
+            placeholderColor={theme.textFaint}
+          />
+        </Field>
 
         <Show when={suggestions().length}>
           <box flexDirection="column">
@@ -166,11 +159,12 @@ export function DirectoryModal() {
               {(d, i) => (
                 <box
                   paddingLeft={1}
-                  backgroundColor={sel() === i() ? theme.bgHover : "transparent"}
+                  paddingRight={1}
+                  backgroundColor={bandBg(sel() === i())}
                   onMouseOver={() => setSel(i())}
                   onMouseDown={() => setComposer(`${d}/`)}
                 >
-                  <text fg={sel() === i() ? accent() : theme.textMuted}> {home(d)}</text>
+                  <text fg={sel() === i() ? theme.textOnAccent : theme.textMuted}>{home(d)}</text>
                 </box>
               )}
             </For>
@@ -181,25 +175,17 @@ export function DirectoryModal() {
           <text fg={theme.error}>{error()}</text>
         </Show>
 
-        <box flexDirection="row" gap={2}>
-          <box
-            border
-            borderStyle="rounded"
-            borderColor={theme.success}
-            paddingLeft={1}
-            paddingRight={1}
-            onMouseDown={() => openDir()}
-          >
-            <text fg={theme.success}>open here ⏎</text>
-            <text fg={theme.textFaint}> (new session)</text>
-          </box>
-          <box border borderStyle="rounded" borderColor={theme.info} paddingLeft={1} paddingRight={1} onMouseDown={add}>
-            <text fg={theme.info}>+ add directory</text>
-            <text fg={theme.textFaint}> (same session)</text>
-          </box>
+        <box flexDirection="row" gap={1}>
+          <Pill label="open here ⏎" hint="new session" accent={theme.success} onClick={() => openDir()} />
+          <Pill label="＋ add directory" hint="same session" accent={theme.info} onClick={add} />
         </box>
-        <text fg={theme.textFaint}>↑↓ pick · ⭾ complete · ⏎ open · esc close</text>
-      </box>
+        <box flexDirection="row" gap={1}>
+          <HintChip label="↑↓ pick" />
+          <HintChip label="Tab complete" />
+          <HintChip label="Enter open" accent={theme.success} onClick={() => openDir()} />
+          <HintChip label="esc close" onClick={() => app.setDirModalOpen(false)} />
+        </box>
+      </Overlay>
     </Scrim>
   )
 }

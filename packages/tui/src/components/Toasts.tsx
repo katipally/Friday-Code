@@ -13,15 +13,12 @@ export function Toasts() {
         <For each={app.toasts()}>
           {(t) => (
             <Appear distance={1} duration={160}>
-              <box
-                border
-                borderStyle="rounded"
-                borderColor={color(t.kind)}
-                backgroundColor={theme.bgElevated}
-                paddingLeft={1}
-                paddingRight={1}
-              >
-                <text fg={color(t.kind)}>{t.text}</text>
+              {/* borderless toast: a semantic-colored left bar + fill instead of a full frame. */}
+              <box flexDirection="row" backgroundColor={theme.bgElevated}>
+                <box width={1} backgroundColor={color(t.kind)} />
+                <box paddingLeft={1} paddingRight={1}>
+                  <text fg={color(t.kind)}>{t.text}</text>
+                </box>
               </box>
             </Appear>
           )}

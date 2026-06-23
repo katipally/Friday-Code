@@ -3,7 +3,16 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import type { EngineEvent, ProviderEvent } from "@friday/shared"
+import { lineDelta } from "../src/checkpoints.ts"
 import { Engine, SessionStore, type StreamFn } from "../src/index.ts"
+
+test("lineDelta counts added/removed via LCS", () => {
+  expect(lineDelta("a\nb\nc", "a\nb\nc")).toEqual({ added: 0, removed: 0 })
+  expect(lineDelta(null, "x\ny")).toEqual({ added: 2, removed: 0 })
+  expect(lineDelta("x\ny", null)).toEqual({ added: 0, removed: 2 })
+  expect(lineDelta("a\nc", "a\nb\nc")).toEqual({ added: 1, removed: 0 }) // inserted a line
+  expect(lineDelta("a\nb\nc", "a\nX\nc")).toEqual({ added: 1, removed: 1 }) // changed a line
+})
 
 process.env.FRIDAY_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "friday-home-"))
 
@@ -71,10 +80,11 @@ test("undo rewinds files + conversation; redo re-applies", async () => {
 
   const cps = engine.listCheckpoints()
   expect(cps.length).toBe(2)
-  expect(cps[0]!.label).toBe("change foo to v2") // newest first
+  expect(cps[0]!.label).toBe("create foo") // chronological: oldest first
+  expect(cps[1]!.label).toBe("change foo to v2") // newest last
 
   // Rewind the second turn: file back to v1, conversation drops turn B.
-  engine.restoreCheckpoint(cps[0]!.id)
+  engine.restoreCheckpoint(cps[1]!.id)
   expect(fs.readFileSync(file, "utf8")).toBe("v1")
   expect(
     store.loadMessages(engine.currentSessionId()).some((m) => m.role === "user" && m.text.includes("change foo")),

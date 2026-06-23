@@ -1,10 +1,9 @@
 /**
- * The four interaction modes. Shift+Tab cycles them; the whole frame recolors to `accent`.
+ * The three interaction modes. Shift+Tab cycles them; the whole frame recolors to `accent`.
  *
- * `policy` is the default permission posture the engine applies (consumed in M2); the UI only needs
- * id/label/glyph/accent/hint for M0.
+ * `policy` is the default permission posture the engine applies; the UI reads id/label/glyph/accent/hint.
  */
-export type ModeId = "plan" | "default" | "accept-edit" | "yolo"
+export type ModeId = "plan" | "default" | "yolo"
 
 export type PermissionPolicy = {
   /** edits to files (write/edit/multi-edit) */
@@ -13,6 +12,10 @@ export type PermissionPolicy = {
   bash: "deny" | "ask" | "allow"
   /** network (webfetch/websearch) */
   network: "deny" | "ask" | "allow"
+  /** browser automation (navigate/click/type via CDP) */
+  browser: "deny" | "ask" | "allow"
+  /** desktop control (mouse/keyboard/screenshot) */
+  computer: "deny" | "ask" | "allow"
 }
 
 export interface Mode {
@@ -29,33 +32,25 @@ export const MODES: readonly Mode[] = [
     id: "default",
     label: "default",
     glyph: "◈", // guarded — asks before edits & commands
-    accent: "#9aa5ce", // slate blue-grey — neutral & calm, so default mode doesn't visually shout
+    accent: "#87afd7", // slate blue-grey — neutral & calm; exact xterm-256 cube member (110) so it renders the same hue on Terminal.app
     hint: "asks before edits & commands",
-    policy: { edit: "ask", bash: "ask", network: "ask" },
+    policy: { edit: "ask", bash: "ask", network: "ask", browser: "ask", computer: "ask" },
   },
   {
     id: "plan",
     label: "plan",
     glyph: "◐",
-    accent: "#38bdf8", // cyan/blue
+    accent: "#5fafff", // cyan/blue — exact xterm-256 cube member (75)
     hint: "read-only · proposes a plan you review, then run",
-    policy: { edit: "deny", bash: "ask", network: "ask" },
-  },
-  {
-    id: "accept-edit",
-    label: "accept edits",
-    glyph: "✎", // auto-applies edits
-    accent: "#f5a623", // amber/gold
-    hint: "auto-applies edits · asks for bash & network",
-    policy: { edit: "allow", bash: "ask", network: "ask" },
+    policy: { edit: "deny", bash: "ask", network: "ask", browser: "ask", computer: "ask" },
   },
   {
     id: "yolo",
     label: "yolo",
     glyph: "⚡", // full auto — no prompts
-    accent: "#f7768e", // red/magenta
+    accent: "#ff5f5f", // red — danger/full-auto; distinct from the amber Friday brand chrome; exact xterm-256 cube member (203)
     hint: "full auto · no prompts",
-    policy: { edit: "allow", bash: "allow", network: "allow" },
+    policy: { edit: "allow", bash: "allow", network: "allow", browser: "allow", computer: "allow" },
   },
 ] as const
 

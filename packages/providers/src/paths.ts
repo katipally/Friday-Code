@@ -11,6 +11,9 @@ export function authPath(): string {
 export function configPath(): string {
   return path.join(fridayDir(), "config.json")
 }
+export function keybindingsPath(): string {
+  return path.join(fridayDir(), "keybindings.json")
+}
 export function cacheDir(): string {
   return path.join(fridayDir(), "cache")
 }

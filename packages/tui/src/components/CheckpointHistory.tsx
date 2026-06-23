@@ -1,8 +1,9 @@
-import { getMode, theme } from "@friday/shared"
-import { useKeyboard } from "@opentui/solid"
-import { createMemo, createSignal, For, Show } from "solid-js"
+import { theme } from "@friday/shared"
+import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
+import { bandBg, HintChip, Overlay } from "./ui.tsx"
 
 function ago(ms: number): string {
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000))
@@ -14,9 +15,19 @@ function ago(ms: number): string {
 /** Snapshot history: rewind files + conversation to any checkpoint, or redo the last rewind. */
 export function CheckpointHistory() {
   const app = useApp()
-  const accent = () => getMode(app.mode()).accent
+  const dims = useTerminalDimensions()
   const [sel, setSel] = createSignal(0)
   const checkpoints = createMemo(() => app.engine.listCheckpoints())
+  let sb: { scrollTo?: (p: number | { x: number; y: number }) => void } | null = null
+
+  // Newest checkpoint sits at the bottom — focus it and scroll it into view whenever the list
+  // grows or the panel opens.
+  createEffect(() => {
+    const n = checkpoints().length
+    if (!app.checkpointsOpen() || n === 0) return
+    setSel(n - 1)
+    queueMicrotask(() => sb?.scrollTo?.({ x: 0, y: Number.MAX_SAFE_INTEGER }))
+  })
 
   useKeyboard((key) => {
     if (!app.checkpointsOpen()) return
@@ -36,58 +47,71 @@ export function CheckpointHistory() {
 
   return (
     <Scrim onClose={() => app.setCheckpointsOpen(false)}>
-      <box
-        flexDirection="column"
-        width={68}
-        border
-        borderStyle="rounded"
-        borderColor={accent()}
-        backgroundColor={theme.bgElevated}
-        paddingLeft={2}
-        paddingRight={2}
-        paddingTop={1}
-        paddingBottom={1}
-        gap={1}
+      <Overlay
+        title="checkpoints"
+        hint="rewind code, conversation, todos & plans — or both"
+        width={Math.min(68, dims().width - 4)}
       >
-        <box flexDirection="row" gap={1}>
-          <text fg={accent()}>checkpoints</text>
-          <text fg={theme.textFaint}>· rewind code, conversation, or both</text>
-        </box>
         <Show
           when={checkpoints().length}
           fallback={<text fg={theme.textFaint}>no checkpoints yet — send a prompt first</text>}
         >
-          <scrollbox maxHeight={14}>
+          <scrollbox ref={(r: any) => (sb = r)} maxHeight={14} stickyScroll stickyStart="bottom">
             <For each={checkpoints()}>
-              {(c, i) => (
-                <box
-                  flexDirection="row"
-                  gap={1}
-                  paddingLeft={1}
-                  backgroundColor={sel() === i() ? theme.bgHover : "transparent"}
-                  onMouseOver={() => setSel(i())}
-                  onMouseDown={() => app.restoreCheckpoint(c.id)}
-                >
-                  <text fg={sel() === i() ? accent() : theme.textFaint}>{sel() === i() ? "↺" : " "}</text>
-                  <box flexGrow={1}>
-                    <text fg={sel() === i() ? theme.text : theme.textMuted}>{c.label}</text>
+              {(c, i) => {
+                const on = () => sel() === i()
+                return (
+                  <box
+                    flexDirection="row"
+                    gap={1}
+                    paddingLeft={1}
+                    paddingRight={1}
+                    backgroundColor={bandBg(on())}
+                    onMouseOver={() => setSel(i())}
+                    onMouseDown={() => app.restoreCheckpoint(c.id)}
+                  >
+                    <text fg={on() ? theme.textOnAccent : theme.textFaint}>{on() ? "↺" : " "}</text>
+                    <box flexGrow={1}>
+                      <text fg={on() ? theme.textOnAccent : theme.textMuted}>{c.label}</text>
+                    </box>
+                    {/* How much code rewinding here reverts — so the user knows what they're undoing. */}
+                    <Show when={c.added > 0}>
+                      <text fg={on() ? theme.textOnAccent : theme.success}>+{c.added}</text>
+                    </Show>
+                    <Show when={c.removed > 0}>
+                      <text fg={on() ? theme.textOnAccent : theme.error}>-{c.removed}</text>
+                    </Show>
+                    <text fg={on() ? theme.textOnAccent : theme.textFaint}>
+                      {c.files > 0 ? `${c.files} file${c.files === 1 ? "" : "s"} · ` : ""}
+                      {ago(c.createdAt)}
+                    </text>
                   </box>
-                  <text fg={theme.textFaint}>
-                    {c.files > 0 ? `${c.files} file${c.files === 1 ? "" : "s"} · ` : ""}
-                    {ago(c.createdAt)}
-                  </text>
-                </box>
-              )}
+                )
+              }}
             </For>
           </scrollbox>
         </Show>
-        <box flexDirection="row" gap={2}>
-          <text fg={theme.textFaint}>↑↓ move · ⏎ both · c code · m conversation · esc close</text>
+        <box flexDirection="row" gap={1}>
+          <HintChip label="↑↓ move" />
+          <HintChip
+            label="⏎ both"
+            accent={theme.success}
+            onClick={() => checkpoints()[sel()] && app.restoreCheckpoint(checkpoints()[sel()]!.id, "both")}
+          />
+          <HintChip
+            label="c code"
+            onClick={() => checkpoints()[sel()] && app.restoreCheckpoint(checkpoints()[sel()]!.id, "code")}
+          />
+          <HintChip
+            label="m conversation"
+            onClick={() => checkpoints()[sel()] && app.restoreCheckpoint(checkpoints()[sel()]!.id, "conversation")}
+          />
+          <HintChip label="esc close" onClick={() => app.setCheckpointsOpen(false)} />
           <Show when={app.engine.hasRedo()}>
-            <text fg={theme.info}>r redo</text>
+            <HintChip label="r redo" accent={theme.info} onClick={() => app.redoLast()} />
           </Show>
         </box>
-      </box>
+      </Overlay>
     </Scrim>
   )
 }

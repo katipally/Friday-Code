@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Please report security issues **privately** — do not open a public issue.
+Please report security issues **privately**. Do not open a public issue.
 
 Use [GitHub Security Advisories](https://github.com/katipally/friday-code/security/advisories/new)
 ("Report a vulnerability"), or email **katipally.yashwanth.reddy@gmail.com**.
@@ -20,15 +20,15 @@ The latest published `2.x` release receives security fixes.
 Friday is an AI coding agent: by design it can **read and write files** and **run shell commands**
 in your working directory. Treat it like a powerful local tool. Key safeguards:
 
-- **Permission modes** — `plan` (read-only), `default` (asks before edits/commands), `accept-edit`,
-  and `yolo` (auto-approve). Cycle with **Shift+Tab**. Mode gates every tool call.
-- **Bash safety** — risky-command detection (e.g. `rm -rf`, `curl | sh`, `sudo`, `git push`, fork
-  bombs) warns/blocks, plus per-project `allow`/`deny` lists. Commands run via `Bun.spawn` without a
-  shell (`shell: true` is never used).
-- **Path containment** — file tools resolve relative paths against the session working directory.
-- **Credentials** — provider API keys are stored in `~/.friday/auth.json` with `0600` permissions,
-  or read from environment variables. Keys are never written to the repo or logs.
-- **Frozen binaries** — the compiled binary is built with `--no-compile-autoload-bunfig`, so it does
+- **Permission modes.** `plan` (read-only), `default` (asks before edits and commands), and `yolo`
+  (auto-approve). Cycle with **Shift+Tab**. The mode gates every tool call.
+- **Bash safety.** Risky-command detection (for example `rm -rf`, `curl | sh`, `sudo`, `git push`,
+  fork bombs) warns or blocks, plus per-project `allow` and `deny` lists. Commands run via
+  `Bun.spawn` without a shell (`shell: true` is never used).
+- **Path containment.** File tools resolve relative paths against the session working directory.
+- **Credentials.** Provider API keys are stored in `~/.friday/auth.json` with `0600` permissions, or
+  read from environment variables. Keys are never written to the repo or logs.
+- **Frozen binaries.** The compiled binary is built with `--no-compile-autoload-bunfig`, so it does
   **not** read or execute `preload` scripts from a working-directory `bunfig.toml`.
 
 ## Your responsibility

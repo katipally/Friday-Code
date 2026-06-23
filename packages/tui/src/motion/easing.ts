@@ -6,10 +6,7 @@ export type Ease = (t: number) => number
 
 export const linear: Ease = (t) => t
 export const easeOutQuad: Ease = (t) => 1 - (1 - t) * (1 - t)
-export const easeInQuad: Ease = (t) => t * t
 export const easeOutCubic: Ease = (t) => 1 - (1 - t) ** 3
-export const easeInOutCubic: Ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2)
-export const easeOutExpo: Ease = (t) => (t >= 1 ? 1 : 1 - 2 ** (-10 * t))
 
 /** Overshoot-and-settle — gives modals/cards a lively "pop". */
 export const easeOutBack: Ease = (t) => {

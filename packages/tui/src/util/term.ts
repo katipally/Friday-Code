@@ -11,19 +11,29 @@ const termProgram = process.env.TERM_PROGRAM ?? ""
 /** Force-degrade to the narrow/ASCII glyph set regardless of detection (FRIDAY_ASCII=1). */
 const forceAscii = /^(1|true)$/i.test(process.env.FRIDAY_ASCII ?? "")
 
-/** macOS Terminal.app — no truecolor, wcwidth widths. The main "broken in CMD" culprit. */
-export const isAppleTerminal = termProgram === "Apple_Terminal"
-
-/** True when the terminal advertises 24-bit color. */
-export const hasTruecolor =
-  /truecolor|24bit/i.test(process.env.COLORTERM ?? "") || !!process.env.WT_SESSION || termProgram === "iTerm.app"
+const term = process.env.TERM ?? ""
 
 /**
- * Whether to avoid wide/emoji glyphs. Apple Terminal and any non-truecolor terminal
- * render emoji at inconsistent widths, breaking column alignment — fall back to ASCII.
- * `FRIDAY_ASCII=1` forces this on for any terminal.
+ * True when the terminal advertises 24-bit color. COLORTERM=truecolor is the standard signal
+ * (set by VSCode, kitty, WezTerm, Ghostty, Alacritty, etc.); the rest cover terminals that support
+ * truecolor without setting it. Apple Terminal sets none of these, so it correctly falls through.
  */
-export const narrowGlyphs = forceAscii || isAppleTerminal || !hasTruecolor
+export const hasTruecolor =
+  // FRIDAY_NO_TRUECOLOR=1 forces the 256-color path so it can be previewed from any terminal.
+  !/^(1|true)$/i.test(process.env.FRIDAY_NO_TRUECOLOR ?? "") &&
+  (/truecolor|24bit/i.test(process.env.COLORTERM ?? "") ||
+    /direct|kitty|ghostty|alacritty/i.test(term) ||
+    !!process.env.WT_SESSION ||
+    !!process.env.KITTY_WINDOW_ID ||
+    ["iTerm.app", "WezTerm", "ghostty", "vscode", "Hyper"].includes(termProgram))
+
+/**
+ * Whether to avoid wide/emoji glyphs. We render the FULL glyph set in every terminal (like opencode)
+ * so the UI looks identical everywhere — automatic degradation is OFF. `FRIDAY_ASCII=1` is the only
+ * way to opt into the narrow/ASCII set, for the rare font that truly can't render the box/geometric
+ * glyphs we use.
+ */
+export const narrowGlyphs = forceAscii
 
 /**
  * Pick a glyph based on terminal capability: `wide` for capable terminals,
@@ -42,8 +52,9 @@ export const G = {
   // mode glyphs (modes.ts owns the "wide" set; these are the safe widths)
   modePlan: glyph("◐", "*"),
   modeDefault: glyph("◈", "~"),
-  modeAcceptEdit: glyph("✎", "+"),
   modeYolo: glyph("⚡", "!"),
+  // pencil affordance (e.g. "type your own answer") — not a mode glyph
+  pencil: glyph("✎", "+"),
   // timeline / markers
   marker: glyph("⏺", "*"),
   branch: glyph("╰", "\\"),
@@ -60,12 +71,6 @@ export const G = {
 } as const
 
 /** Map a mode id to its capability-safe glyph. */
-export function modeGlyph(id: "plan" | "default" | "accept-edit" | "yolo"): string {
-  return id === "plan"
-    ? G.modePlan
-    : id === "default"
-      ? G.modeDefault
-      : id === "accept-edit"
-        ? G.modeAcceptEdit
-        : G.modeYolo
+export function modeGlyph(id: "plan" | "default" | "yolo"): string {
+  return id === "plan" ? G.modePlan : id === "default" ? G.modeDefault : G.modeYolo
 }
