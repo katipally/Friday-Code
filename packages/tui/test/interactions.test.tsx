@@ -78,7 +78,7 @@ test("permission modal: shows the inline allow/deny row and a hotkey dismisses i
 
   // The rebuilt modal renders the inline row with visible a/s/d hotkeys (not a native select).
   const frame = t.captureCharFrame()
-  expect(frame).toContain("permission")
+  expect(frame).toContain("PERMISSION")
   expect(frame).toContain("allow once")
   expect(frame).toContain("allow always")
   expect(frame).toContain("deny")
@@ -132,7 +132,7 @@ test("ask_user modal: renders rich options and captures a typed custom answer", 
 
   // The redesigned modal shows the question, both options WITH descriptions, and the custom row.
   const frame = t.captureCharFrame()
-  expect(frame).toContain("question")
+  expect(frame).toContain("QUESTION")
   expect(frame).toContain("Which framework?")
   expect(frame).toContain("Solid")
   expect(frame).toContain("fine-grained reactivity")
@@ -143,7 +143,13 @@ test("ask_user modal: renders rich options and captures a typed custom answer", 
   await t.flush()
   t.mockInput.typeText("svelte please")
   await t.flush()
-  t.mockInput.pressEnter() // submit custom answer → replies → agent continues
+  t.mockInput.pressEnter() // submit custom answer → opens the final confirm gate (review screen)
+  for (let i = 0; i < 6; i++) await t.flush()
+  // Final confirm gate: the review lists the answer; Enter submits it.
+  const review = t.captureCharFrame()
+  expect(review).toContain("Review your answers")
+  expect(review).toContain("svelte please")
+  t.mockInput.pressEnter() // confirm review → reply sent → agent continues
   for (let i = 0; i < 8; i++) await t.flush()
 
   const after = t.captureCharFrame()
@@ -214,7 +220,7 @@ test("Ctrl+Y opens session history grouped by directory", async () => {
   t.mockInput.pressKey("y", { ctrl: true })
   await t.flush()
   const frame = t.captureCharFrame()
-  expect(frame).toContain("history")
+  expect(frame).toContain("HISTORY")
   expect(frame).toContain("all sessions")
   expect(frame).toContain("new session") // the now-persisted session
 
@@ -248,7 +254,7 @@ test("permission hotkey is not leaked into the composer", async () => {
   t.mockInput.pressEnter() // submit -> bash -> permission
   await t.flush()
   await t.flush()
-  expect(t.captureCharFrame()).toContain("permission")
+  expect(t.captureCharFrame()).toContain("PERMISSION")
   t.mockInput.pressKey("a") // allow-once
   await t.flush()
   await t.flush()
