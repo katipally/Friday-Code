@@ -4,7 +4,7 @@ import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { useApp } from "../store.tsx"
 import { expandTokens, isBigPaste, makePasteToken } from "../util/attachments.ts"
 import { Scrim } from "./Scrim.tsx"
-import { Overlay } from "./ui.tsx"
+import { Overlay, Pill } from "./ui.tsx"
 
 /**
  * /add composer: steer the running agent without stopping it. The agent keeps working (soft-paused at
@@ -76,15 +76,9 @@ export function AddModal() {
           />
         </box>
 
-        <box flexDirection="row" gap={2} alignItems="center">
-          <box paddingLeft={1} paddingRight={1} onMouseDown={() => send(true)}>
-            <text fg={theme.warning}>⏸ pause now</text>
-            <text fg={theme.textFaint}> (cut current reply)</text>
-          </box>
-          <box paddingLeft={1} paddingRight={1} onMouseDown={() => send(false)}>
-            <text fg={theme.success}>＋ next step</text>
-            <text fg={theme.textFaint}> (let it finish)</text>
-          </box>
+        <box flexDirection="row" gap={1} alignItems="center">
+          <Pill label="⏸ pause now" hint="cut current reply" accent={theme.warning} onClick={() => send(true)} />
+          <Pill label="＋ next step" hint="let it finish" accent={theme.success} onClick={() => send(false)} />
         </box>
         <text fg={theme.textFaint}>
           ⏎ {app.addModalInterrupt() ? "steer now" : "fold in next step"} · esc cancel (resumes the agent)

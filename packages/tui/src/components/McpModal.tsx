@@ -5,7 +5,7 @@ import { createSignal, For, Show } from "solid-js"
 import { useApp } from "../store.tsx"
 import { G } from "../util/term.ts"
 import { Scrim } from "./Scrim.tsx"
-import { Meta, Overlay, SectionLabel } from "./ui.tsx"
+import { HintChip, Meta, Overlay, Pill, SectionLabel, Tabs } from "./ui.tsx"
 
 type View = "list" | "add"
 
@@ -93,31 +93,30 @@ export function McpModal() {
               </For>
             </Show>
             <box height={1} />
-            <box
-              onMouseDown={() => {
+            <Pill
+              label="＋ add a server"
+              onClick={() => {
                 setError("")
                 setView("add")
               }}
-            >
-              <text fg={theme.textMuted}>+ add a server</text>
-            </box>
+            />
           </box>
-          <text fg={theme.textFaint}>esc close</text>
+          <box flexDirection="row">
+            <HintChip label="esc close" onClick={() => app.setMcpModalOpen(false)} />
+          </box>
         </Show>
 
         <Show when={view() === "add"}>
           <box flexDirection="column" gap={1}>
-            <box flexDirection="row" gap={2}>
-              <box onMouseDown={() => setKind("stdio")}>
-                <text fg={kind() === "stdio" ? theme.brand : theme.textFaint}>
-                  {kind() === "stdio" ? "● " : "○ "}stdio
-                </text>
-              </box>
-              <box onMouseDown={() => setKind("http")}>
-                <text fg={kind() === "http" ? theme.brand : theme.textFaint}>
-                  {kind() === "http" ? "● " : "○ "}http
-                </text>
-              </box>
+            <box flexDirection="row" gap={1} alignItems="center">
+              <Tabs
+                items={[
+                  { label: "stdio", key: "stdio" },
+                  { label: "http", key: "http" },
+                ]}
+                active={kind()}
+                onSelect={(k) => setKind(k as "stdio" | "http")}
+              />
               <text fg={theme.textFaint}>(tab)</text>
             </box>
             <box flexDirection="column">
@@ -159,13 +158,9 @@ export function McpModal() {
             <Show when={error()}>
               <Meta text={error()} color={error() === "connecting…" ? theme.textMuted : theme.error} />
             </Show>
-            <box flexDirection="row" gap={2}>
-              <box paddingLeft={1} paddingRight={1} onMouseDown={add}>
-                <text fg={theme.success}>connect</text>
-              </box>
-              <box paddingLeft={1} paddingRight={1} onMouseDown={() => setView("list")}>
-                <text fg={theme.textMuted}>back esc</text>
-              </box>
+            <box flexDirection="row" gap={1}>
+              <Pill label="connect" accent={theme.success} onClick={add} />
+              <Pill label="back esc" accent={theme.textMuted} onClick={() => setView("list")} />
             </box>
           </box>
         </Show>

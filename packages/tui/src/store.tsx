@@ -259,6 +259,7 @@ export function createAppStore(engine: Engine, version = "dev") {
   // Which mode the /add modal was opened in: true = bare /add (interrupt now), false = bare /add! (next step).
   const [addModalInterrupt, setAddModalInterrupt] = createSignal(true)
   const [mcpModalOpen, setMcpModalOpen] = createSignal(false)
+  const [skillsModalOpen, setSkillsModalOpen] = createSignal(false)
   const [computerModalOpen, setComputerModalOpen] = createSignal(false)
   // Computer-use backend state, mirrored reactively for the modal (engine.computerInstalled() is a
   // plain fs check, not reactive).
@@ -323,6 +324,7 @@ export function createAppStore(engine: Engine, version = "dev") {
     dirModalOpen() ||
     addModalOpen() ||
     mcpModalOpen() ||
+    skillsModalOpen() ||
     computerModalOpen() ||
     checkpointsOpen() ||
     forkOpen() ||
@@ -856,19 +858,20 @@ export function createAppStore(engine: Engine, version = "dev") {
     { name: "add!", description: "add info at the next step — let the current generation finish first" },
     { name: "mic", description: "talk to Friday — on-device speech-to-text (Ctrl+R)" },
     { name: "mcp", description: "view / add / remove MCP servers" },
+    { name: "skills", description: "browse installed skills and run one" },
     { name: "compact", description: "summarize old context to free space" },
-    { name: "init", description: "scan the repo and write a FRIDAY.md guide" },
+    { name: "init", description: "scan the repo and write a FRIDAY.md guide (runs as a prompt)" },
     { name: "context", description: "show what's in the context window" },
     { name: "usage", description: "show token + cost usage this session" },
     { name: "doctor", description: "check model, provider & environment health" },
     { name: "dashboard", description: "dashboard — Sessions · Teams · Swarm · History (Ctrl+O)" },
-    { name: "console", description: "open the agent-team console (Ctrl+T)" },
+    { name: "console", description: "live agent-team cockpit — shared board + roster (Ctrl+T)" },
     { name: "fleet", description: "swarm: open an external window per running agent (inline view: Ctrl+O)" },
     { name: "browser", description: "launch the browser + activate browser tools (/browser close to stop)" },
     { name: "chrome", description: "alias for /browser" },
     { name: "computer", description: "desktop control — open the install / device-support panel" },
-    { name: "review", description: "review the current changes" },
-    { name: "security-review", description: "audit the current changes for security issues" },
+    { name: "review", description: "review uncommitted changes and report issues (runs as a prompt)" },
+    { name: "security-review", description: "audit uncommitted changes for security issues (runs as a prompt)" },
     { name: "permissions", description: "view / clear remembered approvals" },
     { name: "theme", description: "switch UI theme" },
     { name: "budget", description: "set a token/$ usage budget" },
@@ -936,6 +939,9 @@ export function createAppStore(engine: Engine, version = "dev") {
       }
       case "mcp":
         setMcpModalOpen(true)
+        return true
+      case "skills":
+        setSkillsModalOpen(true)
         return true
       case "compact":
         sendEngineCommand("compact")
@@ -1146,6 +1152,12 @@ export function createAppStore(engine: Engine, version = "dev") {
     setKey(setSessionBusy, sid, true)
     setKey(setSessionStatus, sid, "sent…")
     engine.send({ type: "prompt", text })
+  }
+
+  /** Run a skill from the Skills modal — close it and fold an invoke prompt in as a normal turn. */
+  function runSkill(name: string) {
+    setSkillsModalOpen(false)
+    submitRaw(`Use the "${name}" skill.`, `/skills ${name}`)
   }
 
   /** Send the next queued prompt for a session once it goes idle (called at turn boundaries). */
@@ -1601,6 +1613,9 @@ export function createAppStore(engine: Engine, version = "dev") {
     addInject,
     addCancel,
     mcpModalOpen,
+    skillsModalOpen,
+    setSkillsModalOpen,
+    runSkill,
     computerModalOpen,
     setComputerModalOpen,
     computerReady,

@@ -53,6 +53,7 @@ import { notify } from "./notify.ts"
 import { persistPermission, projectPermissions, revokeProjectPermissions } from "./permissions.ts"
 import { type RunnerHost, SessionRunner, type SessionStats } from "./runner.ts"
 import { SessionStore } from "./sessions.ts"
+import type { SkillInfo } from "./skills.ts"
 import type { StreamFn } from "./stream.ts"
 
 export type { SessionStats } from "./runner.ts"
@@ -713,7 +714,7 @@ export class Engine {
   contextInfo(): { files: string[] } {
     return this.focused().contextInfo()
   }
-  listSkills(): { name: string; description: string }[] {
+  listSkills(): SkillInfo[] {
     return this.focused().listSkills()
   }
   listCommands(): CustomCommand[] {

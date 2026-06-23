@@ -3,7 +3,7 @@ import { useKeyboard } from "@opentui/solid"
 import { Show } from "solid-js"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
-import { Overlay } from "./ui.tsx"
+import { Overlay, Pill } from "./ui.tsx"
 
 /**
  * First-run-per-directory trust gate. Friday reads and runs code in the working directory, so the
@@ -29,7 +29,10 @@ export function TrustPrompt() {
           <text fg={theme.textMuted}>
             Friday can read files and run commands here. Only continue in directories you trust.
           </text>
-          <text fg={theme.textFaint}>⏎ trust &amp; continue · esc quit</text>
+          <box flexDirection="row" gap={1}>
+            <Pill label="⏎ trust & continue" accent={theme.success} onClick={() => app.trustCwd()} />
+            <Pill label="esc quit" accent={theme.textMuted} onClick={() => app.declineTrust()} />
+          </box>
         </Overlay>
       </Scrim>
     </Show>

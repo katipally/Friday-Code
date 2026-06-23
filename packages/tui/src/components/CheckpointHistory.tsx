@@ -3,7 +3,7 @@ import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
-import { bandBg, Overlay } from "./ui.tsx"
+import { bandBg, HintChip, Overlay } from "./ui.tsx"
 
 function ago(ms: number): string {
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000))
@@ -91,10 +91,24 @@ export function CheckpointHistory() {
             </For>
           </scrollbox>
         </Show>
-        <box flexDirection="row" gap={2}>
-          <text fg={theme.textFaint}>↑↓ move · ⏎ both · c code · m conversation · esc close</text>
+        <box flexDirection="row" gap={1}>
+          <HintChip label="↑↓ move" />
+          <HintChip
+            label="⏎ both"
+            accent={theme.success}
+            onClick={() => checkpoints()[sel()] && app.restoreCheckpoint(checkpoints()[sel()]!.id, "both")}
+          />
+          <HintChip
+            label="c code"
+            onClick={() => checkpoints()[sel()] && app.restoreCheckpoint(checkpoints()[sel()]!.id, "code")}
+          />
+          <HintChip
+            label="m conversation"
+            onClick={() => checkpoints()[sel()] && app.restoreCheckpoint(checkpoints()[sel()]!.id, "conversation")}
+          />
+          <HintChip label="esc close" onClick={() => app.setCheckpointsOpen(false)} />
           <Show when={app.engine.hasRedo()}>
-            <text fg={theme.info}>r redo</text>
+            <HintChip label="r redo" accent={theme.info} onClick={() => app.redoLast()} />
           </Show>
         </box>
       </Overlay>

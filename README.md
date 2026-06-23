@@ -70,7 +70,7 @@ friday -h, --help
 | `Ctrl+1-9` | jump between parallel sessions |
 | `/` | slash command autocomplete |
 | `@` | file or image mention |
-| `?` or `F1` | full keymap |
+| `?` or `F1` | full guide — slash commands · keyboard · modes |
 | `Esc` | close overlay |
 | `Esc Esc` | rewind last change |
 | `Ctrl+C` | quit (press twice to confirm) |
@@ -99,7 +99,7 @@ What's actually in `main`, no aspirational claims.
 
 **Tools.** `read`, `write`, `edit`, `multiEdit`, `applyPatch`, `ls`, `glob`, `grep`, `bash`, `webfetch`, `websearch`, `askUser`, `skill`, `task` (read-only sub-agent), `task_create` / `task_list` / `task_status` / `task_stop`, `spawn_agents` (swarm) / `spawn_team` + `board_*` (coordinated team), `todo_write`, `exit_plan`, `lsp_hover` / `lsp_definition` / `lsp_symbols`, `tool_search`, `memory`, `notebook_edit`, `cron_create` / `cron_list` / `cron_delete`, `enter_worktree` / `exit_worktree` / `worktree_list`, opt-in `browser_*` and `computer_*`. MCP client (stdio + streamable-http).
 
-**TUI.** Animated mascot (7 states, defined in `packages/shared/src/mascot.ts`), animated FRIDAY wordmark drawn from half-block subpixels in the TUI itself, 3-mode visual system with per-mode glyph + accent, responsive layout with auto-collapsing panels, motion layer with `FRIDAY_REDUCED_MOTION=1` accessibility fallback, multi-session tabs, context panel with plans/todos/files/context/tasks/MCP tabs, dashboard (Sessions · Teams · Swarm · History, Ctrl+O), on-device speech-to-text mic with input-device select + live transcription (Ctrl+R), command palette, slash command + `@` mention autocomplete, markdown skills in `~/.friday/skills/`.
+**TUI.** Animated mascot (7 states, defined in `packages/shared/src/mascot.ts`), animated FRIDAY wordmark drawn from half-block subpixels in the TUI itself, 3-mode visual system with per-mode glyph + accent, responsive layout with auto-collapsing panels, motion layer with `FRIDAY_REDUCED_MOTION=1` accessibility fallback, multi-session tabs, context panel with plans/todos/files/context/tasks plus separate MCP and skills surfaces, dashboard (Sessions · Teams · Swarm · History, Ctrl+O), on-device speech-to-text mic with input-device select + live transcription (Ctrl+R), command palette, slash command + `@` mention autocomplete, markdown skills in `~/.friday/skills/`.
 
 **Providers (19).** Anthropic and Google Gemini ship dedicated adapters. 17 more (OpenAI, OpenRouter, OpenCode Zen, Groq, Moonshot/Kimi, DeepSeek, xAI, Mistral, Perplexity, Together, Cerebras, DeepInfra, Fireworks, Azure OpenAI, MiniMax, Ollama, llama.cpp / LM Studio) go through one OpenAI-compat adapter. Ollama and llama.cpp are keyless. Model catalog from [models.dev](https://models.dev) with an offline snapshot fallback. Reasoning effort via `/effort` slider.
 

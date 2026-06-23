@@ -3,7 +3,7 @@ import { useKeyboard } from "@opentui/solid"
 import { createMemo, Show } from "solid-js"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
-import { Overlay } from "./ui.tsx"
+import { Overlay, Pill } from "./ui.tsx"
 
 /**
  * Computer-use control panel: device support, install / uninstall of the opt-in nut.js backend, and
@@ -70,12 +70,17 @@ export function ComputerModal() {
           </box>
 
           {/* Actions */}
-          <box flexDirection="row" gap={2}>
+          <box flexDirection="row" gap={1} alignItems="center">
             <Show when={!app.computerReady()}>
-              <text fg={support().ok && !app.computerInstalling() ? theme.success : theme.textFaint}>i install</text>
+              <Pill
+                label="i · install"
+                accent={theme.success}
+                disabled={!support().ok || app.computerInstalling()}
+                onClick={() => app.installComputer()}
+              />
             </Show>
             <Show when={app.computerReady()}>
-              <text fg={theme.error}>u uninstall</text>
+              <Pill label="u · uninstall" accent={theme.error} onClick={() => app.uninstallComputer()} />
             </Show>
             <text fg={theme.textFaint}>esc close</text>
           </box>

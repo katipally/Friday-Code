@@ -1,8 +1,9 @@
 import { MODES, theme } from "@friday/shared"
-import { For } from "solid-js"
+import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
+import { createSignal, For, Match, Switch } from "solid-js"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
-import { SectionLabel } from "./ui.tsx"
+import { Overlay, Row, SectionLabel, Tabs } from "./ui.tsx"
 
 const KEYS: { keys: string; label: string }[] = [
   { keys: "Enter", label: "send message" },
@@ -13,61 +14,98 @@ const KEYS: { keys: string; label: string }[] = [
   { keys: "Ctrl+O", label: "dashboard — Sessions · Teams · Swarm · History (tab to switch)" },
   { keys: "Ctrl+T", label: "agent-team console (j/k · v visit · s stop · o pop-out)" },
   { keys: "Ctrl+R", label: "mic — press to record, press again to transcribe (on-device)" },
-  { keys: "/effort", label: "reasoning-effort slider (←/→ · click · enter)" },
   { keys: "Ctrl+Y", label: "session history (all directories)" },
   { keys: "Ctrl+1-9", label: "switch working session" },
+  { keys: "PgUp/PgDn", label: "scroll the conversation (Shift+↑/↓ · Ctrl+U/D)" },
   { keys: "/ · @", label: "slash command · file mention" },
-  { keys: "? · F1", label: "this keymap (or click ? keys)" },
-  { keys: "Esc", label: "close overlay / cancel" },
+  { keys: "Esc Esc", label: "stop the agent (while busy) · checkpoint history (while idle)" },
+  { keys: "? · F1", label: "this guide (or click ? keys)" },
   { keys: "Ctrl+C", label: "quit (press twice)" },
 ]
 
-/** Full-screen keymap overlay. Dismissed via Esc or click (handled in App + backdrop). */
+const TAB_ITEMS = [
+  { label: "commands", key: "commands" },
+  { label: "keyboard", key: "keyboard" },
+  { label: "modes", key: "modes" },
+]
+
+/**
+ * The `?` / F1 guide: every slash command, every keyboard shortcut, and every mode — one reference so
+ * nothing is hidden. Tab / ←→ switch sections (also clickable); ↑↓ scroll the list; Esc or a backdrop
+ * click closes (handled in App + the Scrim).
+ */
 export function KeymapOverlay() {
   const app = useApp()
+  const dims = useTerminalDimensions()
+  const [tab, setTab] = createSignal("commands")
+  const order = TAB_ITEMS.map((t) => t.key)
+  let sb: { scrollBy?: (n: number) => void } | null = null
+
+  useKeyboard((key) => {
+    if (!app.overlayOpen()) return
+    if (key.name === "tab")
+      return setTab((t) => order[(order.indexOf(t) + (key.shift ? -1 + order.length : 1)) % order.length]!)
+    if (key.name === "right") return setTab((t) => order[(order.indexOf(t) + 1) % order.length]!)
+    if (key.name === "left") return setTab((t) => order[(order.indexOf(t) - 1 + order.length) % order.length]!)
+    if (key.name === "up" || key.name === "k") return sb?.scrollBy?.(-3)
+    if (key.name === "down" || key.name === "j") return sb?.scrollBy?.(3)
+    if (key.name === "pageup") return sb?.scrollBy?.(-12)
+    if (key.name === "pagedown") return sb?.scrollBy?.(12)
+  })
+
+  const maxH = () => Math.max(8, Math.round(dims().height * 0.6))
 
   return (
     <Scrim onClose={() => app.setOverlayOpen(false)}>
-      <box
-        flexDirection="column"
-        backgroundColor={theme.bgElevated}
-        paddingLeft={2}
-        paddingRight={2}
-        paddingTop={1}
-        paddingBottom={1}
-        gap={1}
-      >
-        <SectionLabel text="keyboard" />
-        <box flexDirection="column">
-          <For each={KEYS}>
-            {(k) => (
-              <box flexDirection="row" gap={2}>
-                <box width={16}>
-                  <text fg={theme.text}>{k.keys}</text>
-                </box>
-                <text fg={theme.textFaint}>{k.label}</text>
+      <Overlay title="guide" hint="commands · keyboard · modes" width={Math.min(78, dims().width - 4)}>
+        <Tabs items={TAB_ITEMS} active={tab()} onSelect={setTab} />
+        <scrollbox ref={(r: any) => (sb = r)} maxHeight={maxH()}>
+          <Switch>
+            <Match when={tab() === "commands"}>
+              <SectionLabel text="slash commands" />
+              <box flexDirection="column">
+                <For each={app.listCommands()}>
+                  {(c) => <Row label={`/${c.name}`} hint={c.description} labelWidth={18} />}
+                </For>
               </box>
-            )}
-          </For>
-        </box>
-        <box height={1} />
-        <SectionLabel text="modes" />
-        <box flexDirection="column">
-          <For each={MODES}>
-            {(m) => (
-              <box flexDirection="row" gap={2}>
-                <box width={16} flexDirection="row" gap={1}>
-                  <text fg={m.accent}>{m.glyph}</text>
-                  <text fg={m.accent}>{m.label}</text>
-                </box>
-                <text fg={theme.textFaint}>{m.hint}</text>
+            </Match>
+
+            <Match when={tab() === "keyboard"}>
+              <SectionLabel text="keyboard" />
+              <box flexDirection="column">
+                <For each={KEYS}>
+                  {(k) => (
+                    <box flexDirection="row" gap={2} paddingLeft={1}>
+                      <box width={16}>
+                        <text fg={theme.text}>{k.keys}</text>
+                      </box>
+                      <text fg={theme.textFaint}>{k.label}</text>
+                    </box>
+                  )}
+                </For>
               </box>
-            )}
-          </For>
-        </box>
-        <box height={1} />
-        <text fg={theme.textFaint}>esc or click to close</text>
-      </box>
+            </Match>
+
+            <Match when={tab() === "modes"}>
+              <SectionLabel text="modes" />
+              <box flexDirection="column">
+                <For each={MODES}>
+                  {(m) => (
+                    <box flexDirection="row" gap={2} paddingLeft={1}>
+                      <box width={16} flexDirection="row" gap={1}>
+                        <text fg={m.accent}>{m.glyph}</text>
+                        <text fg={m.accent}>{m.label}</text>
+                      </box>
+                      <text fg={theme.textFaint}>{m.hint}</text>
+                    </box>
+                  )}
+                </For>
+              </box>
+            </Match>
+          </Switch>
+        </scrollbox>
+        <text fg={theme.textFaint}>tab / ←→ switch · ↑↓ scroll · esc or click to close</text>
+      </Overlay>
     </Scrim>
   )
 }

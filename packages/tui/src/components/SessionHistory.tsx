@@ -4,7 +4,7 @@ import { createMemo, createSignal, For } from "solid-js"
 import { useApp } from "../store.tsx"
 import { groupSessionsByDir, homeDir as home } from "../util/sessions.ts"
 import { Scrim } from "./Scrim.tsx"
-import { bandBg, Meta, Overlay, SectionLabel } from "./ui.tsx"
+import { bandBg, HintChip, Overlay, SectionLabel } from "./ui.tsx"
 
 /** Full session history across all directories, grouped by directory. Resume or delete any. */
 export function SessionHistory() {
@@ -73,7 +73,19 @@ export function SessionHistory() {
             }}
           </For>
         </scrollbox>
-        <Meta text="↑↓ move · ⏎ resume · d / ✗ delete · esc close" />
+        <box flexDirection="row" gap={1}>
+          <HintChip label="↑↓ move" />
+          <HintChip label="⏎ resume" accent={theme.success} onClick={() => resume(sel())} />
+          <HintChip
+            label="d delete"
+            accent={theme.error}
+            onClick={() => {
+              const s = grouped().flat[sel()]
+              if (s) app.deleteSession(s.id)
+            }}
+          />
+          <HintChip label="esc close" onClick={() => app.setHistoryOpen(false)} />
+        </box>
       </Overlay>
     </Scrim>
   )

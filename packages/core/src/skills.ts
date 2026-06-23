@@ -8,9 +8,15 @@ export interface Skill {
   whenToUse?: string
   content: string
   source: "project" | "user"
+  /** absolute path to the skill file (`<name>.md` or `<name>/SKILL.md`) — shown in the UI so users
+   * know where to edit it. */
+  path: string
 }
 
-function parse(raw: string, fallbackName: string): Omit<Skill, "source"> {
+/** The metadata the UI needs to list a skill (everything but the body). */
+export type SkillInfo = Pick<Skill, "name" | "description" | "whenToUse" | "source" | "path">
+
+function parse(raw: string, fallbackName: string): Omit<Skill, "source" | "path"> {
   const m = raw.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/)
   if (!m) return { name: fallbackName, description: "", content: raw.trim() }
   const meta = m[1]!
@@ -55,7 +61,7 @@ export function loadSkills(roots: string[]): Skill[] {
       if (!file) continue
       try {
         const parsed = parse(fs.readFileSync(file, "utf8"), fallback)
-        if (parsed.content && !out.some((s) => s.name === parsed.name)) out.push({ ...parsed, source })
+        if (parsed.content && !out.some((s) => s.name === parsed.name)) out.push({ ...parsed, source, path: file })
       } catch {
         /* skip */
       }

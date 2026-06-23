@@ -5,7 +5,7 @@ import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { createMemo, createSignal, For, Show } from "solid-js"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
-import { bandBg, Meta, Overlay, SectionLabel } from "./ui.tsx"
+import { bandBg, HintChip, Overlay, Pill, SectionLabel } from "./ui.tsx"
 
 function home(p: string): string {
   const h = process.env.HOME
@@ -164,17 +164,16 @@ export function DirectoryModal() {
           <text fg={theme.error}>{error()}</text>
         </Show>
 
-        <box flexDirection="row" gap={2}>
-          <box onMouseDown={() => openDir()}>
-            <text fg={theme.success}>open here ⏎</text>
-            <text fg={theme.textFaint}> (new session)</text>
-          </box>
-          <box onMouseDown={add}>
-            <text fg={theme.info}>+ add directory</text>
-            <text fg={theme.textFaint}> (same session)</text>
-          </box>
+        <box flexDirection="row" gap={1}>
+          <Pill label="open here ⏎" hint="new session" accent={theme.success} onClick={() => openDir()} />
+          <Pill label="＋ add directory" hint="same session" accent={theme.info} onClick={add} />
         </box>
-        <Meta text="↑↓ pick · ⭾ complete · ⏎ open · esc close" />
+        <box flexDirection="row" gap={1}>
+          <HintChip label="↑↓ pick" />
+          <HintChip label="⭾ complete" />
+          <HintChip label="⏎ open" accent={theme.success} onClick={() => openDir()} />
+          <HintChip label="esc close" onClick={() => app.setDirModalOpen(false)} />
+        </box>
       </Overlay>
     </Scrim>
   )

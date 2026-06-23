@@ -5,7 +5,7 @@ import { shimmerAccent } from "../motion/index.ts"
 import { useApp } from "../store.tsx"
 import { G } from "../util/term.ts"
 import { Scrim } from "./Scrim.tsx"
-import { Overlay } from "./ui.tsx"
+import { Overlay, Pill } from "./ui.tsx"
 
 /**
  * Confirmation gate for entering yolo mode. yolo grants blanket approval — file edits, shell,
@@ -36,21 +36,8 @@ export function YoloConfirm() {
           </text>
           <text fg={theme.textMuted}>Only use this when you trust the task. You can leave with Shift+Tab.</text>
           <box flexDirection="row" gap={1}>
-            <box paddingLeft={1} paddingRight={1} backgroundColor={accent()} onMouseDown={() => app.confirmYolo()}>
-              <text fg={theme.textOnAccent}>
-                <strong>y</strong> enable yolo
-              </text>
-            </box>
-            <box
-              paddingLeft={1}
-              paddingRight={1}
-              backgroundColor={theme.bgComposer}
-              onMouseDown={() => app.cancelYolo()}
-            >
-              <text fg={theme.textMuted}>
-                <strong>n</strong> cancel
-              </text>
-            </box>
+            <Pill label="y · enable yolo" accent={accent()} onClick={() => app.confirmYolo()} />
+            <Pill label="n · cancel" accent={theme.textMuted} onClick={() => app.cancelYolo()} />
           </box>
           <text fg={theme.textFaint}>y/⏎ enable · n/esc cancel</text>
         </Overlay>

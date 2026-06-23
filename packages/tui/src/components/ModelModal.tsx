@@ -4,7 +4,7 @@ import { createEffect, createMemo, createResource, createSignal, For, Match, Sho
 import { useApp } from "../store.tsx"
 import { EffortGauge } from "./EffortSlider.tsx"
 import { Scrim } from "./Scrim.tsx"
-import { bandBg, Meta, Overlay } from "./ui.tsx"
+import { bandBg, Meta, Overlay, Pill } from "./ui.tsx"
 
 type Step = "provider" | "key" | "model" | "effort"
 
@@ -244,15 +244,14 @@ export function ModelModal() {
               <Show when={keyError()}>
                 <text fg={theme.error}>✗ {keyError()}</text>
               </Show>
-              <box flexDirection="row" gap={2}>
-                <box onMouseDown={confirmKey}>
-                  <text fg={validating() ? theme.textFaint : theme.success}>
-                    {validating() ? "validating…" : "connect ⏎"}
-                  </text>
-                </box>
-                <box onMouseDown={() => setStep("provider")}>
-                  <text fg={theme.textMuted}>back esc</text>
-                </box>
+              <box flexDirection="row" gap={1}>
+                <Pill
+                  label={validating() ? "validating…" : "connect ⏎"}
+                  accent={theme.success}
+                  disabled={validating()}
+                  onClick={confirmKey}
+                />
+                <Pill label="back esc" accent={theme.textMuted} onClick={() => setStep("provider")} />
               </box>
             </box>
           </Match>

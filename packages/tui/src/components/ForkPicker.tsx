@@ -3,7 +3,7 @@ import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { createMemo, createSignal, For, Show } from "solid-js"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
-import { bandBg, Overlay } from "./ui.tsx"
+import { bandBg, HintChip, Overlay } from "./ui.tsx"
 
 /** Branch a new session from any past user turn (fork / timeline). The new session carries the
  * conversation up to the chosen turn, so you can explore an alternative without losing this thread. */
@@ -57,7 +57,18 @@ export function ForkPicker() {
             </For>
           </scrollbox>
         </Show>
-        <text fg={theme.textFaint}>↑↓ move · ⏎ fork from here · esc close</text>
+        <box flexDirection="row" gap={1}>
+          <HintChip label="↑↓ move" />
+          <HintChip
+            label="⏎ fork from here"
+            accent={theme.success}
+            onClick={() => {
+              const p = points()[sel()]
+              if (p) app.forkFrom(p.index)
+            }}
+          />
+          <HintChip label="esc close" onClick={() => app.setForkOpen(false)} />
+        </box>
       </Overlay>
     </Scrim>
   )

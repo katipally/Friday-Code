@@ -57,7 +57,9 @@ test("Shift+Tab cycles modes, Ctrl+B toggles context panel, F1 overlay + mouse d
 
   t.mockInput.pressKey("F1")
   await t.flush()
-  expect(t.captureCharFrame()).toContain("KEYBOARD")
+  const guide = t.captureCharFrame()
+  expect(guide).toContain("GUIDE")
+  expect(guide).toContain("/model") // the commands tab lists every slash command
   await t.mockMouse.click(2, 2)
   await t.flush()
   expect(t.captureCharFrame()).not.toContain("esc or click to close")
@@ -65,7 +67,7 @@ test("Shift+Tab cycles modes, Ctrl+B toggles context panel, F1 overlay + mouse d
   // `?` opens the keymap too (composer is empty); dismiss via backdrop click.
   t.mockInput.pressKey("?")
   await t.flush()
-  expect(t.captureCharFrame()).toContain("KEYBOARD")
+  expect(t.captureCharFrame()).toContain("GUIDE")
   await t.mockMouse.click(2, 2)
   await t.flush()
   expect(t.captureCharFrame()).not.toContain("esc or click to close")

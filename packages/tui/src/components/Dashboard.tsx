@@ -5,7 +5,7 @@ import { useHover } from "../motion/index.ts"
 import { useApp, type ViewItem } from "../store.tsx"
 import { groupSessionsByDir, homeDir } from "../util/sessions.ts"
 import { dot, line } from "./ConsoleView.tsx"
-import { SectionLabel } from "./ui.tsx"
+import { Pill, SectionLabel, Tabs } from "./ui.tsx"
 
 /**
  * Dashboard — one console over the three multi-agent surfaces plus history. Single mental model,
@@ -20,25 +20,6 @@ import { SectionLabel } from "./ui.tsx"
  * interactive; team/swarm watch windows), so this view stays the console and updates live.
  */
 const TABS = ["Sessions", "Teams", "Swarm"] as const
-
-/** A small clickable button that rests on the elevated surface (reads as a tappable block); the
- * active/hovered state brightens the fill and tints the label brand amber. */
-function Btn(props: { label: string; onClick: () => void; accent?: string; active?: boolean }) {
-  const h = useHover({ base: theme.bgElevated, hover: theme.bgHover })
-  const on = () => props.active || h.hovered()
-  return (
-    <box
-      paddingLeft={1}
-      paddingRight={1}
-      backgroundColor={props.active ? theme.bgHover : h.bg()}
-      onMouseOver={h.onMouseOver}
-      onMouseOut={h.onMouseOut}
-      onMouseDown={props.onClick}
-    >
-      <text fg={on() ? (props.accent ?? theme.brand) : theme.textMuted}>{props.label}</text>
-    </box>
-  )
-}
 
 /** A clickable chip used for per-row actions (adopt/stop/↗). */
 function Chip(props: { label: string; onClick: () => void; fg?: string }) {
@@ -164,16 +145,11 @@ export function Dashboard() {
           <strong>▦ DASHBOARD</strong>
         </text>
         <box flexGrow={0} paddingLeft={1} />
-        <For each={TABS}>
-          {(name, i) => (
-            <Btn
-              label={`${name} ${tabCount(i())}`}
-              active={i() === tab()}
-              accent={accent()}
-              onClick={() => switchTab(i())}
-            />
-          )}
-        </For>
+        <Tabs
+          items={TABS.map((name, i) => ({ label: `${name} ${tabCount(i)}`, key: String(i) }))}
+          active={String(tab())}
+          onSelect={(k) => switchTab(Number(k))}
+        />
         <box flexGrow={1} />
         <text fg={theme.textFaint}>esc back</text>
       </box>
@@ -185,7 +161,7 @@ export function Dashboard() {
             <box flexDirection="row" alignItems="center" paddingBottom={1}>
               <text fg={theme.textFaint}>live sessions this run — grouped by folder</text>
               <box flexGrow={1} />
-              <Btn label="+ new chat" accent={accent()} onClick={() => app.newChatWindow()} />
+              <Pill label="＋ new chat" onClick={() => app.newChatWindow()} />
             </box>
             <Show when={sessions().length} fallback={<text fg={theme.textFaint}>(no sessions — + new chat)</text>}>
               <For each={grouped().rows}>
@@ -234,11 +210,10 @@ export function Dashboard() {
             <box flexDirection="row" alignItems="center" paddingBottom={1}>
               <text fg={theme.textFaint}>Friday orchestrates workers on one goal (shared board)</text>
               <box flexGrow={1} />
-              <Btn
-                label="+ new team"
-                accent={accent()}
+              <Pill
+                label="＋ new team"
                 onClick={() => setCompose(compose() === "team" ? "" : "team")}
-                active={compose() === "team"}
+                selected={compose() === "team"}
               />
             </box>
             <Show when={compose() === "team"}>
@@ -287,11 +262,10 @@ export function Dashboard() {
             <box flexDirection="row" alignItems="center">
               <text fg={theme.textFaint}>independent agents — different tasks, you collect</text>
               <box flexGrow={1} />
-              <Btn
-                label="+ new swarm"
-                accent={accent()}
+              <Pill
+                label="＋ new swarm"
                 onClick={() => setCompose(compose() === "swarm" ? "" : "swarm")}
-                active={compose() === "swarm"}
+                selected={compose() === "swarm"}
               />
             </box>
             <Show when={compose() === "swarm"}>

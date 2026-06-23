@@ -26,6 +26,7 @@ import { ModelModal } from "./components/ModelModal.tsx"
 import { PermissionCard } from "./components/PermissionCard.tsx"
 import { PlanCard } from "./components/PlanCard.tsx"
 import { SessionHistory } from "./components/SessionHistory.tsx"
+import { SkillsModal } from "./components/SkillsModal.tsx"
 import { StatusStrip } from "./components/StatusStrip.tsx"
 import { Toasts } from "./components/Toasts.tsx"
 import { TopBar } from "./components/TopBar.tsx"
@@ -193,6 +194,9 @@ function Shell() {
       </Show>
       <Show when={app.mcpModalOpen()}>
         <McpModal />
+      </Show>
+      <Show when={app.skillsModalOpen()}>
+        <SkillsModal />
       </Show>
       <Show when={app.computerModalOpen()}>
         <ComputerModal />

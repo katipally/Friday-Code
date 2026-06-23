@@ -177,6 +177,7 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
   }
 
   const mcpHover = useHover({ base: theme.bgPanel, hover: theme.bgHover })
+  const skillsHover = useHover({ base: theme.bgPanel, hover: theme.bgHover })
   const [planHov, setPlanHov] = createSignal(-1)
   const pct = () =>
     app.contextWindow() > 0 ? Math.min(100, Math.round((app.tokens() / app.contextWindow()) * 100)) : 0
@@ -270,18 +271,34 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
               </Show>
             </box>
 
-            <box
-              flexDirection="row"
-              gap={1}
-              backgroundColor={mcpHover.bg()}
-              onMouseOver={mcpHover.onMouseOver}
-              onMouseOut={mcpHover.onMouseOut}
-              onMouseDown={() => app.setMcpModalOpen(true)}
-            >
-              <text fg={app.mcpServers().length ? theme.success : theme.textFaint}>
-                ⚡ {app.mcpServers().length} mcp
-              </text>
-              <text fg={mcpHover.hovered() ? theme.text : theme.textFaint}>· {app.skills().length} skills</text>
+            {/* MCP and Skills are two distinct surfaces — separate buttons, each opens its own modal. */}
+            <box flexDirection="row" gap={1}>
+              <box
+                flexGrow={1}
+                paddingLeft={1}
+                paddingRight={1}
+                backgroundColor={mcpHover.bg()}
+                onMouseOver={mcpHover.onMouseOver}
+                onMouseOut={mcpHover.onMouseOut}
+                onMouseDown={() => app.setMcpModalOpen(true)}
+              >
+                <text fg={app.mcpServers().length ? theme.success : mcpHover.hovered() ? theme.text : theme.textFaint}>
+                  ⚡ {app.mcpServers().length} mcp
+                </text>
+              </box>
+              <box
+                flexGrow={1}
+                paddingLeft={1}
+                paddingRight={1}
+                backgroundColor={skillsHover.bg()}
+                onMouseOver={skillsHover.onMouseOver}
+                onMouseOut={skillsHover.onMouseOut}
+                onMouseDown={() => app.setSkillsModalOpen(true)}
+              >
+                <text fg={app.skills().length ? theme.text : skillsHover.hovered() ? theme.text : theme.textFaint}>
+                  ◆ {app.skills().length} skills
+                </text>
+              </box>
             </box>
             <Show when={app.contextFiles().length}>
               <text fg={theme.textFaint}>✓ {app.contextFiles().length} context files</text>

@@ -75,7 +75,7 @@ import { collectImages, expandMentions } from "./mentions.ts"
 import { customAgentPrompt, subagentPrompt, systemPrompt } from "./prompt.ts"
 import { bashRisk, matchesList } from "./safety.ts"
 import type { PlanRow, SessionStore } from "./sessions.ts"
-import { loadSkills, type Skill } from "./skills.ts"
+import { loadSkills, type Skill, type SkillInfo } from "./skills.ts"
 import type { StreamFn } from "./stream.ts"
 
 const now = () => Date.now()
@@ -560,8 +560,14 @@ export class SessionRunner {
   contextInfo(): { files: string[] } {
     return { files: this.context.files }
   }
-  listSkills(): { name: string; description: string }[] {
-    return this.skills.map((s) => ({ name: s.name, description: s.description }))
+  listSkills(): SkillInfo[] {
+    return this.skills.map((s) => ({
+      name: s.name,
+      description: s.description,
+      whenToUse: s.whenToUse,
+      source: s.source,
+      path: s.path,
+    }))
   }
   listCommands(): CustomCommand[] {
     return loadCommands(this.roots)
