@@ -68,13 +68,23 @@ import { type CustomCommand, loadCommands } from "./commands.ts"
 import { COMPACTION, collapseToolOutputs, estimateTokens, renderTranscript, safeCutIndex } from "./compaction.ts"
 import { loadProjectContext, type ProjectContext } from "./context.ts"
 import { formatFile } from "./format.ts"
-import { gitCommitAll, gitDiff, gitIsTracked, gitShowHead, gitStatus, gitWorktreeAdd, gitWorktreeList } from "./git.ts"
+import {
+  gitCommitAll,
+  gitDiff,
+  gitIsTracked,
+  gitRevParse,
+  gitSessionChanges,
+  gitShowHead,
+  gitStatus,
+  gitWorktreeAdd,
+  gitWorktreeList,
+} from "./git.ts"
 import { type HookEvent, type HookPayload, type HooksConfig, runHooks } from "./hooks.ts"
 import { deleteMemory, listMemory, memoryDigest, saveMemory } from "./memory.ts"
 import { collectImages, expandMentions } from "./mentions.ts"
 import { customAgentPrompt, subagentPrompt, systemPrompt } from "./prompt.ts"
 import { bashRisk, matchesList } from "./safety.ts"
-import type { PlanRow, SessionStore } from "./sessions.ts"
+import type { PlanRow, SessionMeta, SessionStore } from "./sessions.ts"
 import { loadSkills, type Skill, type SkillInfo } from "./skills.ts"
 import type { StreamFn } from "./stream.ts"
 
@@ -356,6 +366,8 @@ export class SessionRunner {
   private context: ProjectContext
   /** Files the user pinned into context (relative paths). Read fresh each turn so edits are reflected. */
   private pinned: string[] = []
+  /** git commit captured at session start; the changes panel diffs the working tree against it. */
+  private sessionBaseRef?: string
   private skills: Skill[]
   private agents: AgentDef[]
   private lsp: LspManager
@@ -366,8 +378,6 @@ export class SessionRunner {
   busy = false
   /** id of the assistant message currently streaming — so we can always finalize it (even on abort/error). */
   private activeAssistantId?: string
-  /** set when the model explicitly presented a plan via exit_plan this turn — suppresses the fallback heuristic. */
-  private planEmitted = false
   /** set while a permission/ask card is awaiting the user for this session */
   needsInput = false
   private pending = new Map<string, Pending>()
@@ -429,6 +439,17 @@ export class SessionRunner {
     this.plans = host.store.loadPlans(row.id)
     this.checkpoints = deserializeCheckpoints(host.store.loadCheckpointsJson(row.id))
     this.pinned = host.store.loadPinned(row.id)
+    // Restore the rest of the session's "feel": compacted-history summary, the git base the changes
+    // panel diffs against, and an active worktree (so resuming lands back inside it). Applied BEFORE
+    // loadProjectContext so context/skills/agents load from the worktree roots when one is active.
+    const meta = host.store.loadMeta(row.id)
+    this.compaction = meta.compaction
+    this.sessionBaseRef = meta.baseRef
+    if (meta.worktree) {
+      this.preWorktree = meta.worktree.pre
+      this.cwd = meta.worktree.path
+      this.roots = [meta.worktree.path, ...this.roots.filter((r) => r !== meta.worktree!.path)]
+    }
     this.context = loadProjectContext(this.roots)
     this.skills = loadSkills(this.roots)
     this.agents = loadAgents(this.roots)
@@ -448,7 +469,22 @@ export class SessionRunner {
    * Files this session has modified, derived from its own checkpoint snapshots
    * (not git) — so the panel reflects exactly what THIS session touched.
    */
-  private emitSessionFiles(): void {
+  private async emitSessionFiles(): Promise<void> {
+    // Preferred path: in a git repo we diff the working tree against the base commit captured at
+    // session start — this captures EVERYTHING done this session (committed AND uncommitted AND
+    // removed), which the per-turn snapshot tracker can't (committed files revert to HEAD and vanish).
+    if (this.sessionBaseRef) {
+      try {
+        const changes = await gitSessionChanges(this.cwd, this.sessionBaseRef)
+        const items = changes
+          .map((f) => ({ path: f.path, status: f.status, added: f.added, removed: f.removed, kind: "file" as const }))
+          .sort((a, b) => a.path.localeCompare(b.path))
+        this.emit({ type: "session-files", items })
+        return
+      } catch {
+        /* git hiccup — fall back to the snapshot tracker below */
+      }
+    }
     const prior = new Map<string, string | null>() // path -> content before this session first touched it
     for (const cp of this.checkpoints) for (const [abs, before] of cp.files) if (!prior.has(abs)) prior.set(abs, before)
     const items: { path: string; status: string; added: number; removed: number; kind?: "file" | "dir" }[] = []
@@ -639,6 +675,10 @@ export class SessionRunner {
   private persistCheckpoints(): void {
     this.host.store.setCheckpointsJson(this.sessionId, serializeCheckpoints(this.checkpoints))
   }
+  /** Merge a slice of session meta to disk (compaction summary, git base, worktree) so resume restores it. */
+  private persistMeta(patch: Partial<SessionMeta>): void {
+    this.host.store.setMeta(this.sessionId, patch)
+  }
   /** Record a plan (title = first non-empty line), persist it, and surface the execute gate. */
   private recordPlan(plan: string): void {
     const title =
@@ -673,7 +713,7 @@ export class SessionRunner {
       })
     this.emit({ type: "todos", items: this.todos })
     this.emit({ type: "plans", items: this.plans })
-    this.emitSessionFiles()
+    void this.emitSessionFiles()
   }
 
   addRoot(dir: string): void {
@@ -701,6 +741,8 @@ export class SessionRunner {
     if (!this.preWorktree) this.preWorktree = { cwd: this.cwd, roots: [...this.roots] }
     this.cwd = res.path
     this.roots = [res.path, ...this.roots.filter((r) => r !== res.path)]
+    // Remember the worktree so a resume lands back inside it (with the dir to return to on exit).
+    this.persistMeta({ worktree: { path: res.path, pre: this.preWorktree } })
     this.context = loadProjectContext(this.roots)
     this.skills = loadSkills(this.roots)
     this.agents = loadAgents(this.roots)
@@ -719,6 +761,7 @@ export class SessionRunner {
     this.cwd = this.preWorktree.cwd
     this.roots = this.preWorktree.roots
     this.preWorktree = undefined
+    this.persistMeta({ worktree: undefined }) // no longer in a worktree — resume lands in the real dir
     this.context = loadProjectContext(this.roots)
     this.skills = loadSkills(this.roots)
     this.agents = loadAgents(this.roots)
@@ -918,6 +961,7 @@ export class SessionRunner {
       // Drop any compaction summary — its throughIndex points into the now-truncated history and
       // would otherwise make sendMessages() prepend a stale summary / slice the wrong range.
       this.compaction = undefined
+      this.persistMeta({ compaction: undefined })
     }
 
     if (scope !== "code") this.persistCheckpoints() // the checkpoint list was truncated
@@ -931,6 +975,8 @@ export class SessionRunner {
       roots: this.roots,
       messages: this.messages,
     })
+    // Files on disk changed (reverted) — refresh the changes panel; todos/plans were emitted above.
+    if (scope !== "conversation") void this.emitSessionFiles()
   }
 
   redoLast(): void {
@@ -939,6 +985,7 @@ export class SessionRunner {
     this.messages = [...this.redoState.messages]
     this.seq = this.messages.length
     this.compaction = undefined // rebuilt history — a stale summary index would corrupt context
+    this.persistMeta({ compaction: undefined })
     this.host.store.truncateMessages(this.sessionId, 0)
     this.messages.forEach((m, i) => {
       this.host.store.appendMessage(this.sessionId, i, m)
@@ -960,6 +1007,7 @@ export class SessionRunner {
       roots: this.roots,
       messages: this.messages,
     })
+    void this.emitSessionFiles() // files were re-applied — refresh the changes panel
   }
 
   // ---- the agentic loop ----
@@ -984,8 +1032,14 @@ export class SessionRunner {
     }
 
     this.busy = true
-    this.planEmitted = false
     this.abort = new AbortController()
+    // Capture the git base ONCE, before this session's first edit/commit, so the changes panel can
+    // diff the working tree against it (committed + uncommitted) for a full session footprint.
+    if (this.sessionBaseRef === undefined) {
+      const base = await gitRevParse(this.cwd)
+      this.sessionBaseRef = base ?? "" // "" = checked, not a repo → fall back to snapshot tracking
+      if (base) this.persistMeta({ baseRef: base })
+    }
     this.currentCheckpoint = {
       id: this.host.nextId(),
       label: text.replace(/\s+/g, " ").trim().slice(0, 60) || "turn",
@@ -1021,18 +1075,13 @@ export class SessionRunner {
         this.activeAssistantId = undefined
       }
       void this.hook("Stop")
-      this.emitSessionFiles()
+      void this.emitSessionFiles()
       // The turn's checkpoint now has all its file snapshots — persist so rewind survives a restart.
       this.persistCheckpoints()
-      // Fallback: if the model finished a plan-mode turn WITHOUT calling exit_plan, still surface
-      // something so the gate isn't lost — the plan is the last assistant message produced this turn.
-      // The deterministic path (exit_plan) is preferred; this only runs when it wasn't used.
-      if (!aborted && !this.planEmitted && this.host.selection().mode === "plan") {
-        const last = [...this.messages].reverse().find((m) => m.role === "assistant" && !!m.text)
-        if (last && last.role === "assistant" && last.text && last.text.trim().length > 12) {
-          this.recordPlan(last.text)
-        }
-      }
+      // NOTE: no "last message becomes the plan" fallback. A plan is ONLY what the model deliberately
+      // emits via exit_plan — otherwise a trivial answer (e.g. a file listing) would masquerade as a
+      // "PLAN READY" gate. In plan mode the model either asks clarifying questions, answers directly, or
+      // calls exit_plan with a real implementation plan (see modePostureNote in prompt.ts).
       this.emit({ type: "mascot", state: "idle" })
       this.emit({ type: "status", text: aborted ? "stopped" : "ready" })
     }
@@ -1158,6 +1207,7 @@ export class SessionRunner {
     // Snapshot the prior state so this compaction can be undone (history itself is untouched).
     this.preCompaction = { compaction: this.compaction }
     this.compaction = { summary, throughIndex: cut }
+    this.persistMeta({ compaction: this.compaction }) // survive resume — don't recompute/lose the summary
     const after = estimateTokens(this.sendMessages())
     this.emit({
       type: "compaction",
@@ -1187,6 +1237,7 @@ export class SessionRunner {
       return
     }
     this.compaction = this.preCompaction.compaction
+    this.persistMeta({ compaction: this.compaction })
     this.preCompaction = undefined
     this.emit({ type: "notice", text: "↺ compaction undone — full history restored" })
     this.emit({ type: "status", text: "ready" })
@@ -1429,7 +1480,6 @@ export class SessionRunner {
           // returning from loop() ends the agentic loop the instant the plan is ready.
           const a = safeParse(tc.arguments) as { plan?: string }
           const plan = (a.plan ?? "").trim()
-          this.planEmitted = true
           this.addMessage({
             role: "tool",
             callId: tc.id,
@@ -2078,7 +2128,7 @@ export class SessionRunner {
     this.emit({ type: "mascot", state: "idle" })
     if (res.ok) {
       this.emit({ type: "notice", text: `✓ committed ${res.info} — ${message}` })
-      this.emitSessionFiles()
+      void this.emitSessionFiles()
     } else {
       this.emit({ type: "error", message: `Commit failed: ${res.info}` })
     }

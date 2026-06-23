@@ -39,8 +39,9 @@ function sh(parts: string[]): string {
 
 /** A shell command string for one window: optionally cd into `cwd`, then run friday with `args`.
  * Keeps the window open if friday ever exits (or fails to start) so it's never a blank black window —
- * the exit screen's resume hint stays visible, and any startup error is readable. */
-function fridayCommand(args: string[], cwd?: string): string {
+ * the exit screen's resume hint stays visible, and any startup error is readable. Exported so the tmux
+ * control center can run the SAME command inside a pane. */
+export function fridayCommand(args: string[], cwd?: string): string {
   const cmd = sh([...selfCmd(), ...args])
   const run = cwd ? `cd ${sh([cwd])} && ${cmd}` : cmd
   return `${run}; echo; echo '[friday exited — press Enter to close]'; read _`
@@ -150,4 +151,21 @@ export function openFleetWindows(ids: string[]): WinResult {
 /** A new interactive friday window (new chat, or `-s <id>` to resume), in `cwd` if given. */
 export function openInteractiveWindow(args: string[] = [], cwd?: string): WinResult {
   return openWindows([fridayCommand(args, cwd)], false)
+}
+
+/** Open ONE real OS terminal window running an arbitrary shell command — used to attach a window to
+ * the tmux wall so the user can watch every pane tiled. Always a separate OS window (not a tmux split),
+ * even when friday itself is running inside tmux. */
+export function openTerminalRunning(cmd: string): WinResult {
+  const full = `${cmd}; echo; echo '[closed — press Enter to close]'; read _`
+  if (process.platform === "darwin") {
+    const { opened, error } = openMacWindows([full])
+    const backend = process.env.TERM_PROGRAM === "iTerm.app" ? "iTerm" : "Terminal.app"
+    return { ok: opened > 0, backend, opened, error }
+  }
+  if (process.platform === "linux") {
+    const { opened, backend, error } = openLinuxTerminal([full])
+    return { ok: opened > 0, backend, opened, error }
+  }
+  return { ok: false, backend: "none", opened: 0, error: `unsupported platform: ${process.platform}` }
 }

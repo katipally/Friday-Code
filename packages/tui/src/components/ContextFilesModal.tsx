@@ -4,13 +4,14 @@ import { createEffect, createSignal, For, Show } from "solid-js"
 import { useApp } from "../store.tsx"
 import { listProjectFiles } from "../util/files.ts"
 import { Scrim } from "./Scrim.tsx"
-import { bandBg, HintChip, Meta, Overlay } from "./ui.tsx"
+import { bandBg, Field, HintChip, Overlay, SectionLabel } from "./ui.tsx"
 
 /**
  * View and manage the files in this session's context. Two kinds:
  *   - AUTO: FRIDAY.md / AGENTS.md discovered up the tree (read-only — edit the files to change them).
  *   - PINNED: files you pin here; their contents are injected into context every turn and persist for
- *     the session. Type to filter the project, ⏎ to pin; on a pinned row ⏎ (or click ✕) unpins.
+ *     the session. Type in the input to filter the project, ⏎ to pin the highlighted file; click a
+ *     pinned row's ✕ (or highlight it and press ⌫) to unpin.
  */
 export function ContextFilesModal() {
   const app = useApp()
@@ -40,6 +41,12 @@ export function ContextFilesModal() {
     queueMicrotask(() => sb?.scrollChildIntoView?.(`ctxfile-${i}`))
   })
 
+  const pin = (f: string) => {
+    app.pinContextFile(f)
+    setQuery("")
+    setSel(0)
+  }
+
   useKeyboard((key) => {
     if (!app.contextModalOpen()) return
     if (key.name === "escape") {
@@ -51,14 +58,14 @@ export function ContextFilesModal() {
     if (key.name === "down") return setSel((s) => (m.length ? (s + 1) % m.length : 0))
     if (key.name === "return" || key.name === "enter") {
       const pick = m[clamped()]
-      if (pick) {
-        app.pinContextFile(pick)
-        setQuery("")
-        setSel(0)
-      }
+      if (pick) pin(pick)
       return
     }
-    if (key.name === "backspace") return setQuery((q) => q.slice(0, -1))
+    if (key.name === "backspace") {
+      // Backspace on an empty query unpins the last-pinned file; otherwise edit the filter.
+      if (!query() && pinned().length) return app.unpinContextFile(pinned()[pinned().length - 1]!)
+      return setQuery((q) => q.slice(0, -1))
+    }
     // Printable char → extend the filter.
     if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta && key.sequence >= " ") {
       setSel(0)
@@ -66,30 +73,54 @@ export function ContextFilesModal() {
     }
   })
 
+  const w = () => Math.min(76, dims().width - 4)
+
   return (
     <Scrim onClose={() => app.setContextModalOpen(false)}>
-      <Overlay title="context files" hint="what Friday is reading this session" width={Math.min(72, dims().width - 4)}>
-        {/* AUTO context (read-only) */}
-        <Show when={app.contextFiles().length}>
-          <box flexDirection="column">
-            <Meta text="auto · FRIDAY.md / AGENTS.md (edit the files to change)" />
-            <For each={app.contextFiles()}>
-              {(f) => (
-                <box flexDirection="row" gap={1} paddingLeft={1}>
-                  <text fg={theme.textFaint}>📄</text>
-                  <text fg={theme.textMuted}>{f}</text>
-                </box>
-              )}
-            </For>
+      <Overlay title="context files" hint="what Friday reads this session" width={w()}>
+        {/* The input area — a real bordered field so it's obvious you type here to add a file. */}
+        <Field label="add file" hint="type to filter · ⏎ pin" focused>
+          <box flexDirection="row">
+            <text fg={theme.text}>{query()}</text>
+            <text fg={theme.brand}>▏</text>
+            <Show when={!query()}>
+              <text fg={theme.textFaint}>search project files…</text>
+            </Show>
           </box>
+        </Field>
+
+        {/* Live results while filtering. */}
+        <Show when={query()}>
+          <scrollbox ref={(r: any) => (sb = r)} maxHeight={8}>
+            <For each={matches()} fallback={<text fg={theme.textFaint}> no match</text>}>
+              {(f, i) => {
+                const on = () => clamped() === i()
+                return (
+                  <box
+                    id={`ctxfile-${i()}`}
+                    flexDirection="row"
+                    gap={1}
+                    paddingLeft={1}
+                    paddingRight={1}
+                    backgroundColor={bandBg(on())}
+                    onMouseOver={() => setSel(i())}
+                    onMouseDown={() => pin(f)}
+                  >
+                    <text fg={on() ? theme.textOnAccent : theme.textFaint}>＋</text>
+                    <text fg={on() ? theme.textOnAccent : theme.text}>{f}</text>
+                  </box>
+                )
+              }}
+            </For>
+          </scrollbox>
         </Show>
 
-        {/* PINNED files — each removable */}
+        {/* Pinned files — each removable. */}
         <box flexDirection="column">
-          <Meta text={`pinned · ${pinned().length} (persist for this session)`} />
+          <SectionLabel text={`pinned (${pinned().length})`} />
           <Show
             when={pinned().length}
-            fallback={<text fg={theme.textFaint}> none yet — type below to pin a file</text>}
+            fallback={<text fg={theme.textFaint}> none yet — search above and press ⏎ to pin</text>}
           >
             <For each={pinned()}>
               {(f) => (
@@ -104,46 +135,25 @@ export function ContextFilesModal() {
           </Show>
         </box>
 
-        {/* ADD: filter + results */}
-        <box flexDirection="column">
-          <box flexDirection="row" gap={1}>
-            <text fg={theme.textFaint}>+ add file</text>
-            <text fg={theme.text}>{query() || "…"}</text>
+        {/* Auto-loaded context (read-only). */}
+        <Show when={app.contextFiles().length}>
+          <box flexDirection="column">
+            <SectionLabel text="auto · edit the files to change" />
+            <For each={app.contextFiles()}>
+              {(f) => (
+                <box flexDirection="row" gap={1} paddingLeft={1}>
+                  <text fg={theme.textFaint}>📄</text>
+                  <text fg={theme.textMuted}>{f}</text>
+                </box>
+              )}
+            </For>
           </box>
-          <Show when={query()}>
-            <scrollbox ref={(r: any) => (sb = r)} maxHeight={10}>
-              <For each={matches()}>
-                {(f, i) => {
-                  const on = () => clamped() === i()
-                  return (
-                    <box
-                      id={`ctxfile-${i()}`}
-                      flexDirection="row"
-                      gap={1}
-                      paddingLeft={1}
-                      paddingRight={1}
-                      backgroundColor={bandBg(on())}
-                      onMouseOver={() => setSel(i())}
-                      onMouseDown={() => {
-                        app.pinContextFile(f)
-                        setQuery("")
-                        setSel(0)
-                      }}
-                    >
-                      <text fg={on() ? theme.textOnAccent : theme.textFaint}>📎</text>
-                      <text fg={on() ? theme.textOnAccent : theme.text}>{f}</text>
-                    </box>
-                  )
-                }}
-              </For>
-            </scrollbox>
-          </Show>
-        </box>
+        </Show>
 
         <box flexDirection="row" gap={1}>
-          <HintChip label="type to filter" />
+          <HintChip label="↑↓ move" />
           <HintChip label="⏎ pin" accent={theme.success} />
-          <HintChip label="✕ click to unpin" />
+          <HintChip label="⌫ unpin last" />
           <HintChip label="esc close" onClick={() => app.setContextModalOpen(false)} />
         </box>
       </Overlay>

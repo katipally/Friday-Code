@@ -11,6 +11,8 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [2.0.10] - 2026-06-23
+
 ### Added
 
 - **Pin context files**: a permanent, clickable context-files chip in the side
@@ -23,12 +25,35 @@ All notable changes to this project are documented here. The format is based on
   the Accessibility and Screen Recording panes directly so you can click-grant.
 - **Kitty keyboard protocol** enabled where supported, so chords legacy terminals
   can't encode (Shift+Enter, Cmd+Enter) work in kitty/WezTerm/Ghostty/modern iTerm2.
+- **tmux control center**: when tmux is available, the dashboard launches sessions/
+  teams/swarms into a tiled tmux "wall" of real terminals — arrange (tiled/cols/
+  rows/main), close each pane or all, and "open" a window attached to the wall to
+  watch everything in one view. Falls back to separate OS windows without tmux.
+- **Delegated agents ask in the main view**: a subagent/team/swarm question or
+  permission prompt now surfaces in your current view, labeled with the agent
+  asking; you answer without switching and it bridges back to that agent.
 
 ### Changed
 
 - **Pause keybinding** moved off `Shift+Esc` (terminals can't encode it — it
-  arrived as plain Esc) onto **Ctrl+P** everywhere, plus **Cmd+Enter** on
-  kitty-protocol terminals. Newline stays Shift+Enter / Option+Enter.
+  arrived as plain Esc) onto **Ctrl+Space** (single-handed, works in every
+  terminal), plus **Cmd+Enter** on kitty-protocol terminals. Newline stays
+  Shift+Enter / Option+Enter.
+- **Changes panel is now a full session summary**: in a git repo it shows
+  everything done since the session started — committed **and** uncommitted **and**
+  removed files — by diffing the working tree against the commit captured at
+  session start (committed files no longer vanish after `git commit`).
+- **Resume restores the whole session feel**: per-session model/provider/effort,
+  mode, the compaction summary, the git base, and an active worktree all persist
+  and come back on resume (previously these reset to the global default or were
+  lost). Resuming a session from the dashboard also opens its window in that
+  session's own folder.
+- **Plan mode** asks before planning: for vague requests it now uses `ask_user`
+  with concrete options first, and `exit_plan` only carries a real implementation
+  plan. A trivial request (a listing, a question) is answered directly instead of
+  being dressed up as a "PLAN READY" gate (removed the last-message fallback).
+- **Settings** uses a horizontal tab bar (the same `Tabs` the dashboard uses) for
+  a consistent feel; the context-files modal now has a proper search/input field.
 - **Side panel**: removed the redundant "context" title; the close control is
   right-aligned with its `ctrl+b` shortcut shown clearly.
 - **Plans/Todos/Changes sections**: reversed the washed-out hierarchy — section
@@ -44,6 +69,8 @@ All notable changes to this project are documented here. The format is based on
 - **Dashboard terminal windows** failing silently: the launcher now resolves the
   friday executable robustly (absolute path / PATH fallback) and surfaces the real
   error in a toast instead of a generic "no backend" message.
+- **Changes panel went stale after a rewind/redo**: `restoreCheckpoint` and
+  `redoLast` now refresh the changes panel (todos/plans already refreshed).
 
 ## [2.0.9] - 2026-06-23
 

@@ -14,10 +14,11 @@ export const DEFAULT_KEYBINDINGS = {
   "dashboard.toggle": "ctrl+o",
   "history.open": "ctrl+y",
   "mode.cycle": "shift+tab",
-  // Ctrl+P transmits in every terminal (Shift+Esc could not — Shift never modifies the Esc byte, so
-  // it arrived as plain Esc). On kitty-protocol terminals Cmd/Super+Enter also fires pause; that's
-  // handled in App.tsx's global handler, not here, since the textarea can't tell Option from Cmd.
-  "pause.open": "ctrl+p",
+  // Ctrl+Space transmits in every terminal (a NUL byte → name "space" + ctrl) and is single-handed
+  // (pinky + thumb). Shift+Esc couldn't work — Shift never modifies the Esc byte, so it arrived as
+  // plain Esc. On kitty-protocol terminals Cmd/Super+Enter also fires pause; that's handled in
+  // App.tsx's global handler, not here, since the textarea can't tell Option from Cmd.
+  "pause.open": "ctrl+space",
   // Ctrl+G (BEL) — reliable across terminals. Ctrl+, can't be used: terminals fold it onto Ctrl+\ (0x1c).
   "settings.open": "ctrl+g",
   "help.open": "f1",

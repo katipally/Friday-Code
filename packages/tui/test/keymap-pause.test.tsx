@@ -28,12 +28,16 @@ async function settle(t: Awaited<ReturnType<typeof shell>>): Promise<string> {
   return t.captureCharFrame()
 }
 
-// Pause moved off the un-encodable Shift+Esc onto Ctrl+P (everywhere) and Cmd/Super+Enter (kitty).
-// When idle there's nothing to pause, so both should surface the same "nothing to pause" toast —
-// proof the binding actually fired and routed to the pause command.
-test("Ctrl+P routes to pause", async () => {
-  const t = await shell()
-  t.mockInput.pressKey("p", { ctrl: true })
+// Pause moved off the un-encodable Shift+Esc onto Ctrl+Space (everywhere, single-handed) and
+// Cmd/Super+Enter (kitty). When idle there's nothing to pause, so both should surface the same
+// "nothing to pause" toast — proof the binding actually fired and routed to the pause command.
+// Real terminals send a NUL byte for Ctrl+Space which OpenTUI parses to {name:"space",ctrl:true}
+// (see getCtrlKeyName(0)); the keybindings unit test covers that chord match. Here we drive it through
+// the kitty path (the harness only synthesizes ctrl+space as a real event under kitty) to prove the
+// global handler routes name=space+ctrl to pause.
+test("Ctrl+Space routes to pause", async () => {
+  const t = await shell({ kittyKeyboard: true })
+  t.mockInput.pressKey(" ", { ctrl: true })
   expect(await settle(t)).toContain("nothing to pause")
   t.renderer.destroy()
 })

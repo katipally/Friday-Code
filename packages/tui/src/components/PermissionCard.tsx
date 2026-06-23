@@ -48,11 +48,15 @@ export function PermissionCard() {
       {(p: () => PendingPermission) => (
         <Scrim onClose={() => {}}>
           <Overlay width={64}>
-            {/* Semantic warning header — not brand amber, so no Overlay title. */}
+            {/* Semantic warning header — not brand amber, so no Overlay title. When the request comes
+                from a delegated background agent, name it so the user knows who's asking. */}
             <box flexDirection="row" gap={1}>
               <text fg={shimmerAccent(theme.warning)}>
                 <strong>{G.warn} PERMISSION</strong>
               </text>
+              <Show when={app.pendingFrom()}>
+                <text fg={theme.textMuted}>· {app.pendingFrom()}</text>
+              </Show>
               <box flexGrow={1} />
               <text fg={theme.textFaint}>{p().tool}</text>
             </box>
