@@ -368,6 +368,8 @@ export class SessionRunner {
   private pinned: string[] = []
   /** git commit captured at session start; the changes panel diffs the working tree against it. */
   private sessionBaseRef?: string
+  /** in-flight base-ref capture (spawned concurrently with the stream, awaited before turn-done). */
+  private baseCapture?: Promise<void>
   private skills: Skill[]
   private agents: AgentDef[]
   private lsp: LspManager
@@ -1034,18 +1036,15 @@ export class SessionRunner {
     this.busy = true
     this.abort = new AbortController()
     // Capture the git base ONCE, near session start, so the changes panel can diff the working tree
-    // against it (committed + uncommitted) for a full session footprint. Fire-and-forget — `git
-    // rev-parse HEAD` returns the committed sha regardless of uncommitted edits, so it needn't block
-    // the turn (and awaiting a subprocess spawn here measurably delays the first stream event,
-    // especially on Windows). It resolves long before the model emits an edit; until then the
-    // snapshot tracker covers the gap.
-    if (this.sessionBaseRef === undefined) {
-      this.sessionBaseRef = "" // "" = capturing / not a repo → snapshot fallback until git resolves
-      void gitRevParse(this.cwd).then((base) => {
-        if (base) {
-          this.sessionBaseRef = base
-          this.persistMeta({ baseRef: base })
-        }
+    // against it (committed + uncommitted) for a full session footprint. Kicked off concurrently with
+    // the model stream — NOT awaited here, because spawning a `git` subprocess on the hot path delays
+    // the first stream event (notably on Windows). The turn's finally awaits this promise before it
+    // signals done, so the subprocess never outlives the turn (a lingering git holds a cwd lock on
+    // Windows, which would EBUSY a test that rm's the dir).
+    if (this.sessionBaseRef === undefined && !this.baseCapture) {
+      this.baseCapture = gitRevParse(this.cwd).then((base) => {
+        this.sessionBaseRef = base ?? "" // "" = checked, not a repo → fall back to snapshot tracking
+        if (base) this.persistMeta({ baseRef: base })
       })
     }
     this.currentCheckpoint = {
@@ -1075,6 +1074,20 @@ export class SessionRunner {
       const aborted = this.abort?.signal.aborted ?? false
       this.busy = false
       this.abort = undefined
+      void this.hook("Stop")
+      // Settle the background git work (base-ref capture + changes-panel diff) WITHIN the turn, before
+      // we signal turn-done — both spawn `git` subprocesses, and on Windows a lingering one holds a cwd
+      // lock that EBUSYs a teardown rm. This runs after the stream, so it only gates the done/ready
+      // signal by a quick git diff; the visible output already streamed.
+      if (this.baseCapture) {
+        try {
+          await this.baseCapture
+        } catch {
+          /* git hiccup — sessionBaseRef stays unset, snapshot tracker covers it */
+        }
+        this.baseCapture = undefined
+      }
+      await this.emitSessionFiles()
       // Always finalize the in-flight assistant item so the UI clears `busy` (stops the timer)
       // and marks the bubble done — turn-done is the ONLY event the UI uses for this, and the
       // normal path may not have emitted it (abort / error / step-limit).
@@ -1082,8 +1095,6 @@ export class SessionRunner {
         this.emit({ type: "turn-done", id: this.activeAssistantId })
         this.activeAssistantId = undefined
       }
-      void this.hook("Stop")
-      void this.emitSessionFiles()
       // The turn's checkpoint now has all its file snapshots — persist so rewind survives a restart.
       this.persistCheckpoints()
       // NOTE: no "last message becomes the plan" fallback. A plan is ONLY what the model deliberately
