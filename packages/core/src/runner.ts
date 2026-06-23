@@ -354,6 +354,8 @@ export class SessionRunner {
   private lastInputTokens = 0
 
   private context: ProjectContext
+  /** Files the user pinned into context (relative paths). Read fresh each turn so edits are reflected. */
+  private pinned: string[] = []
   private skills: Skill[]
   private agents: AgentDef[]
   private lsp: LspManager
@@ -426,6 +428,7 @@ export class SessionRunner {
     this.todos = host.store.loadTodos(row.id)
     this.plans = host.store.loadPlans(row.id)
     this.checkpoints = deserializeCheckpoints(host.store.loadCheckpointsJson(row.id))
+    this.pinned = host.store.loadPinned(row.id)
     this.context = loadProjectContext(this.roots)
     this.skills = loadSkills(this.roots)
     this.agents = loadAgents(this.roots)
@@ -563,8 +566,33 @@ export class SessionRunner {
     })
     return out
   }
-  contextInfo(): { files: string[] } {
-    return { files: this.context.files }
+  contextInfo(): { files: string[]; pinned: string[] } {
+    return { files: this.context.files, pinned: [...this.pinned] }
+  }
+  /** Pin a file (relative to the primary root) into context for this session. Idempotent. */
+  pinFile(rel: string): void {
+    if (!rel.trim() || this.pinned.includes(rel)) return
+    this.pinned.push(rel)
+    this.host.store.setPinned(this.sessionId, this.pinned)
+  }
+  unpinFile(rel: string): void {
+    this.pinned = this.pinned.filter((p) => p !== rel)
+    this.host.store.setPinned(this.sessionId, this.pinned)
+  }
+  /** Read pinned files fresh and render them as <context> blocks appended to the project context. */
+  private pinnedContent(): string {
+    if (!this.pinned.length) return ""
+    const primary = this.roots[0] ?? this.cwd
+    const blocks: string[] = []
+    for (const rel of this.pinned) {
+      try {
+        const content = fs.readFileSync(path.resolve(primary, rel), "utf8")
+        if (content.trim()) blocks.push(`<context file="${rel}">\n${content}\n</context>`)
+      } catch {
+        /* file moved/deleted — skip silently */
+      }
+    }
+    return blocks.length ? `\n\n${blocks.join("\n\n")}` : ""
   }
   listSkills(): SkillInfo[] {
     return this.skills.map((s) => ({
@@ -1258,7 +1286,7 @@ export class SessionRunner {
               cwd: this.cwd,
               roots: this.roots,
               mode: sel.mode,
-              context: this.context.content,
+              context: this.context.content + this.pinnedContent(),
               skills: this.skills.map((s) => ({ name: s.name, description: s.description, whenToUse: s.whenToUse })),
               agents: this.agents.map((a) => ({ name: a.name, description: a.description })),
               // Advertise deferred tools (by name) that aren't yet activated, so the model knows to search.

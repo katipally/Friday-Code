@@ -255,6 +255,8 @@ export function createAppStore(engine: Engine, version = "dev") {
   const EMPTY: never[] = []
   const items = createMemo(() => sessionItems[activeSession()] ?? EMPTY)
   const [contextFiles, setContextFiles] = createSignal<string[]>(engine.contextInfo().files)
+  const [pinnedFiles, setPinnedFiles] = createSignal<string[]>(engine.contextInfo().pinned)
+  const [contextModalOpen, setContextModalOpen] = createSignal(false)
   const [skills, setSkills] = createSignal(engine.listSkills())
   const [mcpServers, setMcpServers] = createSignal(engine.listMcpServers())
   const [sessions, setSessions] = createSignal<SessionItem[]>(engine.listSessions())
@@ -295,6 +297,21 @@ export function createAppStore(engine: Engine, version = "dev") {
   function uninstallComputer() {
     engine.uninstallComputerUse()
     setComputerReady(engine.computerInstalled())
+  }
+  /** Open the macOS privacy pane for the permission computer-use needs (control = Accessibility,
+   * screenshot = Screen Recording) so the user can click-grant instead of hunting through Settings. */
+  function openMacPrivacy(pane: "accessibility" | "screen") {
+    if (process.platform !== "darwin") {
+      pushToast("opening privacy settings is only supported on macOS", "input")
+      return
+    }
+    const anchor = pane === "accessibility" ? "Privacy_Accessibility" : "Privacy_ScreenCapture"
+    try {
+      Bun.spawn(["open", `x-apple.systempreferences:com.apple.preference.security?${anchor}`])
+      pushToast(`opened ${pane === "accessibility" ? "Accessibility" : "Screen Recording"} settings`, "done")
+    } catch (e) {
+      pushToast(`couldn't open settings: ${e instanceof Error ? e.message : String(e)}`, "error")
+    }
   }
   const [checkpointsOpen, setCheckpointsOpen] = createSignal(false)
   const [forkOpen, setForkOpen] = createSignal(false)
@@ -409,6 +426,7 @@ export function createAppStore(engine: Engine, version = "dev") {
     pauseModalOpen() ||
     mcpModalOpen() ||
     skillsModalOpen() ||
+    contextModalOpen() ||
     computerModalOpen() ||
     checkpointsOpen() ||
     forkOpen() ||
@@ -428,7 +446,17 @@ export function createAppStore(engine: Engine, version = "dev") {
     setSessions(engine.listSessions())
     setAllSessions(engine.listAllSessions())
     setContextFiles(engine.contextInfo().files)
+    setPinnedFiles(engine.contextInfo().pinned)
     setSkills(engine.listSkills())
+  }
+
+  const pinContextFile = (rel: string) => {
+    engine.pinContextFile(rel)
+    setPinnedFiles(engine.contextInfo().pinned)
+  }
+  const unpinContextFile = (rel: string) => {
+    engine.unpinContextFile(rel)
+    setPinnedFiles(engine.contextInfo().pinned)
   }
 
   let localId = 0
@@ -900,15 +928,19 @@ export function createAppStore(engine: Engine, version = "dev") {
     }
   }
   // ---- dashboard launchers (open work in its own window; the dashboard stays the console) ----
+  /** A window-launch failure message that names the real reason (truncated) instead of a generic line. */
+  const winFail = (r: { backend: string; error?: string }, what: string) =>
+    r.error ? `couldn't open ${what} (${r.backend}): ${r.error.slice(0, 120)}` : `no terminal backend to open ${what}`
+
   /** Open a brand-new interactive friday window (new chat) in the current directory. */
   function newChatWindow() {
     const r = engine.openInteractive([])
-    pushToast(r.ok ? `opened new chat (${r.backend})` : "no terminal backend to open a window", r.ok ? "done" : "error")
+    pushToast(r.ok ? `opened new chat (${r.backend})` : winFail(r, "a window"), r.ok ? "done" : "error")
   }
   /** Resume an existing session in its own interactive window. */
   function resumeInWindow(id: string) {
     const r = engine.openInteractive(["-s", id])
-    pushToast(r.ok ? `opened session (${r.backend})` : "no terminal backend to open a window", r.ok ? "done" : "error")
+    pushToast(r.ok ? `opened session (${r.backend})` : winFail(r, "the session"), r.ok ? "done" : "error")
   }
   /** Fan out a swarm of independent agents (one task per line) + open watch windows for each. */
   function launchSwarm(tasks: string[]) {
@@ -1139,7 +1171,9 @@ export function createAppStore(engine: Engine, version = "dev") {
         pushToast(
           r.ok
             ? `opened ${r.opened} agent window(s) via ${r.backend}`
-            : "no terminal backend — see the dashboard's Swarm tab (Ctrl+O)",
+            : r.error
+              ? `couldn't open agent windows (${r.backend}): ${r.error.slice(0, 120)}`
+              : "no terminal backend — see the dashboard's Swarm tab (Ctrl+O)",
           r.ok ? "done" : "input",
         )
         return true
@@ -1495,7 +1529,7 @@ export function createAppStore(engine: Engine, version = "dev") {
   }
   function popoutAgent(sessionId: string) {
     const r = engine.popoutAgent(sessionId)
-    pushToast(r.ok ? `opened agent window via ${r.backend}` : "no terminal backend available", r.ok ? "done" : "input")
+    pushToast(r.ok ? `opened agent window via ${r.backend}` : winFail(r, "the agent window"), r.ok ? "done" : "input")
   }
   function deleteSession(id: string) {
     engine.deleteSession(id)
@@ -1744,6 +1778,7 @@ export function createAppStore(engine: Engine, version = "dev") {
     computerInstallLog,
     installComputer,
     uninstallComputer,
+    openMacPrivacy,
     setMcpModalOpen,
     mcpConfig,
     refreshMcp,
@@ -1775,6 +1810,11 @@ export function createAppStore(engine: Engine, version = "dev") {
     listCommands,
     runCommand,
     contextFiles,
+    pinnedFiles,
+    pinContextFile,
+    unpinContextFile,
+    contextModalOpen,
+    setContextModalOpen,
     skills,
     mcpServers,
     runningTools,

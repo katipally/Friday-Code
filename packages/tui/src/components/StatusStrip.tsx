@@ -2,6 +2,7 @@ import { getMode, MASCOT, type MascotState, theme } from "@friday/shared"
 import { createEffect, createSignal, onCleanup, Show } from "solid-js"
 import { useBreathe } from "../motion/index.ts"
 import { useApp } from "../store.tsx"
+import { hasKittyKeyboard } from "../util/term.ts"
 import { useMascotFrame } from "../util/useMascot.ts"
 import { Pressable } from "./Pressable.tsx"
 
@@ -110,14 +111,17 @@ export function StatusStrip() {
           <text fg={app.stopArmed() ? theme.bg : theme.error}>■ stop{app.stopArmed() ? " · esc again" : " · esc"}</text>
         </box>
         {/* Pause — opens the /pause modal so you can course-correct the running agent by adding context.
-            The shown key mirrors the (rebindable) pause.open binding, default Shift+Esc. */}
+            On kitty-protocol terminals show the nicer Cmd+Enter; otherwise the rebindable pause.open
+            binding (Ctrl+P), the chord that transmits everywhere. */}
         <box
           onMouseDown={() => app.runCommand("pause")}
           backgroundColor={theme.bgElevated}
           paddingLeft={1}
           paddingRight={1}
         >
-          <text fg={theme.warning}>⏸ Pause · {fmtChord(app.keymap()["pause.open"])}</text>
+          <text fg={theme.warning}>
+            ⏸ Pause · {hasKittyKeyboard ? "Cmd+Enter" : fmtChord(app.keymap()["pause.open"])}
+          </text>
         </box>
       </Show>
       <box flexGrow={1} />

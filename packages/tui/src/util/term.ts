@@ -28,6 +28,20 @@ export const hasTruecolor =
     ["iTerm.app", "WezTerm", "ghostty", "vscode", "Hyper"].includes(termProgram))
 
 /**
+ * True when the terminal is expected to support the kitty keyboard protocol, which lets us receive
+ * chords legacy terminals can't encode (Shift+Enter, Cmd/Super+Enter, disambiguated Shift+Esc).
+ * Used only to pick which pause hint to SHOW — the actual binding works whenever the protocol
+ * negotiates, regardless of this guess. Apple Terminal and the VS Code terminal don't support it.
+ */
+export const hasKittyKeyboard =
+  !!process.env.KITTY_WINDOW_ID ||
+  !!process.env.WT_SESSION ||
+  /ghostty/i.test(term) ||
+  ["WezTerm", "ghostty"].includes(termProgram) ||
+  // iTerm2 >= 3.5 supports it; assume modern.
+  termProgram === "iTerm.app"
+
+/**
  * Whether to avoid wide/emoji glyphs. We render the FULL glyph set in every terminal (like opencode)
  * so the UI looks identical everywhere — automatic degradation is OFF. `FRIDAY_ASCII=1` is the only
  * way to opt into the narrow/ASCII set, for the rare font that truly can't render the box/geometric
@@ -65,6 +79,11 @@ export const G = {
   // status dots (mcp, etc.)
   dotOn: glyph("●", "o"),
   dotOff: glyph("○", "."),
+  // feature glyphs — each distinct so nothing shares an icon (mcp/skill/tool/pin used to collide with ⚡/✓)
+  mcp: glyph("⧉", "#"), // MCP servers
+  skill: glyph("◆", "*"), // skills
+  tool: glyph("⚙", "%"), // tool calls
+  pin: glyph("📎", "@"), // pinned / context files
   // misc affordances
   bolt: glyph("⚡", "!"),
   warn: glyph("⚠", "!"),

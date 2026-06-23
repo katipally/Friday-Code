@@ -24,8 +24,9 @@ test("normalizeChord canonicalizes mod order + aliases", () => {
 test("actionForKey matches the default chords exactly", () => {
   const map = { ...DEFAULT_KEYBINDINGS }
   expect(actionForKey({ name: "b", ctrl: true }, map)).toBe("panel.toggle")
-  expect(actionForKey({ name: "escape", shift: true }, map)).toBe("pause.open")
-  // a plain Esc must NOT resolve to pause.open (shift differs) — keeps Esc-Esc stop working
+  // pause moved off shift+escape (terminals can't encode it) onto ctrl+p, which transmits everywhere
+  expect(actionForKey({ name: "p", ctrl: true }, map)).toBe("pause.open")
+  // a plain Esc must NOT resolve to any chord — keeps Esc-Esc stop / checkpoint working
   expect(actionForKey({ name: "escape" }, map)).toBeUndefined()
   expect(actionForKey({ name: "tab", shift: true }, map)).toBe("mode.cycle")
 })

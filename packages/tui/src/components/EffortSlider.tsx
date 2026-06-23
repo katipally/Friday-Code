@@ -44,19 +44,10 @@ export function EffortGauge(props: {
   const cur = () => props.levels[props.index] ?? props.levels[0]!
   const color = () => RAMP[cur()].color
   const [hov, setHov] = createSignal(-1)
-  // A hand-drawn track (●━━━○━━━○): nodes joined by segments, filled up to the current level.
-  // (`@opentui/solid` has no native <slider>, and a text track aligns cleanly in every terminal.)
-  const SEG = 6
-  const track = () => {
-    let full = ""
-    let thumb = 0
-    props.levels.forEach((_lv, i) => {
-      if (i === props.index) thumb = full.length
-      full += i < props.index ? "●" : i === props.index ? "◉" : "○"
-      if (i < props.levels.length - 1) full += (i < props.index ? "━" : "─").repeat(SEG)
-    })
-    return { filled: full.slice(0, thumb + 1), rest: full.slice(thumb + 1) }
-  }
+  // The gauge is an intensity bar-ramp (▁▃▅▆█): each level is its block glyph, colored on its
+  // cool→warm hue up to and including the current level, dim grey beyond it. This reads as a rising
+  // "more effort = taller, warmer" slider far more clearly than a flat dotted track, and the block
+  // glyphs are single-width so columns stay aligned in every terminal.
   return (
     <Show
       when={props.levels.length}
@@ -64,27 +55,41 @@ export function EffortGauge(props: {
     >
       <box flexDirection="row" gap={1} alignItems="center">
         <text fg={color()}>{badge(cur())}</text>
-        <text fg={theme.text}>{cur()}</text>
+        <text fg={theme.text}>
+          <strong>{cur()}</strong>
+        </text>
       </box>
-      <box flexDirection="row">
-        <text fg={cur() === "max" ? shimmerAccent(color()) : color()}>{track().filled}</text>
-        <text fg={theme.border}>{track().rest}</text>
-      </box>
+      {/* Clickable ramp: each cell is the level's bar over its label; click or hover to target it. */}
       <box flexDirection="row" gap={1}>
-        {props.levels.map((lv, i) => (
-          <box
-            paddingLeft={1}
-            paddingRight={1}
-            backgroundColor={bandBg(hov() === i)}
-            onMouseOver={() => setHov(i)}
-            onMouseOut={() => setHov(-1)}
-            onMouseDown={() => props.onPick(i)}
-          >
-            <text fg={hov() === i ? theme.textOnAccent : i === props.index ? RAMP[lv].color : theme.textFaint}>
-              {lv}
-            </text>
-          </box>
-        ))}
+        {props.levels.map((lv, i) => {
+          const active = () => i <= props.index
+          const on = () => hov() === i
+          const barFg = () =>
+            on()
+              ? theme.textOnAccent
+              : active()
+                ? lv === "max"
+                  ? shimmerAccent(RAMP[lv].color)
+                  : RAMP[lv].color
+                : theme.border
+          return (
+            <box
+              flexDirection="column"
+              alignItems="center"
+              paddingLeft={1}
+              paddingRight={1}
+              backgroundColor={bandBg(on())}
+              onMouseOver={() => setHov(i)}
+              onMouseOut={() => setHov(-1)}
+              onMouseDown={() => props.onPick(i)}
+            >
+              <text fg={barFg()}>{RAMP[lv].ascii}</text>
+              <text fg={on() ? theme.textOnAccent : i === props.index ? RAMP[lv].color : theme.textFaint}>
+                {i === props.index ? <strong>{lv}</strong> : lv}
+              </text>
+            </box>
+          )
+        })}
       </box>
       <text fg={theme.textMuted}>{BLURB[cur()]}</text>
     </Show>

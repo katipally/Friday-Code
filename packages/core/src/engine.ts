@@ -434,11 +434,11 @@ export class Engine {
     return id ? this.teamPayload(id) : null
   }
   /** Pop a single agent out into a real terminal window (tmux pane / OS terminal). */
-  popoutAgent(sessionId: string): { ok: boolean; backend: string; opened: number } {
+  popoutAgent(sessionId: string): { ok: boolean; backend: string; opened: number; error?: string } {
     return openFleetWindows([sessionId])
   }
   /** Open a NEW interactive friday window: fresh chat (no args) or resume `-s <id>`, in `cwd`. */
-  openInteractive(args: string[] = [], cwd?: string): { ok: boolean; backend: string; opened: number } {
+  openInteractive(args: string[] = [], cwd?: string): { ok: boolean; backend: string; opened: number; error?: string } {
     return openInteractiveWindow(args, cwd ?? this.currentCwd())
   }
   /** Force-activate deferred tools (by name prefix) for the focused session so the model can use them
@@ -507,7 +507,7 @@ export class Engine {
     return uninstallComputerUse()
   }
   /** Open a viewer window per running task (tmux pane / OS terminal); returns the chosen backend. */
-  openFleet(): { ok: boolean; backend: string; opened: number } {
+  openFleet(): { ok: boolean; backend: string; opened: number; error?: string } {
     const ids = this.taskList()
       .filter((t) => t.status === "running")
       .map((t) => t.id)
@@ -711,8 +711,15 @@ export class Engine {
   currentRoots(): string[] {
     return this.focused().currentRoots()
   }
-  contextInfo(): { files: string[] } {
+  contextInfo(): { files: string[]; pinned: string[] } {
     return this.focused().contextInfo()
+  }
+  /** Pin/unpin a file (relative to the focused session's primary root) into context for the session. */
+  pinContextFile(rel: string): void {
+    this.focused().pinFile(rel)
+  }
+  unpinContextFile(rel: string): void {
+    this.focused().unpinFile(rel)
   }
   listSkills(): SkillInfo[] {
     return this.focused().listSkills()

@@ -20,5 +20,11 @@ export async function start(engine: Engine, version = "dev"): Promise<void> {
     exitOnCtrlC: false, // we handle Ctrl+C to show the clean-exit screen
     useMouse: true,
     autoFocus: true,
+    // Kitty keyboard protocol: negotiated via a query/response handshake — terminals that don't
+    // support it (Terminal.app) simply ignore it, so this is safe everywhere. Where supported
+    // (kitty, WezTerm, Ghostty, modern iTerm2) it delivers chords legacy terminals can't encode:
+    // Shift+Enter, Cmd/Super+Enter (pause), and disambiguated Esc. `disambiguate` also fixes the
+    // alt-vs-meta ambiguity and ESC timing.
+    useKittyKeyboard: { disambiguate: true, alternateKeys: true },
   })
 }

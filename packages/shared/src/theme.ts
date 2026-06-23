@@ -86,63 +86,71 @@ const BASE: Theme = { ...theme }
  */
 export const THEMES: Record<string, Partial<Theme>> = {
   dark: {}, // the default — Friday's signature near-black palette
-  // Brighter text + edges on the same black canvas; for low-vision / harsh-light terminals.
+  // Brighter text + edges on the same black canvas; for low-vision / harsh-light terminals. Pushed
+  // clearly past `dark`: pure-white text, near-white muted/faint, bright surfaces and edges, and a
+  // selection band light enough to be unmistakable — so the two themes never look interchangeable.
   "high-contrast": {
+    bgComposer: "#1f2228",
+    bgPanel: "#1f2228",
+    bgElevated: "#2b2f37",
+    bgHover: "#3c414b",
     text: "#ffffff",
-    textMuted: "#d4d6db",
-    textFaint: "#b3b6bd",
-    border: "#8a8d96",
-    borderMuted: "#4a4c54",
+    textMuted: "#e4e6eb",
+    textFaint: "#c4c8d0",
+    border: "#9aa0ab",
+    borderMuted: "#5a5e68",
     borderActive: "#ffffff",
-    bgSelected: "#5a5d68",
+    bgSelected: "#6a6e7a",
   },
-  // A complete light palette — every token overridden so code blocks, markdown and diffs stay legible
-  // on white (a partial override would leave dark-theme text invisible on the light canvas). The
-  // selection band is a saturated mid-blue so the shared white `textOnAccent` reads on it AND on the
-  // semantic (warning/error) bands, matching how the dark theme's single on-accent text works.
+  // Warm-paper light palette (Claude-Code-style) — a soft cream canvas, not harsh pure white, with
+  // Friday's amber brand kept (darkened to read on light). Every token is overridden so dark-theme
+  // values can't bleed through. The selection band is a saturated warm amber so the shared white
+  // `textOnAccent` reads on it AND on the semantic (success/warning/error) bands — same single-
+  // on-accent-text model the dark theme uses.
   light: {
-    bg: "#ffffff",
-    bgComposer: "#f1f2f4",
-    bgPanel: "#f3f4f6",
-    bgElevated: "#e9ebef",
-    bgHover: "#dfe2e8",
-    bgSelected: "#2f6fb0",
-    text: "#1a1c20",
-    textMuted: "#4a4f57",
-    textFaint: "#6b727c",
+    bg: "#faf9f5", // warm paper, not pure white
+    bgComposer: "#f0eee6",
+    bgPanel: "#f0eee6",
+    bgElevated: "#e9e6dc",
+    bgHover: "#e2ded2",
+    bgSelected: "#b5751a", // saturated warm amber band — white text reads on it
+    text: "#2a2824",
+    textMuted: "#5c574e",
+    textFaint: "#8a857a",
     textOnAccent: "#ffffff",
-    brand: "#b36b00",
-    brandDim: "#8a5a14",
-    border: "#c3c7cf",
-    borderMuted: "#d9dce1",
-    borderActive: "#9197a0",
+    brand: "#b3691a", // warm amber, darkened for the light canvas
+    brandDim: "#8a5414",
+    border: "#d8d3c6", // soft warm edges
+    borderMuted: "#e6e1d6",
+    borderActive: "#b3ad9d",
     user: "#3a5a8c",
-    success: "#1f8f3f",
+    success: "#2f8a3e",
     warning: "#9a6a00",
-    error: "#c0394f",
+    error: "#c0392b",
     info: "#1f6fb0",
-    syntaxComment: "#6a737d",
-    syntaxKeyword: "#d73a49",
-    syntaxFunction: "#6f42c1",
-    syntaxVariable: "#24292e",
-    syntaxString: "#22863a",
-    syntaxNumber: "#005cc5",
-    syntaxType: "#005cc5",
-    syntaxOperator: "#d73a49",
-    syntaxPunctuation: "#24292e",
-    markdownHeading: "#005cc5",
-    markdownStrong: "#24292e",
-    markdownEmph: "#6f42c1",
-    markdownLink: "#0366d6",
-    markdownLinkText: "#22863a",
-    markdownCode: "#b31d28",
-    markdownQuote: "#6a737d",
-    markdownListMarker: "#005cc5",
-    diffAdded: "#22863a",
-    diffRemoved: "#b31d28",
-    diffAddedBg: "#e6ffed",
-    diffRemovedBg: "#ffeef0",
-    diffContextBg: "#ffffff",
+    // GitHub-light-style syntax, tuned to sit on the warm canvas.
+    syntaxComment: "#8a857a",
+    syntaxKeyword: "#cf222e",
+    syntaxFunction: "#6639ba",
+    syntaxVariable: "#2a2824",
+    syntaxString: "#1a7f37",
+    syntaxNumber: "#0550ae",
+    syntaxType: "#0550ae",
+    syntaxOperator: "#cf222e",
+    syntaxPunctuation: "#3a3630",
+    markdownHeading: "#0550ae",
+    markdownStrong: "#2a2824",
+    markdownEmph: "#6639ba",
+    markdownLink: "#0969da",
+    markdownLinkText: "#1a7f37",
+    markdownCode: "#b3691a",
+    markdownQuote: "#8a857a",
+    markdownListMarker: "#0550ae",
+    diffAdded: "#1a7f37",
+    diffRemoved: "#cf222e",
+    diffAddedBg: "#e6f4ea",
+    diffRemovedBg: "#fbe9e7",
+    diffContextBg: "#faf9f5",
   },
 }
 
