@@ -175,12 +175,7 @@ async function updateScoop(): Promise<void> {
 // Commit the rendered manifest straight to the tap/bucket default branch — no PR,
 // no merge step, so releases are zero-touch. These are our own repos and the content
 // is mechanically rendered, so the review a PR would add buys nothing.
-async function commitFile(
-  repo: string,
-  filePath: string,
-  content: string,
-  commitMessage: string,
-): Promise<void> {
+async function commitFile(repo: string, filePath: string, content: string, commitMessage: string): Promise<void> {
   const [owner, name] = repo.split("/")
   const apiBase = `https://api.github.com/repos/${owner}/${name}`
   const headers: Record<string, string> = {

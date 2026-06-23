@@ -16,13 +16,13 @@ embedded), distributed via npm, Homebrew, Scoop, a curl script, and GitHub Relea
 2. **Release approval gate**: Settings → Environments → create environment named
    **`release`** → add yourself as a required reviewer. The `npm-publish` job
    waits on it before going live.
-3. **Homebrew tap** (optional): create repo `katipally/homebrew-tap` with an
-   empty `Formula/` directory. The release workflow opens a PR that updates
-   `Formula/friday.rb`.
-4. **Scoop bucket** (optional, Windows): create repo `katipally/scoop-bucket`
-   with an empty root. The release workflow opens a PR that updates `friday.json`.
-5. **Cross-repo PR token**: create a PAT with `repo` scope and add it as
-   **`RELEASE_TOKEN`**. The default `GITHUB_TOKEN` can't open PRs on other repos.
+3. **Homebrew tap**: create repo `katipally/homebrew-tap`. The release workflow
+   commits the updated `Formula/friday.rb` straight to its default branch.
+4. **Scoop bucket** (Windows): create repo `katipally/scoop-bucket`. The release
+   workflow commits the updated `friday.json` straight to its default branch.
+5. **Cross-repo token**: create a fine-grained PAT with **Contents: write** on
+   `homebrew-tap` and `scoop-bucket`, add it as **`RELEASE_TOKEN`**. The default
+   `GITHUB_TOKEN` can't write to other repos.
 6. Make `main` the default branch and turn on branch protection requiring CI.
 
 ## Cut a release
@@ -47,8 +47,8 @@ The release workflow automatically:
 3. waits for your **manual approval** in the `release` environment
 4. publishes every `friday-code-<target>` package + the `friday-code` launcher
    to npm with provenance
-5. opens a **PR on `katipally/homebrew-tap`** with the new formula + SHA256s
-6. opens a **PR on `katipally/scoop-bucket`** with the new manifest + hash
+5. commits the new formula + SHA256s straight to **`katipally/homebrew-tap`**
+6. commits the new manifest + hash straight to **`katipally/scoop-bucket`**
 
 The `VERSION` everywhere (binary `--version`, npm `package.json` files, Homebrew
 formula, Scoop manifest) is stamped from the tag, so you cannot accidentally have
@@ -119,8 +119,8 @@ GitHub Actions → Release → Run workflow → tag: v2.0.2
   │  npm-publish │  ⏸  manual approve (release env)
   │              │  → rebuilds launcher package (stamped 2.0.2)
   │              │  → npm × 9 packages (8 platform + 1 launcher)
-  │              │  → PR on homebrew-tap (formula with sha256s from the release)
-  │              │  → PR on scoop-bucket  (manifest with hash from the release)
+  │              │  → commit homebrew-tap (formula with sha256s from the release)
+  │              │  → commit scoop-bucket  (manifest with hash from the release)
   └──────────────┘
 ```
 
@@ -171,7 +171,7 @@ VERSION=2.0.2 NODE_AUTH_TOKEN=… GITHUB_TOKEN=… \
 |----------------|-----------------------------------------------------------|
 | npm            | `npm install -g friday-code`                              |
 | curl           | `curl -fsSL .../main/install.sh \| sh`                    |
-| Homebrew       | `brew install katipally/tap/friday`                       |
+| Homebrew       | `brew tap katipally/tap && brew install friday`           |
 | Scoop (Win)    | `scoop bucket add katipally …; scoop install friday`      |
 | GitHub Release | direct binary download + checksums                        |
 

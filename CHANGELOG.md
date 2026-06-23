@@ -11,6 +11,25 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [2.0.11] - 2026-06-23
+
+### Added
+
+- **Background update checks**: friday now checks for a new version at startup
+  and every 4 hours while running. When a newer release lands it surfaces the
+  update modal — once per version, and never on top of another dialog — so you
+  find out without restarting. Disable via `/settings → autoupdate → off`.
+- **`/restart`**: relaunch friday in place, resuming the **current session** —
+  handy after changing a setting or theme that needs a fresh process.
+
+### Fixed
+
+- **Update & restart no longer garbles the terminal.** The post-update relaunch
+  used a detached child that fought the shell for the terminal, spewing escape
+  codes and leaving the TUI uninteractable. It now hands the terminal to the new
+  process in the foreground, so the upgraded friday comes up cleanly and drops
+  you back into the same session.
+
 ## [2.0.10] - 2026-06-23
 
 ### Added

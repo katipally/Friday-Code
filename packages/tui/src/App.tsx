@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process"
 import type { Engine } from "@friday/core"
 import { theme } from "@friday/shared"
 import { useKeyboard, useRenderer, useSelectionHandler, useTerminalDimensions } from "@opentui/solid"
@@ -44,6 +43,21 @@ function fmtTokens(n: number): string {
 function fmtDuration(ms: number): string {
   const s = Math.round(ms / 1000)
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`
+}
+
+// Build the relaunch argv for a restart: drop any existing session/continue flags from the
+// original args, then force `-s <id>` so the new process resumes the exact session we were in.
+function relaunchArgs(args: string[], sessionId: string | null): string[] {
+  const out: string[] = []
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]
+    if (a === "-s" || a === "--session")
+      i++ // skip the flag and its value
+    else if (a === "-c" || a === "--continue") continue
+    else out.push(a!)
+  }
+  if (sessionId) out.push("-s", sessionId)
+  return out
 }
 
 // Wordmark left in the terminal on exit — the SAME half-block glyphs as the empty-state Logo
@@ -361,19 +375,25 @@ function AppRoot() {
     const s = app.exitStats()
     app.engine.dispose() // close MCP + discard empty placeholder sessions so history stays clean
     renderer.destroy() // leave the alt-screen and restore the normal terminal
+
+    // Restart (/restart or post-update): relaunch into the SAME session, in the FOREGROUND.
+    // A detached child fights the shell for the controlling TTY — input is lost and the new
+    // TUI's escape codes splatter as garbage. spawnSync keeps the child as the sole foreground
+    // process; it owns the terminal until it exits, then we follow it out with its exit code.
+    if (app.wantsRestart()) {
+      const args = relaunchArgs(process.argv.slice(1), empty ? null : id)
+      try {
+        const r = Bun.spawnSync([process.execPath, ...args], { stdio: ["inherit", "inherit", "inherit"] })
+        process.exit(r.exitCode ?? 0)
+      } catch {
+        // Spawn failed — fall through to the farewell so the resume line tells them how to get back.
+      }
+    }
+
     const name = title ? `  “${title}”\n` : ""
     const stats = s ? `  ${s.messages} messages · ${fmtTokens(s.tokens)} tokens · ${fmtDuration(s.durationMs)}\n` : ""
     const resume = empty ? "" : `  resume:  friday -s ${id}\n` // empty sessions are discarded on dispose
     process.stdout.write(`\n${EXIT_LOGO}\n\n${name}${stats}${resume}\n`)
-    // After a /update, relaunch the (now-upgraded) binary so the user lands straight back in friday.
-    // ponytail: best-effort re-exec; if the spawn fails the printed `resume:` line still tells them how.
-    if (app.wantsRestart()) {
-      try {
-        spawn(process.execPath, process.argv.slice(1), { detached: true, stdio: "inherit" }).unref()
-      } catch {
-        /* fall back to manual relaunch */
-      }
-    }
     process.exit(0)
   }
   createEffect(() => {

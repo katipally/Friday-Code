@@ -31,17 +31,49 @@ friday is an attempt to ship a complete CLI coding agent in OSS, written from sc
 
 ## Install
 
-| Platform | Command | Notes |
-|---|---|---|
-| macOS / Linux (Homebrew) | `brew tap katipally/tap && brew install friday` | upgrades with `brew upgrade friday` |
-| Anywhere with npm | `npm i -g friday-code` | needs Node 18+. Launcher auto-detects arch + musl |
-| macOS / Linux (curl) | `curl -fsSL https://raw.githubusercontent.com/katipally/friday-code/main/install.sh \| sh` | lands in `~/.friday/bin` |
-| Windows (Scoop) | `scoop bucket add katipally https://github.com/katipally/scoop-bucket && scoop install friday` | updates with `scoop update friday` |
-| Windows (npm) | `npm i -g friday-code` | PowerShell, CMD, or Git Bash |
-| Source | `git clone … && cd friday-code && bun install && bun run friday` | Bun 1.3+ only |
-| Docker | `FROM node:22-alpine && RUN npm i -g friday-code` | Alpine image picks the musl binary automatically |
+Pick your OS. Each command installs the `friday` binary and puts it on your PATH.
 
-Verify with `friday --version`. Direct binary downloads (with `SHASUMS256.txt`) are on the [Releases](https://github.com/katipally/friday-code/releases) page.
+**macOS / Linux — Homebrew** (recommended)
+
+```sh
+brew tap katipally/tap
+brew install friday
+```
+
+Later: `brew upgrade friday`. (Apple Silicon, Intel, and Linux x64/arm64 are all covered.)
+
+**Windows — Scoop** (recommended)
+
+```powershell
+scoop bucket add katipally https://github.com/katipally/scoop-bucket
+scoop install friday
+```
+
+Later: `scoop update friday`.
+
+**Any OS — npm** (works wherever Node 18+ is installed)
+
+```sh
+npm install -g friday-code
+```
+
+The `friday-code` launcher auto-detects your platform (including Linux musl vs glibc) and pulls the right binary. Later: `npm update -g friday-code` — or just run `/update` inside friday.
+
+**macOS / Linux — one-line script** (no package manager)
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/katipally/friday-code/main/install.sh | sh
+```
+
+Lands in `~/.friday/bin`; the script prints the `export PATH=…` line to add to your shell rc.
+
+**Other ways**
+
+- **Direct download:** grab the binary for your platform from the [Releases](https://github.com/katipally/friday-code/releases) page (`friday-<os>-<arch>`), verify against `SHASUMS256.txt`, `chmod +x`, and run.
+- **Docker / Alpine:** `RUN npm i -g friday-code` — the musl binary is selected automatically.
+- **From source:** `git clone https://github.com/katipally/friday-code && cd friday-code && bun install && bun run friday` (needs Bun 1.3+).
+
+Verify any install with `friday --version`. friday checks for new versions on its own and will offer to update from inside the app.
 
 On first run, the splash shows up and `/model` lets you pick a provider. The picker validates the key against the provider before saving it, so a typo fails fast.
 

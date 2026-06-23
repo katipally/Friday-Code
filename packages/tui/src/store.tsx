@@ -30,7 +30,7 @@ import {
   type TodoItem,
   themeNames,
 } from "@friday/shared"
-import { createContext, createMemo, createSignal, type JSX, useContext } from "solid-js"
+import { createContext, createMemo, createSignal, type JSX, onCleanup, useContext } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 
 export type ToolStatus = "running" | "done" | "error"
@@ -1077,6 +1077,7 @@ export function createAppStore(engine: Engine, version = "dev") {
     { name: "commit", description: "stage all & commit (drafts message)" },
     { name: "undo", description: "rewind files + chat to a checkpoint" },
     { name: "help", description: "show the keymap" },
+    { name: "restart", description: "relaunch friday, resuming this session" },
     { name: "exit", description: "quit Friday (clean exit)" },
   ]
 
@@ -1338,6 +1339,9 @@ export function createAppStore(engine: Engine, version = "dev") {
         return true
       case "help":
         setOverlayOpen(true)
+        return true
+      case "restart":
+        quit(true)
         return true
       case "exit":
       case "quit":
@@ -1732,16 +1736,29 @@ export function createAppStore(engine: Engine, version = "dev") {
     }
   }
 
-  // Startup update check: once per day, only for released builds, only when not disabled. Fire-and-
-  // forget so it never delays first render; opens the notify modal if a newer version exists.
+  // Update checks: one at startup, then every 4h while running. Released builds only, and only
+  // when not disabled. When a newer version turns up we pop the notify modal — even mid-work — but
+  // only once per version, and never on top of another modal (so it can't clobber what you're doing;
+  // it waits for the next tick when you're clear). Fire-and-forget so it never blocks render.
+  let notifiedVersion: string | null = null
+  function maybeNotifyUpdate(): void {
+    if (updateState() !== "available") return
+    const latest = updateLatest()
+    if (!latest || latest === notifiedVersion) return // already surfaced this version
+    if (anyModalOpen()) return // don't interrupt another modal — retry on the next interval
+    notifiedVersion = latest
+    setUpdateModalOpen(true)
+  }
   if (version !== "dev") {
+    const check = () => {
+      if (engine.userConfig().autoupdate === "off") return
+      void checkForUpdate().then(maybeNotifyUpdate)
+    }
     const cfg = engine.userConfig()
     const stale = Date.now() - (cfg.lastUpdateCheck ?? 0) > 24 * 60 * 60 * 1000
-    if (cfg.autoupdate !== "off" && stale) {
-      void checkForUpdate().then(() => {
-        if (updateState() === "available") setUpdateModalOpen(true)
-      })
-    }
+    if (cfg.autoupdate !== "off" && stale) check()
+    const timer = setInterval(check, 4 * 60 * 60 * 1000)
+    onCleanup(() => clearInterval(timer))
   }
 
   return {
