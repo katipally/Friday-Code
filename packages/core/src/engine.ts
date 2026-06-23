@@ -32,7 +32,7 @@ import {
   type Tool,
   uninstallComputerUse,
 } from "@friday/tools"
-import { type PostKind, TeamBoard } from "./board.ts"
+import { TeamBoard } from "./board.ts"
 import { type CustomCommand, loadCommands } from "./commands.ts"
 import { loadConfig, saveConfig } from "./config.ts"
 import { type CronJob, loadCron, parseInterval, saveCron } from "./cron.ts"
@@ -346,7 +346,7 @@ export class Engine {
    * orchestrator to merge & report. Guarded so it runs exactly once per team. Event-driven, no polling. */
   private maybeGather(teamId: string): void {
     const t = this.board.team(teamId)
-    if (!t || t.status !== "running") return
+    if (t?.status !== "running") return
     const members = this.board.members(teamId)
     if (!members.length || members.some((m) => m.status === "running")) return
     this.board.finishTeam(teamId, "gathering")
@@ -380,7 +380,7 @@ export class Engine {
   /** Force-stop any still-running members after the timeout, then gather whatever exists. */
   private gatherTimeout(teamId: string): void {
     const t = this.board.team(teamId)
-    if (!t || t.status !== "running") return
+    if (t?.status !== "running") return
     for (const m of this.board.members(teamId)) {
       if (m.status === "running") {
         this.runners.get(m.sessionId)?.abortRun()

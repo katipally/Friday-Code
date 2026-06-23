@@ -5,8 +5,8 @@ import { useBreathe } from "../motion/index.ts"
 import { useApp } from "../store.tsx"
 import { Markdown } from "./Markdown.tsx"
 import { Pressable } from "./Pressable.tsx"
-import { Overlay } from "./ui.tsx"
 import { Scrim } from "./Scrim.tsx"
+import { Overlay } from "./ui.tsx"
 
 /** A 12-cell block bar for a 0–100 percentage. */
 function bar(pct: number, width = 12): string {
@@ -22,7 +22,10 @@ function bar(pct: number, width = 12): string {
  */
 export function CompactionCard() {
   const app = useApp()
-  const glow = useBreathe(() => theme.brand, () => app.compacting())
+  const glow = useBreathe(
+    () => theme.brand,
+    () => app.compacting(),
+  )
   const before = () => app.compactPct().before
 
   useKeyboard((key) => {

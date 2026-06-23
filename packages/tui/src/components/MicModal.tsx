@@ -2,8 +2,8 @@ import { theme } from "@friday/shared"
 import { useKeyboard } from "@opentui/solid"
 import { Match, Show, Switch } from "solid-js"
 import { useApp } from "../store.tsx"
-import { Overlay } from "./ui.tsx"
 import { Scrim } from "./Scrim.tsx"
+import { Overlay } from "./ui.tsx"
 
 /**
  * Mic modal — press-to-talk, on-device speech-to-text (whisper-tiny.en). Ctrl+R (or ⏎/space) while

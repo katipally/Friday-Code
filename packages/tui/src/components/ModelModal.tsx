@@ -19,13 +19,7 @@ function fmtCost(c?: { input: number; output: number }): string {
 }
 
 /** Custom selectable row with the full-width brand selection band (icons/extra columns). */
-function Row(props: {
-  active: boolean
-  onClick: () => void
-  onHover?: () => void
-  children: any
-  id?: string
-}) {
+function Row(props: { active: boolean; onClick: () => void; onHover?: () => void; children: any; id?: string }) {
   return (
     <box
       id={props.id}
@@ -191,11 +185,7 @@ export function ModelModal() {
             <box flexDirection="column">
               <For each={providers}>
                 {(p, i) => (
-                  <Row
-                    active={pIndex() === i()}
-                    onHover={() => setPIndex(i())}
-                    onClick={() => chooseProvider(p)}
-                  >
+                  <Row active={pIndex() === i()} onHover={() => setPIndex(i())} onClick={() => chooseProvider(p)}>
                     <box width={26}>
                       <text fg={pIndex() === i() ? theme.textOnAccent : theme.textMuted}>{p.name}</text>
                     </box>
@@ -299,7 +289,9 @@ export function ModelModal() {
                         <text fg={mIndex() === i() ? theme.textOnAccent : theme.textFaint}>◇</text>
                       </Show>
                       <Show when={m.contextWindow}>
-                        <text fg={mIndex() === i() ? theme.textOnAccent : theme.textFaint}>{fmtCtx(m.contextWindow)}</text>
+                        <text fg={mIndex() === i() ? theme.textOnAccent : theme.textFaint}>
+                          {fmtCtx(m.contextWindow)}
+                        </text>
                       </Show>
                       <Show when={m.cost}>
                         <text fg={mIndex() === i() ? theme.textOnAccent : theme.textFaint}>{fmtCost(m.cost)}</text>

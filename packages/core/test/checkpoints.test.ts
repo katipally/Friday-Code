@@ -3,8 +3,8 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import type { EngineEvent, ProviderEvent } from "@friday/shared"
-import { Engine, SessionStore, type StreamFn } from "../src/index.ts"
 import { lineDelta } from "../src/checkpoints.ts"
+import { Engine, SessionStore, type StreamFn } from "../src/index.ts"
 
 test("lineDelta counts added/removed via LCS", () => {
   expect(lineDelta("a\nb\nc", "a\nb\nc")).toEqual({ added: 0, removed: 0 })

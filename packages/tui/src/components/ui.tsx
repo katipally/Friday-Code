@@ -127,9 +127,7 @@ export function Row(props: {
     >
       <Show
         when={props.labelWidth}
-        fallback={
-          <text fg={labelFg()}>{sel() ? <strong>{props.label}</strong> : props.label}</text>
-        }
+        fallback={<text fg={labelFg()}>{sel() ? <strong>{props.label}</strong> : props.label}</text>}
       >
         <box width={props.labelWidth}>
           <text fg={labelFg()}>{sel() ? <strong>{props.label}</strong> : props.label}</text>

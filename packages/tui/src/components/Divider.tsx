@@ -14,8 +14,7 @@ export function GripDivider(props: {
   onEnd: () => void
 }) {
   const [hover, setHover] = createSignal(false)
-  const ruleColor = () =>
-    props.active ? shimmerAccent(theme.brand, 0.4) : hover() ? theme.borderActive : theme.border
+  const ruleColor = () => (props.active ? shimmerAccent(theme.brand, 0.4) : hover() ? theme.borderActive : theme.border)
 
   return (
     <box

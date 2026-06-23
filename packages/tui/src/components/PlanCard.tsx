@@ -2,10 +2,9 @@ import { type ModeId, theme } from "@friday/shared"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 import { useApp } from "../store.tsx"
-import { G } from "../util/term.ts"
 import { Markdown } from "./Markdown.tsx"
-import { Overlay, Row } from "./ui.tsx"
 import { Scrim } from "./Scrim.tsx"
+import { Overlay, Row } from "./ui.tsx"
 
 type Choice =
   | { kind: "mode"; mode: ModeId; label: string; hint: string }

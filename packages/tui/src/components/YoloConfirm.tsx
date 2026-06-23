@@ -4,8 +4,8 @@ import { Show } from "solid-js"
 import { shimmerAccent } from "../motion/index.ts"
 import { useApp } from "../store.tsx"
 import { G } from "../util/term.ts"
-import { Overlay } from "./ui.tsx"
 import { Scrim } from "./Scrim.tsx"
+import { Overlay } from "./ui.tsx"
 
 /**
  * Confirmation gate for entering yolo mode. yolo grants blanket approval — file edits, shell,
@@ -31,8 +31,8 @@ export function YoloConfirm() {
             <strong>{G.warn} ENTER YOLO MODE?</strong>
           </text>
           <text fg={theme.text}>
-            yolo runs everything with NO confirmation — file edits, shell commands, browser control,
-            and desktop (mouse/keyboard) actions all execute automatically.
+            yolo runs everything with NO confirmation — file edits, shell commands, browser control, and desktop
+            (mouse/keyboard) actions all execute automatically.
           </text>
           <text fg={theme.textMuted}>Only use this when you trust the task. You can leave with Shift+Tab.</text>
           <box flexDirection="row" gap={1}>
@@ -41,7 +41,12 @@ export function YoloConfirm() {
                 <strong>y</strong> enable yolo
               </text>
             </box>
-            <box paddingLeft={1} paddingRight={1} backgroundColor={theme.bgComposer} onMouseDown={() => app.cancelYolo()}>
+            <box
+              paddingLeft={1}
+              paddingRight={1}
+              backgroundColor={theme.bgComposer}
+              onMouseDown={() => app.cancelYolo()}
+            >
               <text fg={theme.textMuted}>
                 <strong>n</strong> cancel
               </text>

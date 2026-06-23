@@ -32,7 +32,6 @@ class BrowserSession {
   private pending = new Map<number, Pending>()
   private consoleBuf: string[] = []
   port = 0
-  private currentUrl = "about:blank"
 
   get connected(): boolean {
     return !!this.ws && this.ws.readyState === WebSocket.OPEN
@@ -129,7 +128,6 @@ class BrowserSession {
   async navigate(url: string): Promise<string> {
     await this.send("Page.navigate", { url })
     await Bun.sleep(800) // ponytail: fixed settle instead of wiring Page.loadEventFired; bump if SPAs need it
-    this.currentUrl = url
     return `navigated to ${url}`
   }
 

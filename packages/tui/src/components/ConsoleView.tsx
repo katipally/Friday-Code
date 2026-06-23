@@ -101,13 +101,7 @@ export function ConsoleView() {
       >
         <box flexDirection="row" flexGrow={1} gap={1}>
           {/* left rail — roster */}
-          <box
-            flexDirection="column"
-            width={34}
-            backgroundColor={theme.bgElevated}
-            paddingLeft={1}
-            paddingRight={1}
-          >
+          <box flexDirection="column" width={34} backgroundColor={theme.bgElevated} paddingLeft={1} paddingRight={1}>
             <SectionLabel text={`ROSTER (${members().length})`} />
             <For each={members()}>
               {(m, i) => {
@@ -135,7 +129,13 @@ export function ConsoleView() {
 
           {/* right pane — board (top) + watch tail (bottom) */}
           <box flexDirection="column" flexGrow={1} gap={1}>
-            <box flexDirection="column" flexGrow={1} backgroundColor={theme.bgElevated} paddingLeft={1} paddingRight={1}>
+            <box
+              flexDirection="column"
+              flexGrow={1}
+              backgroundColor={theme.bgElevated}
+              paddingLeft={1}
+              paddingRight={1}
+            >
               <SectionLabel text="SHARED BOARD" />
               <Show when={app.team()!.posts.length} fallback={<text fg={theme.textFaint}>(no posts yet)</text>}>
                 <For each={app.team()!.posts.slice(-12)}>

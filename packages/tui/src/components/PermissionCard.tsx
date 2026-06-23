@@ -4,9 +4,8 @@ import { For, Show } from "solid-js"
 import { shimmerAccent } from "../motion/index.ts"
 import { type PendingPermission, useApp } from "../store.tsx"
 import { G } from "../util/term.ts"
-import { bandBg } from "./ui.tsx"
-import { Overlay } from "./ui.tsx"
 import { Scrim } from "./Scrim.tsx"
+import { bandBg, Overlay } from "./ui.tsx"
 
 const DECISIONS = ["allow-once", "allow-always", "deny"] as const
 
@@ -62,12 +61,7 @@ export function PermissionCard() {
 
             {/* The exact command / path, in a bounded monospace surface. */}
             <Show when={p().detail}>
-              <box
-                backgroundColor={theme.bgComposer}
-                paddingLeft={1}
-                paddingRight={1}
-                maxHeight={8}
-              >
+              <box backgroundColor={theme.bgComposer} paddingLeft={1} paddingRight={1} maxHeight={8}>
                 <text fg={p().risk ? theme.error : theme.textMuted} selectable>
                   {p().detail}
                 </text>
