@@ -280,7 +280,9 @@ test("checkpoint captures bash-created files; rewind both removes them", async (
   engine.restoreCheckpoint(cps[0]!.id, "both")
   await waitFor(() => !fs.existsSync(path.join(dir, "created.txt")))
   expect(fs.existsSync(path.join(dir, "created.txt"))).toBe(false) // rewind removed the bash-created file
-  fs.rmSync(dir, { recursive: true, force: true })
+  // maxRetries: the changes panel spawns background `git` in this dir (cwd lock); on Windows an
+  // immediate rm races it with EBUSY. Retry briefly — native, exactly what this option is for.
+  fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
 }, 20_000)
 
 test("scoped rewind: code-only keeps the conversation, conversation-only keeps the files", async () => {
