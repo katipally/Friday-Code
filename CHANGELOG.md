@@ -53,8 +53,10 @@ All notable changes to this project are documented here. The format is based on
   `packages/shared/src/modes.ts`.
 - Release build: `onnxruntime-node` (pulled in by the on-device mic via
   `@huggingface/transformers`) ships no darwin/x64 prebuilt, which broke the
-  `darwin-x64` binary build and blocked the release. It is now marked external
-  for that target only; the mic's lazy import degrades gracefully on Intel Macs.
+  `darwin-x64` binary build and blocked the release. It is now stubbed to `{}`
+  for that target only (a `--compile` standalone can't resolve an external
+  runtime require), so the binary builds and Transformers.js falls back to its
+  WASM backend; the mic degrades gracefully on Intel Macs.
 
 ## [2.0.2] - 2026-06-18
 

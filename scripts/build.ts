@@ -195,13 +195,23 @@ for (const t of targets) {
   // mic) ships no darwin/x64 prebuilt — its bin/napi-v6/ has darwin/arm64 only.
   // Its binding.js does `require(`../bin/napi-v6/${platform}/${arch}/…node`)`,
   // so bundling on the Intel-mac runner can't resolve darwin/x64 and the build
-  // fails. Mark it external there: the binary still builds, and the mic's lazy
-  // `import("@huggingface/transformers")` (mic.ts) catches the missing module
-  // and degrades gracefully — Intel Macs can't run the native runtime anyway.
-  const external = t.name === "darwin-x64" ? ["onnxruntime-node"] : undefined
+  // fails. `external` doesn't help (a --compile standalone binary has no
+  // node_modules to resolve a runtime require → "Cannot find package"). Instead
+  // stub the package to {} for darwin-x64 only: nothing reaches the missing
+  // .node, the binary builds, and Transformers.js falls back to its WASM
+  // backend (onnxruntime-web), so the mic still degrades gracefully there.
+  const plugins = [solidTransformPlugin]
+  if (t.name === "darwin-x64") {
+    plugins.push({
+      name: "stub-onnxruntime-node",
+      setup(b) {
+        b.onResolve({ filter: /^onnxruntime-node$/ }, () => ({ path: "onnxruntime-node", namespace: "ort-node-stub" }))
+        b.onLoad({ filter: /.*/, namespace: "ort-node-stub" }, () => ({ contents: "export default {}", loader: "js" }))
+      },
+    })
+  }
   const result = await Bun.build({
     entrypoints: [ENTRY],
-    external,
     compile: {
       target: t.bun as Bun.Build.CompileTarget,
       outfile: outBase,
@@ -213,7 +223,7 @@ for (const t of targets) {
     define: {
       __FRIDAY_VERSION__: JSON.stringify(VERSION),
     },
-    plugins: [solidTransformPlugin],
+    plugins,
   })
   if (!result.success) {
     console.error(`\nbuild failed for ${t.name}.`)
