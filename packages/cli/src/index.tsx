@@ -1,5 +1,13 @@
 #!/usr/bin/env bun
-import { Engine, SessionStore } from "@friday/core"
+import {
+  compareSemver,
+  detectInstallMethod,
+  Engine,
+  getLatestVersion,
+  loadConfig,
+  runUpdate,
+  SessionStore,
+} from "@friday/core"
 import { start } from "@friday/tui"
 
 // Stamped at compile time by scripts/build.ts via --define; "dev" when run from source.
@@ -67,9 +75,35 @@ if (argv[0] === "-v" || argv[0] === "--version") {
     if (a === "-s" || a === "--session") resumeId = argv[++i]
     else if (a === "-c" || a === "--continue") continueLast = true
   }
+  await maybeAutoUpdate()
   const engine = new Engine({ cwd: process.cwd(), resumeId, continueLast })
   await engine.init() // connect MCP servers (no-op if none configured)
   await start(engine, VERSION)
+}
+
+// Auto-update on reopen: before the TUI (alt-screen) exists, in the plain terminal. Acts instantly
+// on a version a prior background check already flagged (config.latestKnown), with a bounded live
+// npm check as fallback. On a newer version, upgrade and re-exec with FRIDAY_UPDATED set so the
+// relaunched process skips this and boots straight into the TUI (no update loop). Doing this in the
+// normal terminal — not inside the alt-screen — is what keeps the relaunch clean and interactive.
+async function maybeAutoUpdate(): Promise<void> {
+  if (VERSION === "dev" || process.env.FRIDAY_UPDATED) return
+  if (loadConfig().autoupdate === "off") return
+  let target = loadConfig().latestKnown // instant path — no network
+  if (!target || compareSemver(target, VERSION) <= 0) target = (await getLatestVersion()) ?? undefined // live fallback (~6s cap, null offline)
+  if (!target || compareSemver(target, VERSION) <= 0) return
+  process.stdout.write(`↑ Updating Friday ${VERSION} → ${target}…\n`)
+  const r = await runUpdate(detectInstallMethod())
+  if (!r.ok) {
+    process.stdout.write(`update failed — continuing on ${VERSION}\n`)
+    return
+  }
+  process.stdout.write("✓ updated, relaunching\n")
+  const c = Bun.spawnSync([process.execPath, ...process.argv.slice(1)], {
+    stdio: ["inherit", "inherit", "inherit"],
+    env: { ...process.env, FRIDAY_UPDATED: "1" },
+  })
+  process.exit(c.exitCode ?? 0)
 }
 
 async function runHeadless(args: string[]): Promise<void> {

@@ -37,10 +37,15 @@ Pick your OS. Each command installs the `friday` binary and puts it on your PATH
 
 ```sh
 brew tap katipally/tap
+brew trust katipally/tap   # one-time: recent Homebrew requires trusting third-party taps
 brew install friday
 ```
 
 Later: `brew upgrade friday`. (Apple Silicon, Intel, and Linux x64/arm64 are all covered.)
+
+> The `brew trust` step is a one-time, per-machine Homebrew security prompt for any
+> third-party tap — it's not specific to Friday. If you skip it, `brew install` errors
+> with “Refusing to load formula … from untrusted tap.”
 
 **Windows — Scoop** (recommended)
 

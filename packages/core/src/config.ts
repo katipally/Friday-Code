@@ -42,6 +42,8 @@ export interface FridayConfig {
   autoupdate?: "notify" | "off"
   /** epoch ms of the last update check — throttles the startup check to once/day */
   lastUpdateCheck?: number
+  /** newest version seen by a background check — lets the next reopen auto-update instantly */
+  latestKnown?: string
   /** fraction of the context window at which the chat auto-compacts (0–1, default 0.85) */
   autoCompactThreshold?: number
 }

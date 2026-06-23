@@ -10,7 +10,6 @@ import {
   loadKeybindings,
   normalizeChord,
   RESERVED,
-  runUpdate,
   type SessionStats,
   saveKeybindings,
   type TmuxLayout,
@@ -372,6 +371,9 @@ export function createAppStore(engine: Engine, version = "dev") {
   const [updateLog, setUpdateLog] = createSignal("")
   const [updateMethod, setUpdateMethod] = createSignal<InstallMethod>(detectInstallMethod())
   const [wantsRestart, setWantsRestart] = createSignal(false)
+  // Post-teardown update: the modal's "update & restart" sets this so finalizeExit runs the
+  // package-manager upgrade in the restored normal terminal (NOT inside the alt-screen), then relaunches.
+  const [wantsUpdate, setWantsUpdate] = createSignal(false)
 
   /** Query npm for the latest version; flag "available" when newer than the running build. */
   async function checkForUpdate(): Promise<void> {
@@ -385,15 +387,9 @@ export function createAppStore(engine: Engine, version = "dev") {
     }
     setUpdateLatest(latest)
     const newer = version !== "dev" && compareSemver(latest, version) > 0
+    // Record the newest version so the next reopen can auto-update instantly (no network wait).
+    if (newer) engine.setUserConfig({ latestKnown: latest })
     setUpdateState(newer ? "available" : "current")
-  }
-  /** Run the package-manager upgrade for the detected install method. */
-  async function doUpdate(): Promise<void> {
-    setUpdateState("updating")
-    setUpdateLog("")
-    const r = await runUpdate(updateMethod())
-    setUpdateLog(r.output)
-    setUpdateState(r.ok ? "done" : "error")
   }
   /** Apply a theme live + persist it. Live switch repaints what re-renders; a restart guarantees all. */
   function applyThemeNow(name: string) {
@@ -1727,13 +1723,16 @@ export function createAppStore(engine: Engine, version = "dev") {
     setExitStats(engine.stats())
     setView("exit")
   }
-  /** Update, then quit so the relaunched build is the new one (App re-execs on exit if wantsRestart). */
-  async function updateAndRestart() {
-    await doUpdate()
-    if (updateState() === "done") {
-      setUpdateModalOpen(false)
-      quit(true)
-    }
+  /**
+   * Defer the upgrade to teardown: close the modal and quit with wantsUpdate. finalizeExit runs the
+   * package-manager install in the restored normal terminal and then relaunches, so the new binary
+   * boots exactly like a fresh shell launch. Running npm inside the alt-screen and re-execing the
+   * just-swapped binary left the relaunched TUI's input dead — this avoids that entirely.
+   */
+  function updateAndRestart() {
+    setWantsUpdate(true)
+    setUpdateModalOpen(false)
+    quit(true)
   }
 
   // Update checks: one at startup, then every 4h while running. Released builds only, and only
@@ -1962,9 +1961,9 @@ export function createAppStore(engine: Engine, version = "dev") {
     updateMethod,
     setUpdateMethod,
     checkForUpdate,
-    doUpdate,
     updateAndRestart,
     wantsRestart,
+    wantsUpdate,
     autoupdate,
     setAutoupdate: (v: "notify" | "off") => {
       setAutoupdateSig(v)

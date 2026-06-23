@@ -1,4 +1,4 @@
-import type { Engine } from "@friday/core"
+import { type Engine, runUpdate } from "@friday/core"
 import { theme } from "@friday/shared"
 import { useKeyboard, useRenderer, useSelectionHandler, useTerminalDimensions } from "@opentui/solid"
 import { createEffect, createMemo, createSignal, Match, onMount, Show, Switch, untrack } from "solid-js"
@@ -366,7 +366,7 @@ function AppRoot() {
   // Clean exit: no full-screen farewell. Tear down the TUI, then leave the wordmark, session stats and
   // the resume command in the normal terminal scrollback.
   let exited = false
-  function finalizeExit() {
+  async function finalizeExit() {
     if (exited) return
     exited = true
     const id = app.engine.currentSessionId()
@@ -375,6 +375,17 @@ function AppRoot() {
     const s = app.exitStats()
     app.engine.dispose() // close MCP + discard empty placeholder sessions so history stays clean
     renderer.destroy() // leave the alt-screen and restore the normal terminal
+
+    // Post-update: run the package-manager upgrade HERE, in the restored normal terminal — never
+    // inside the alt-screen. Running npm in-TUI and then re-execing the just-swapped binary left the
+    // relaunched TUI's input dead; doing it after teardown makes the relaunch a clean fresh launch.
+    if (app.wantsUpdate()) {
+      process.stdout.write(
+        `\n↑ Updating Friday ${app.version}${app.updateLatest() ? ` → ${app.updateLatest()}` : ""}…\n`,
+      )
+      const r = await runUpdate(app.updateMethod())
+      process.stdout.write(r.ok ? "✓ updated, relaunching\n" : `update failed — continuing on ${app.version}\n`)
+    }
 
     // Restart (/restart or post-update): relaunch into the SAME session, in the FOREGROUND.
     // A detached child fights the shell for the controlling TTY — input is lost and the new
