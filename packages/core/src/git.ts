@@ -1,5 +1,18 @@
 /** Lightweight, local-only git helpers (status, diff, commit, worktrees). No network. */
+import fs from "node:fs"
 import path from "node:path"
+
+/** Is `cwd` inside a git repo? An fs walk for `.git` — no subprocess, so it's safe to call on the hot
+ * path and avoids spawning `git` (and holding a cwd lock) in dirs that aren't repos. */
+export function isGitRepo(cwd: string): boolean {
+  let dir = path.resolve(cwd)
+  while (true) {
+    if (fs.existsSync(path.join(dir, ".git"))) return true
+    const parent = path.dirname(dir)
+    if (parent === dir) return false
+    dir = parent
+  }
+}
 
 export interface GitFile {
   path: string
@@ -59,6 +72,60 @@ export async function gitShowHead(cwd: string, relPath: string): Promise<string 
 export async function gitIsTracked(cwd: string, relPath: string): Promise<boolean> {
   const res = await run(cwd, ["ls-files", "--error-unmatch", "--", relPath])
   return res.ok
+}
+
+/** The current commit (HEAD) sha, or null outside a repo / on an unborn branch. */
+export async function gitRevParse(cwd: string, ref = "HEAD"): Promise<string | null> {
+  const res = await run(cwd, ["rev-parse", "--verify", "--quiet", ref])
+  const sha = res.out.trim()
+  return res.ok && sha ? sha : null
+}
+
+/**
+ * Everything changed since `base` (a commit captured at session start): committed AND uncommitted AND
+ * deletions, in one list — `git diff <base>` compares that commit straight to the working tree, so
+ * intermediate commits collapse into the net change. Untracked files are appended as adds. This is the
+ * full "what happened this session" footprint, robust to commits the snapshot tracker would drop.
+ */
+export async function gitSessionChanges(cwd: string, base: string): Promise<GitFile[]> {
+  const numstat = await run(cwd, ["diff", "--numstat", base])
+  const counts = new Map<string, { added: number; removed: number }>()
+  for (const line of numstat.out.split("\n")) {
+    const m = /^(\d+|-)\t(\d+|-)\t(.+)$/.exec(line)
+    if (!m) continue
+    // Renames render as "old => new" or "{a => b}/c"; take the resulting path's last token.
+    const p = m[3]!.includes(" => ")
+      ? m[3]!
+          .replace(/\{.*? => (.*?)\}/, "$1")
+          .split(" => ")
+          .pop()!
+          .trim()
+      : m[3]!
+    counts.set(p, { added: m[1] === "-" ? 0 : Number(m[1]), removed: m[2] === "-" ? 0 : Number(m[2]) })
+  }
+  const nameStatus = await run(cwd, ["diff", "--name-status", base])
+  const files: GitFile[] = []
+  const seen = new Set<string>()
+  for (const line of nameStatus.out.split("\n")) {
+    if (!line.trim()) continue
+    const parts = line.split("\t")
+    const code = parts[0]!.trim()
+    const status = code[0]! // M, A, D, R, C, T…
+    const p = (status === "R" || status === "C" ? parts[2] : parts[1])?.trim()
+    if (!p || seen.has(p)) continue
+    seen.add(p)
+    const c = counts.get(p) ?? { added: 0, removed: 0 }
+    files.push({ path: p, status: status === "R" || status === "C" ? "A" : status, added: c.added, removed: c.removed })
+  }
+  // Untracked (new, never-added) files aren't in the diff — surface them as adds.
+  const untracked = await run(cwd, ["ls-files", "--others", "--exclude-standard"])
+  for (const line of untracked.out.split("\n")) {
+    const p = line.trim()
+    if (!p || seen.has(p)) continue
+    seen.add(p)
+    files.push({ path: p, status: "A", added: 0, removed: 0 })
+  }
+  return files
 }
 
 /** The working-tree diff (staged + unstaged), truncated for prompting. */

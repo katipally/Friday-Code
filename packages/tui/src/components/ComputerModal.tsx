@@ -69,6 +69,18 @@ export function ComputerModal() {
             <text fg={theme.textFaint}>unless you're in yolo mode.</text>
           </box>
 
+          {/* OS permissions — macOS needs Accessibility (control) + Screen Recording (screenshot).
+              These buttons open the exact settings pane so the user can click-grant directly. */}
+          <Show when={support().platform === "macOS"}>
+            <box flexDirection="column" gap={0}>
+              <text fg={theme.textFaint}>macOS permissions — grant these, then restart Friday:</text>
+              <box flexDirection="row" gap={1}>
+                <Pill label="⚙ accessibility" onClick={() => app.openMacPrivacy("accessibility")} />
+                <Pill label="⚙ screen recording" onClick={() => app.openMacPrivacy("screen")} />
+              </box>
+            </box>
+          </Show>
+
           {/* Actions */}
           <box flexDirection="row" gap={1} alignItems="center">
             <Show when={!app.computerReady()}>

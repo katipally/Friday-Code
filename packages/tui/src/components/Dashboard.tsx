@@ -1,3 +1,4 @@
+import type { TmuxLayout } from "@friday/core"
 import { theme } from "@friday/shared"
 import { useKeyboard } from "@opentui/solid"
 import { createMemo, createSignal, For, type JSX, Match, onCleanup, onMount, Show, Switch } from "solid-js"
@@ -84,9 +85,20 @@ export function Dashboard() {
   // Live updates: in-process teams/tasks already stream via the bus; poll for sessions/history so
   // externally-opened windows (separate friday processes) show up promptly.
   onMount(() => {
-    const iv = setInterval(() => app.refreshSessions(), 1500)
+    app.refreshWall()
+    const iv = setInterval(() => {
+      app.refreshSessions()
+      app.refreshWall()
+    }, 1500)
     onCleanup(() => clearInterval(iv))
   })
+
+  const LAYOUTS: { key: TmuxLayout; label: string }[] = [
+    { key: "tiled", label: "tiled" },
+    { key: "even-horizontal", label: "cols" },
+    { key: "even-vertical", label: "rows" },
+    { key: "main-vertical", label: "main" },
+  ]
 
   function switchTab(n: number) {
     setTab((n + TABS.length) % TABS.length)
@@ -153,6 +165,44 @@ export function Dashboard() {
         <box flexGrow={1} />
         <text fg={theme.textFaint}>esc back</text>
       </box>
+
+      {/* tmux WALL control center — real, tile-able terminals. Launching anything from the tabs below
+          adds a pane here; arrange / open / close the whole wall from this bar. Hidden without tmux. */}
+      <Show when={app.tmuxOn()}>
+        <box
+          flexDirection="column"
+          backgroundColor={theme.bgElevated}
+          paddingLeft={1}
+          paddingRight={1}
+          marginBottom={1}
+        >
+          <box flexDirection="row" gap={1} alignItems="center">
+            <text fg={accent()}>
+              <strong>▦ wall</strong>
+            </text>
+            <text fg={theme.textFaint}>{app.wallPanes().length} pane(s)</text>
+            <box flexGrow={1} />
+            <For each={LAYOUTS}>{(l) => <Pill label={l.label} onClick={() => app.arrangeWall(l.key)} />}</For>
+            <Pill label="⊞ open" accent={theme.success} onClick={() => app.viewWall()} />
+            <Show when={app.wallPanes().length}>
+              <Pill label="✕ close all" accent={theme.error} onClick={() => app.closeWall()} />
+            </Show>
+          </box>
+          {/* Per-pane list with individual close. */}
+          <Show when={app.wallPanes().length}>
+            <box flexDirection="row" gap={2} paddingTop={0}>
+              <For each={app.wallPanes()}>
+                {(p) => (
+                  <box flexDirection="row" gap={1} onMouseDown={() => app.removeWallPane(p.id)}>
+                    <text fg={p.active ? theme.brand : theme.textMuted}>{p.title}</text>
+                    <text fg={theme.error}>✕</text>
+                  </box>
+                )}
+              </For>
+            </box>
+          </Show>
+        </box>
+      </Show>
 
       <Switch>
         {/* SESSIONS */}

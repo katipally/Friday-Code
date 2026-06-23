@@ -1,7 +1,27 @@
 import { Database } from "bun:sqlite"
 import fs from "node:fs"
 import { fridayDir, sessionsDb } from "@friday/providers"
-import type { Message, TodoItem } from "@friday/shared"
+import type { Effort, Message, ModeId, TodoItem } from "@friday/shared"
+
+/**
+ * Per-session state that makes a resume feel identical to where you left off — beyond messages/todos/
+ * plans/checkpoints. Stored as one JSON blob (merge-on-write) so adding a field needs no migration.
+ */
+export interface SessionMeta {
+  providerId?: string
+  model?: string
+  reasoning?: boolean
+  effort?: Effort
+  mode?: ModeId
+  contextWindow?: number
+  cost?: { input: number; output: number }
+  /** condensed-history summary so a long session doesn't lose/recompute its compacted context */
+  compaction?: { summary: string; throughIndex: number }
+  /** git commit captured at session start; the "changes" panel diffs the working tree against it */
+  baseRef?: string
+  /** active git worktree (restored on resume), with the dir/roots to return to on exit */
+  worktree?: { path: string; pre: { cwd: string; roots: string[] } }
+}
 
 export interface SessionRow {
   id: string
@@ -53,12 +73,25 @@ export class SessionStore {
     this.db.exec(
       `CREATE TABLE IF NOT EXISTS session_state (
         session_id TEXT PRIMARY KEY, todos TEXT NOT NULL DEFAULT '[]',
-        plans TEXT NOT NULL DEFAULT '[]', checkpoints TEXT NOT NULL DEFAULT '[]'
+        plans TEXT NOT NULL DEFAULT '[]', checkpoints TEXT NOT NULL DEFAULT '[]',
+        pinned_files TEXT NOT NULL DEFAULT '[]', meta TEXT NOT NULL DEFAULT '{}'
       );`,
     )
+    // Migrate older DBs that predate these columns. Duplicate-column errors are expected & ignored.
+    for (const col of ["pinned_files TEXT NOT NULL DEFAULT '[]'", "meta TEXT NOT NULL DEFAULT '{}'"]) {
+      try {
+        this.db.exec(`ALTER TABLE session_state ADD COLUMN ${col}`)
+      } catch {
+        /* column already exists */
+      }
+    }
   }
 
-  private upsertState(sessionId: string, column: "todos" | "plans" | "checkpoints", json: string): void {
+  private upsertState(
+    sessionId: string,
+    column: "todos" | "plans" | "checkpoints" | "pinned_files" | "meta",
+    json: string,
+  ): void {
     this.db
       .query(
         `INSERT INTO session_state (session_id, ${column}) VALUES (?, ?)
@@ -66,11 +99,28 @@ export class SessionStore {
       )
       .run(sessionId, json)
   }
-  private readState(sessionId: string, column: "todos" | "plans" | "checkpoints"): string {
+  private readState(sessionId: string, column: "todos" | "plans" | "checkpoints" | "pinned_files"): string {
     const r = this.db.query(`SELECT ${column} AS v FROM session_state WHERE session_id = ?`).get(sessionId) as
       | { v: string }
       | undefined
     return r?.v ?? "[]"
+  }
+
+  /** Merge a partial SessionMeta into the stored blob (read-modify-write) so independent writers —
+   * the runner (compaction/baseRef/worktree) and the engine (model/mode/effort) — never clobber. */
+  setMeta(sessionId: string, patch: Partial<SessionMeta>): void {
+    const next = { ...this.loadMeta(sessionId), ...patch }
+    this.upsertState(sessionId, "meta", JSON.stringify(next))
+  }
+  loadMeta(sessionId: string): SessionMeta {
+    const r = this.db.query("SELECT meta AS v FROM session_state WHERE session_id = ?").get(sessionId) as
+      | { v: string }
+      | undefined
+    try {
+      return r?.v ? (JSON.parse(r.v) as SessionMeta) : {}
+    } catch {
+      return {}
+    }
   }
 
   setTodos(sessionId: string, todos: TodoItem[]): void {
@@ -89,6 +139,17 @@ export class SessionStore {
   loadPlans(sessionId: string): PlanRow[] {
     try {
       return JSON.parse(this.readState(sessionId, "plans")) as PlanRow[]
+    } catch {
+      return []
+    }
+  }
+  /** Files the user pinned into context for this session (relative paths); restored on resume. */
+  setPinned(sessionId: string, files: string[]): void {
+    this.upsertState(sessionId, "pinned_files", JSON.stringify(files))
+  }
+  loadPinned(sessionId: string): string[] {
+    try {
+      return JSON.parse(this.readState(sessionId, "pinned_files")) as string[]
     } catch {
       return []
     }

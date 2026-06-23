@@ -1,6 +1,7 @@
 import fs from "node:fs"
+import path from "node:path"
 import type { McpServerConfig } from "@friday/mcp"
-import { configPath, fridayDir } from "@friday/providers"
+import { configPath, fridayDir, projectConfigPath, projectLocalConfigPath } from "@friday/providers"
 import type { Effort, ModeId } from "@friday/shared"
 import type { HooksConfig } from "./hooks.ts"
 import type { MicConfig } from "./mic.ts"
@@ -45,21 +46,55 @@ export interface FridayConfig {
   autoCompactThreshold?: number
 }
 
-export function loadConfig(): FridayConfig {
+/** Read & parse one JSON config file; missing/invalid files contribute nothing. */
+function readLayer(file: string): Partial<FridayConfig> {
   try {
-    return JSON.parse(fs.readFileSync(configPath(), "utf8"))
+    const parsed = JSON.parse(fs.readFileSync(file, "utf8"))
+    return parsed && typeof parsed === "object" ? parsed : {}
   } catch {
     return {}
   }
 }
 
-export function saveConfig(patch: Partial<FridayConfig>): FridayConfig {
-  const next = { ...loadConfig(), ...patch }
+/** Deep-merge plain objects (later wins); arrays and scalars are replaced, not concatenated. */
+function deepMerge<T>(base: T, over: Partial<T>): T {
+  const out: any = { ...base }
+  for (const [k, v] of Object.entries(over)) {
+    if (v === undefined) continue
+    const b = (out as any)[k]
+    out[k] =
+      b && v && typeof b === "object" && typeof v === "object" && !Array.isArray(b) && !Array.isArray(v)
+        ? deepMerge(b, v)
+        : v
+  }
+  return out
+}
+
+/**
+ * Resolved config, layered like Claude Code: user (~/.friday/config.json) → project
+ * (.friday/settings.json, committed) → project-local (.friday/settings.local.json, gitignored).
+ * Later layers win; nested objects deep-merge so a project can override one key without dropping the
+ * rest. `cwd` defaults to the process cwd (the project root friday runs in).
+ */
+export function loadConfig(cwd: string = process.cwd()): FridayConfig {
+  let cfg = readLayer(configPath()) as FridayConfig
+  cfg = deepMerge(cfg, readLayer(projectConfigPath(cwd)))
+  cfg = deepMerge(cfg, readLayer(projectLocalConfigPath(cwd)))
+  return cfg
+}
+
+/**
+ * Persist a patch. Writes to the USER config by default (the resolved view still layers project files
+ * on top at read time). Pass scope "project"/"local" to write the committed/gitignored project file.
+ */
+export function saveConfig(patch: Partial<FridayConfig>, scope: "user" | "project" | "local" = "user"): FridayConfig {
+  const file = scope === "project" ? projectConfigPath() : scope === "local" ? projectLocalConfigPath() : configPath()
+  const next = { ...readLayer(file), ...patch }
   try {
-    fs.mkdirSync(fridayDir(), { recursive: true })
-    fs.writeFileSync(configPath(), JSON.stringify(next, null, 2))
+    fs.mkdirSync(scope === "user" ? fridayDir() : path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, JSON.stringify(next, null, 2))
   } catch {
     /* ignore */
   }
-  return next
+  return loadConfig()
 }

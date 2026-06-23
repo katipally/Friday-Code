@@ -13,6 +13,8 @@ import {
   runUpdate,
   type SessionStats,
   saveKeybindings,
+  type TmuxLayout,
+  type TmuxPane,
 } from "@friday/core"
 import {
   type AskQuestion,
@@ -78,6 +80,18 @@ export type ViewItem =
   /** a /pause note injected mid-task: "pending" (sent, about to be folded in at the next step) then
    * "attached" (now part of the agent's context). `at` is when sent; `attachedAt` when it landed. */
   | { kind: "inject"; id: string; text: string; state: "pending" | "attached"; at: number; attachedAt?: number }
+
+/**
+ * Resolve which session's pending HITL prompt (permission/ask) to surface: the focused session's own
+ * if it has one, otherwise the oldest background session that's waiting — so a delegated agent's
+ * question reaches the user in the main view. Returns the session id (for clearing + labeling) and the
+ * value (carries the requestId the reply routes back by). Pure so it's unit-testable.
+ */
+export function resolvePending<T>(map: Record<string, T>, active: string): { sid: string; val: T } | null {
+  if (map[active]) return { sid: active, val: map[active]! }
+  for (const sid of Object.keys(map)) if (map[sid]) return { sid, val: map[sid]! }
+  return null
+}
 
 export type PendingPermission = { requestId: string; tool: string; summary: string; detail?: string; risk?: string }
 export type PendingAsk = { requestId: string; questions: AskQuestion[] }
@@ -255,6 +269,8 @@ export function createAppStore(engine: Engine, version = "dev") {
   const EMPTY: never[] = []
   const items = createMemo(() => sessionItems[activeSession()] ?? EMPTY)
   const [contextFiles, setContextFiles] = createSignal<string[]>(engine.contextInfo().files)
+  const [pinnedFiles, setPinnedFiles] = createSignal<string[]>(engine.contextInfo().pinned)
+  const [contextModalOpen, setContextModalOpen] = createSignal(false)
   const [skills, setSkills] = createSignal(engine.listSkills())
   const [mcpServers, setMcpServers] = createSignal(engine.listMcpServers())
   const [sessions, setSessions] = createSignal<SessionItem[]>(engine.listSessions())
@@ -295,6 +311,21 @@ export function createAppStore(engine: Engine, version = "dev") {
   function uninstallComputer() {
     engine.uninstallComputerUse()
     setComputerReady(engine.computerInstalled())
+  }
+  /** Open the macOS privacy pane for the permission computer-use needs (control = Accessibility,
+   * screenshot = Screen Recording) so the user can click-grant instead of hunting through Settings. */
+  function openMacPrivacy(pane: "accessibility" | "screen") {
+    if (process.platform !== "darwin") {
+      pushToast("opening privacy settings is only supported on macOS", "input")
+      return
+    }
+    const anchor = pane === "accessibility" ? "Privacy_Accessibility" : "Privacy_ScreenCapture"
+    try {
+      Bun.spawn(["open", `x-apple.systempreferences:com.apple.preference.security?${anchor}`])
+      pushToast(`opened ${pane === "accessibility" ? "Accessibility" : "Screen Recording"} settings`, "done")
+    } catch (e) {
+      pushToast(`couldn't open settings: ${e instanceof Error ? e.message : String(e)}`, "error")
+    }
   }
   const [checkpointsOpen, setCheckpointsOpen] = createSignal(false)
   const [forkOpen, setForkOpen] = createSignal(false)
@@ -378,8 +409,23 @@ export function createAppStore(engine: Engine, version = "dev") {
   const busy = () => !!sessionBusy()[activeSession()]
   const tokens = () => sessionTokens()[activeSession()] ?? 0
   const todos = createMemo(() => sessionTodos()[activeSession()] ?? EMPTY)
-  const pending = () => sessionPending()[activeSession()] ?? null
-  const askPending = () => sessionAsk()[activeSession()] ?? null
+  // HITL prompts (permission / ask) surface in the MAIN view even when they come from a delegated
+  // background agent: prefer the focused session's own pending, else the oldest background one that's
+  // waiting. The reply routes back by requestId (engine matches across all runners), so answering from
+  // here bridges to the right agent. `*From` returns the asking agent's label when it isn't the focused
+  // session, so the card can show "agent X asks".
+  const pendingSrc = () => resolvePending(sessionPending(), activeSession())
+  const askSrc = () => resolvePending(sessionAsk(), activeSession())
+  const pending = () => pendingSrc()?.val ?? null
+  const askPending = () => askSrc()?.val ?? null
+  const pendingFrom = () => {
+    const s = pendingSrc()
+    return s && s.sid !== activeSession() ? titleOf(s.sid) : null
+  }
+  const askFrom = () => {
+    const s = askSrc()
+    return s && s.sid !== activeSession() ? titleOf(s.sid) : null
+  }
   const plans = createMemo(() => sessionPlans()[activeSession()] ?? EMPTY)
   const planPending = () => sessionPlanPending()[activeSession()] ?? null
   const diagnostics = createMemo(() => sessionDiag()[activeSession()] ?? EMPTY)
@@ -409,6 +455,7 @@ export function createAppStore(engine: Engine, version = "dev") {
     pauseModalOpen() ||
     mcpModalOpen() ||
     skillsModalOpen() ||
+    contextModalOpen() ||
     computerModalOpen() ||
     checkpointsOpen() ||
     forkOpen() ||
@@ -428,7 +475,17 @@ export function createAppStore(engine: Engine, version = "dev") {
     setSessions(engine.listSessions())
     setAllSessions(engine.listAllSessions())
     setContextFiles(engine.contextInfo().files)
+    setPinnedFiles(engine.contextInfo().pinned)
     setSkills(engine.listSkills())
+  }
+
+  const pinContextFile = (rel: string) => {
+    engine.pinContextFile(rel)
+    setPinnedFiles(engine.contextInfo().pinned)
+  }
+  const unpinContextFile = (rel: string) => {
+    engine.unpinContextFile(rel)
+    setPinnedFiles(engine.contextInfo().pinned)
   }
 
   let localId = 0
@@ -772,15 +829,24 @@ export function createAppStore(engine: Engine, version = "dev") {
         }
         refreshSessions()
         break
-      case "session-loaded":
+      case "session-loaded": {
         // The focus signal: this session is now on screen.
         setActiveSession(sid)
         seedSession(sid, e.messages)
         setKey(setSessionSeenLen, sid, sessionItems[sid]?.length ?? 0)
         setCurrentCwd(e.cwd)
         setRoots(e.roots)
+        // Re-sync the per-session selection the engine just restored (mode/effort/model), so switching
+        // to or resuming a session shows what IT was using, not the previous session's settings.
+        const sel = engine.selection()
+        setModeSig(sel.mode ?? DEFAULT_MODE)
+        setEffortSig(sel.effort ?? "medium")
+        if (sel.model) setModel(sel.model)
+        setReasoningModel(sel.reasoning ?? false)
+        setProviderId(sel.providerId)
         refreshSessions()
         break
+      }
     }
   })
 
@@ -899,18 +965,59 @@ export function createAppStore(engine: Engine, version = "dev") {
       setMicModalOpen(true)
     }
   }
-  // ---- dashboard launchers (open work in its own window; the dashboard stays the console) ----
-  /** Open a brand-new interactive friday window (new chat) in the current directory. */
+  // ---- dashboard launchers + the tmux "wall" (real, tile-able terminals managed from the dashboard) ----
+  /** A window-launch failure message that names the real reason (truncated) instead of a generic line. */
+  const winFail = (r: { backend: string; error?: string }, what: string) =>
+    r.error ? `couldn't open ${what} (${r.backend}): ${r.error.slice(0, 120)}` : `no terminal backend to open ${what}`
+
+  // The wall: a tmux session of tiled panes. When tmux is available the dashboard launches work INTO
+  // the wall (real terminals you can tile + close from here); otherwise it falls back to OS windows.
+  const tmuxOn = () => engine.tmuxOn()
+  const [wallPanes, setWallPanes] = createSignal<TmuxPane[]>([])
+  const refreshWall = () => {
+    if (tmuxOn()) void engine.wallList().then(setWallPanes)
+  }
+  /** Add a friday pane to the wall (args = [] new chat · ["-s",id] resume · ["attach",id] watch). */
+  function addToWall(args: string[], title: string, cwd?: string) {
+    void engine.wallOpen(args, title, cwd).then((r) => {
+      pushToast(r.ok ? `added "${title}" to the wall` : `wall: ${r.error ?? "failed"}`, r.ok ? "done" : "error")
+      refreshWall()
+    })
+  }
+  function removeWallPane(paneId: string) {
+    void engine.wallRemove(paneId).then(() => refreshWall())
+  }
+  function closeWall() {
+    void engine.wallRemoveAll().then(() => {
+      setWallPanes([])
+      pushToast("closed the wall", "input")
+    })
+  }
+  function arrangeWall(layout: TmuxLayout) {
+    void engine
+      .wallArrange(layout)
+      .then((r) => pushToast(r.ok ? `wall: ${layout}` : `wall: ${r.error ?? "failed"}`, "input"))
+  }
+  /** Open a real OS terminal attached to the wall so you watch every pane tiled. */
+  function viewWall() {
+    const r = engine.wallView()
+    pushToast(r.ok ? `opened the wall (${r.backend})` : winFail(r, "the wall"), r.ok ? "done" : "error")
+  }
+
+  /** Open a brand-new chat — into the wall when tmux is available, else its own OS window. */
   function newChatWindow() {
+    if (tmuxOn()) return addToWall([], "new chat")
     const r = engine.openInteractive([])
-    pushToast(r.ok ? `opened new chat (${r.backend})` : "no terminal backend to open a window", r.ok ? "done" : "error")
+    pushToast(r.ok ? `opened new chat (${r.backend})` : winFail(r, "a window"), r.ok ? "done" : "error")
   }
-  /** Resume an existing session in its own interactive window. */
+  /** Resume an existing session, in its own folder. Into the wall when tmux is available. */
   function resumeInWindow(id: string) {
-    const r = engine.openInteractive(["-s", id])
-    pushToast(r.ok ? `opened session (${r.backend})` : "no terminal backend to open a window", r.ok ? "done" : "error")
+    const row = allSessions().find((s) => s.id === id) ?? sessions().find((s) => s.id === id)
+    if (tmuxOn()) return addToWall(["-s", id], row?.title ?? "session", row?.cwd)
+    const r = engine.openInteractive(["-s", id], row?.cwd)
+    pushToast(r.ok ? `opened session (${r.backend})` : winFail(r, "the session"), r.ok ? "done" : "error")
   }
-  /** Fan out a swarm of independent agents (one task per line) + open watch windows for each. */
+  /** Fan out a swarm of independent agents (one task per line) + a watch pane/window for each. */
   function launchSwarm(tasks: string[]) {
     const jobs = tasks
       .map((t) => t.trim())
@@ -918,7 +1025,11 @@ export function createAppStore(engine: Engine, version = "dev") {
       .map((t) => ({ description: t.slice(0, 40), prompt: t }))
     if (!jobs.length) return
     const ids = engine.spawnAgents(jobs)
-    for (const id of ids) engine.popoutAgent(id) // read-only watch window per agent
+    for (const id of ids) {
+      if (tmuxOn()) void engine.wallOpen(["attach", id], "swarm")
+      else engine.popoutAgent(id) // read-only watch window per agent
+    }
+    refreshWall()
     pushToast(`spawned ${ids.length} swarm agent(s)`, "done")
   }
   /** Ask Friday to form a coordinated team for a goal (it decides the roles via spawn_team). */
@@ -1139,7 +1250,9 @@ export function createAppStore(engine: Engine, version = "dev") {
         pushToast(
           r.ok
             ? `opened ${r.opened} agent window(s) via ${r.backend}`
-            : "no terminal backend — see the dashboard's Swarm tab (Ctrl+O)",
+            : r.error
+              ? `couldn't open agent windows (${r.backend}): ${r.error.slice(0, 120)}`
+              : "no terminal backend — see the dashboard's Swarm tab (Ctrl+O)",
           r.ok ? "done" : "input",
         )
         return true
@@ -1326,22 +1439,24 @@ export function createAppStore(engine: Engine, version = "dev") {
   }
 
   function replyPermission(decision: "allow-once" | "allow-always" | "deny") {
-    const p = pending()
-    if (!p) return
-    engine.send({ type: "permission-reply", requestId: p.requestId, decision })
+    const src = pendingSrc()
+    if (!src) return
+    engine.send({ type: "permission-reply", requestId: src.val.requestId, decision })
     if (decision === "allow-always") pushToast("✓ remembered for this project (/permissions to manage)", "done")
-    delKey(setSessionPending, activeSession())
-    delKey(setSessionNeeds, activeSession())
+    // Clear the asking session's entry (may be a background agent, not the focused one).
+    delKey(setSessionPending, src.sid)
+    delKey(setSessionNeeds, src.sid)
     // The modal owned focus while open; hand it back so the composer is typeable immediately.
     focusComposer()
   }
 
   function replyAsk(answers: Record<string, string>) {
-    const a = askPending()
-    if (!a) return
-    engine.send({ type: "ask-reply", requestId: a.requestId, answers })
-    delKey(setSessionAsk, activeSession())
-    delKey(setSessionNeeds, activeSession())
+    const src = askSrc()
+    if (!src) return
+    engine.send({ type: "ask-reply", requestId: src.val.requestId, answers })
+    delKey(setSessionAsk, src.sid)
+    delKey(setSessionNeeds, src.sid)
+    focusComposer()
   }
 
   // ---- plan-mode gate ----
@@ -1494,8 +1609,9 @@ export function createAppStore(engine: Engine, version = "dev") {
     pushToast("dismissed team", "input")
   }
   function popoutAgent(sessionId: string) {
+    if (tmuxOn()) return addToWall(["attach", sessionId], titleOf(sessionId))
     const r = engine.popoutAgent(sessionId)
-    pushToast(r.ok ? `opened agent window via ${r.backend}` : "no terminal backend available", r.ok ? "done" : "input")
+    pushToast(r.ok ? `opened agent window via ${r.backend}` : winFail(r, "the agent window"), r.ok ? "done" : "input")
   }
   function deleteSession(id: string) {
     engine.deleteSession(id)
@@ -1669,6 +1785,14 @@ export function createAppStore(engine: Engine, version = "dev") {
     launchSwarm,
     launchTeam,
     refreshSessions,
+    // tmux wall (control center)
+    tmuxOn,
+    wallPanes,
+    refreshWall,
+    removeWallPane,
+    closeWall,
+    arrangeWall,
+    viewWall,
     trustOpen,
     trustCwd,
     declineTrust,
@@ -1679,6 +1803,8 @@ export function createAppStore(engine: Engine, version = "dev") {
     busy,
     pending,
     askPending,
+    pendingFrom,
+    askFrom,
     replyAsk,
     plans,
     planPending,
@@ -1744,6 +1870,7 @@ export function createAppStore(engine: Engine, version = "dev") {
     computerInstallLog,
     installComputer,
     uninstallComputer,
+    openMacPrivacy,
     setMcpModalOpen,
     mcpConfig,
     refreshMcp,
@@ -1775,6 +1902,11 @@ export function createAppStore(engine: Engine, version = "dev") {
     listCommands,
     runCommand,
     contextFiles,
+    pinnedFiles,
+    pinContextFile,
+    unpinContextFile,
+    contextModalOpen,
+    setContextModalOpen,
     skills,
     mcpServers,
     runningTools,

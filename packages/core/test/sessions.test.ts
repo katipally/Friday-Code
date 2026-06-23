@@ -45,6 +45,56 @@ test("Engine resumes a persisted session", async () => {
   expect(loaded.messages.some((m) => m.role === "user" && m.text === "remember this")).toBe(true)
 })
 
+test("Engine restores a session's own model/mode/effort on resume (per-session, not global default)", async () => {
+  const store = new SessionStore(path.join(tmp, "meta.db"))
+  // Session 1: pick model-A, yolo, high — and run a prompt so the session + its meta persist.
+  const e1 = new Engine({ cwd: "/x", streamFn: textOnly, store })
+  e1.selectModel("mock", "model-A", true, 4242)
+  e1.send({ type: "set-mode", mode: "yolo" })
+  e1.send({ type: "set-effort", effort: "high" })
+  e1.send({ type: "prompt", text: "do a thing" })
+  await Bun.sleep(20)
+  const id = e1.currentSessionId()
+  // The selection was written to THIS session's meta (not just global config).
+  expect(store.loadMeta(id).model).toBe("model-A")
+  expect(store.loadMeta(id).mode).toBe("yolo")
+  expect(store.loadMeta(id).effort).toBe("high")
+
+  // Shift the GLOBAL default to model-B via a separate session, so a correct resume can only get
+  // model-A/yolo/high back from session 1's own meta.
+  const e2 = new Engine({ cwd: "/y", streamFn: textOnly, store })
+  e2.selectModel("mock", "model-B")
+  e2.send({ type: "set-mode", mode: "plan" })
+
+  // Resume session 1 — its own selection must come back, overriding the new global default.
+  const e3 = new Engine({ cwd: "/x", streamFn: textOnly, store, resumeId: id })
+  const sel = e3.selection()
+  expect(sel.model).toBe("model-A")
+  expect(sel.mode).toBe("yolo")
+  expect(sel.effort).toBe("high")
+  expect(sel.reasoning).toBe(true)
+  expect(sel.contextWindow).toBe(4242)
+})
+
+test("pinned context files persist and restore on resume", async () => {
+  const store = new SessionStore(path.join(tmp, "pins.db"))
+  const e1 = new Engine({ cwd: "/x", streamFn: textOnly, store })
+  e1.send({ type: "prompt", text: "start" })
+  await Bun.sleep(20)
+  const id = e1.currentSessionId()
+
+  e1.pinContextFile("README.md")
+  expect(e1.contextInfo().pinned).toContain("README.md")
+  expect(store.loadPinned(id)).toContain("README.md") // persisted, not just in memory
+
+  e1.unpinContextFile("README.md")
+  expect(e1.contextInfo().pinned).not.toContain("README.md")
+  e1.pinContextFile("docs/spec.md")
+
+  const e2 = new Engine({ cwd: "/x", streamFn: textOnly, store, resumeId: id })
+  expect(e2.contextInfo().pinned).toEqual(["docs/spec.md"]) // restored exactly on resume
+})
+
 test("title is derived cleanly from the first prompt (mentions stripped)", async () => {
   const store = new SessionStore(path.join(tmp, "title.db"))
   const e = new Engine({ cwd: "/z", streamFn: textOnly, store })

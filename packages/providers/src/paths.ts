@@ -11,6 +11,14 @@ export function authPath(): string {
 export function configPath(): string {
   return path.join(fridayDir(), "config.json")
 }
+/** Project-level config, committed to the repo (layers over the user config). Like .claude/settings.json. */
+export function projectConfigPath(cwd: string = process.cwd()): string {
+  return path.join(cwd, ".friday", "settings.json")
+}
+/** Project-level local overrides, gitignored (layers over the project config). Like settings.local.json. */
+export function projectLocalConfigPath(cwd: string = process.cwd()): string {
+  return path.join(cwd, ".friday", "settings.local.json")
+}
 export function keybindingsPath(): string {
   return path.join(fridayDir(), "keybindings.json")
 }

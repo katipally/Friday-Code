@@ -89,7 +89,7 @@ function Section(props: {
 }) {
   const h = useHover({ base: theme.bgPanel, hover: theme.bgHover })
   return (
-    <box flexDirection="column">
+    <box flexDirection="column" marginTop={1}>
       <box
         flexDirection="row"
         gap={1}
@@ -98,8 +98,11 @@ function Section(props: {
         onMouseOut={h.onMouseOut}
         onMouseDown={props.onToggle}
       >
-        <text fg={h.hovered() ? theme.text : theme.textMuted}>{props.open ? "▾" : "▸"}</text>
-        <text fg={h.hovered() ? theme.text : theme.textFaint}>{props.label.toUpperCase()}</text>
+        {/* Reversed hierarchy: the title is the bright, bold anchor; caret + count stay faint. */}
+        <text fg={h.hovered() ? theme.brand : theme.textMuted}>{props.open ? "▾" : "▸"}</text>
+        <text fg={theme.text}>
+          <strong>{props.label.toUpperCase()}</strong>
+        </text>
         <Show when={props.count != null}>
           <text fg={theme.textFaint}>({props.count})</text>
         </Show>
@@ -190,6 +193,7 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
 
   const mcpHover = useHover({ base: theme.bgPanel, hover: theme.bgHover })
   const skillsHover = useHover({ base: theme.bgPanel, hover: theme.bgHover })
+  const contextHover = useHover({ base: theme.bgPanel, hover: theme.bgHover })
   const [planHov, setPlanHov] = createSignal(-1)
   const pct = () =>
     app.contextWindow() > 0 ? Math.min(100, Math.round((app.tokens() / app.contextWindow()) * 100)) : 0
@@ -242,10 +246,10 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
         backgroundColor={theme.bgPanel}
         paddingTop={1}
       >
+        {/* No panel title — the close control sits at the right edge with its shortcut shown clearly. */}
         <box flexDirection="row" paddingRight={1} alignItems="center">
-          <CloseButton hint="ctrl+b" onClose={() => app.setRightOpen(false)} />
           <box flexGrow={1} />
-          <SectionLabel text="context" />
+          <CloseButton hint="ctrl+b" onClose={() => app.setRightOpen(false)} />
         </box>
 
         <scrollbox flexGrow={1} minHeight={0} paddingLeft={1} paddingRight={1} paddingTop={1}>
@@ -392,7 +396,7 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
                 onMouseDown={() => app.setMcpModalOpen(true)}
               >
                 <text fg={app.mcpServers().length ? theme.success : mcpHover.hovered() ? theme.text : theme.textFaint}>
-                  ⚡ {app.mcpServers().length} mcp
+                  {G.mcp} {app.mcpServers().length} mcp
                 </text>
               </box>
               <box
@@ -405,13 +409,25 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
                 onMouseDown={() => app.setSkillsModalOpen(true)}
               >
                 <text fg={app.skills().length ? theme.text : skillsHover.hovered() ? theme.text : theme.textFaint}>
-                  ◆ {app.skills().length} skills
+                  {G.skill} {app.skills().length} skills
                 </text>
               </box>
             </box>
-            <Show when={app.contextFiles().length}>
-              <text fg={theme.textFaint}>✓ {app.contextFiles().length} context files</text>
-            </Show>
+            {/* Permanent, clickable — opens the context-files modal to view auto context + pin files. */}
+            <box
+              flexGrow={1}
+              paddingLeft={1}
+              paddingRight={1}
+              backgroundColor={contextHover.bg()}
+              onMouseOver={contextHover.onMouseOver}
+              onMouseOut={contextHover.onMouseOut}
+              onMouseDown={() => app.setContextModalOpen(true)}
+            >
+              <text fg={app.pinnedFiles().length ? theme.brand : contextHover.hovered() ? theme.text : theme.textFaint}>
+                {G.pin} {app.contextFiles().length + app.pinnedFiles().length} context
+                {app.pinnedFiles().length ? ` · ${app.pinnedFiles().length} pinned` : ""}
+              </text>
+            </box>
 
             <Rule width={innerW()} />
 

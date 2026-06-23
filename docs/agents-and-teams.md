@@ -36,13 +36,21 @@ them when done. The board tools are `board_post`, `board_read`,
 |---|---|---|
 | Dashboard | `/dashboard` or Ctrl+O | Sessions, Teams, and Swarm in one view. |
 | Console | `/console` or Ctrl+T | The live team cockpit: the shared board plus the roster. |
-| Fleet | `/fleet` | One external terminal window per running agent. |
+| Fleet | `/fleet` | One real terminal per running agent — a tiled tmux wall when tmux is present, otherwise separate OS windows. |
 
-`/fleet` needs a terminal backend: it uses tmux if you are already inside a tmux
-session, otherwise Terminal.app/iTerm on macOS or a detected emulator on Linux
-(wezterm, gnome-terminal, konsole, x-terminal-emulator). Windows is not
-supported. If no backend is found, watch the agents in the dashboard's Swarm tab
-instead.
+`/fleet` needs a terminal backend. When **tmux** is available it launches every
+session/team/swarm into a tiled "wall" of real terminals you control from the
+dashboard: re-arrange the panes (tiled, columns, rows, or main), close one pane
+or all of them, and "open the wall" to attach a terminal and watch every pane in
+one view. Without tmux it falls back to separate OS windows — Terminal.app/iTerm
+on macOS or a detected emulator on Linux (wezterm, gnome-terminal, konsole,
+x-terminal-emulator); Windows is not supported. If no backend is found, watch the
+agents in the dashboard's Swarm tab instead.
+
+When a delegated agent (sub-agent, team member, or swarm worker) needs to ask a
+question or request a permission, the prompt surfaces in your current view —
+labeled with the agent that's asking — so you answer in place and the answer
+bridges back to that agent without switching windows.
 
 ## Scheduling and isolation
 

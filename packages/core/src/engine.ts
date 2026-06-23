@@ -36,7 +36,7 @@ import { TeamBoard } from "./board.ts"
 import { type CustomCommand, loadCommands } from "./commands.ts"
 import { loadConfig, saveConfig } from "./config.ts"
 import { type CronJob, loadCron, parseInterval, saveCron } from "./cron.ts"
-import { openFleetWindows, openInteractiveWindow } from "./fleet.ts"
+import { openFleetWindows, openInteractiveWindow, openTerminalRunning } from "./fleet.ts"
 import {
   cancelMic,
   type InputDevice,
@@ -55,9 +55,21 @@ import { type RunnerHost, SessionRunner, type SessionStats } from "./runner.ts"
 import { SessionStore } from "./sessions.ts"
 import type { SkillInfo } from "./skills.ts"
 import type { StreamFn } from "./stream.ts"
+import {
+  type TmuxLayout,
+  type TmuxPane,
+  tmuxAvailable,
+  wallAdd,
+  wallAttachCommand,
+  wallKill,
+  wallKillAll,
+  wallLayout,
+  wallPanes,
+} from "./tmux.ts"
 
 export type { SessionStats } from "./runner.ts"
 export type { StreamFn } from "./stream.ts"
+export type { TmuxLayout, TmuxPane } from "./tmux.ts"
 
 const now = () => Date.now()
 
@@ -192,6 +204,8 @@ export class Engine {
     const row = resumed ?? this.store.buildRow([this.cwd], crypto.randomUUID(), now())
     const runner = this.makeRunner(row)
     this.focusedId = runner.sessionId
+    // Restore a resumed session's own model/provider/mode/effort (new sessions keep the global default).
+    if (resumed) this.applySessionSelection(runner.sessionId)
   }
 
   // ---- shared infra ----
@@ -434,12 +448,39 @@ export class Engine {
     return id ? this.teamPayload(id) : null
   }
   /** Pop a single agent out into a real terminal window (tmux pane / OS terminal). */
-  popoutAgent(sessionId: string): { ok: boolean; backend: string; opened: number } {
+  popoutAgent(sessionId: string): { ok: boolean; backend: string; opened: number; error?: string } {
     return openFleetWindows([sessionId])
   }
   /** Open a NEW interactive friday window: fresh chat (no args) or resume `-s <id>`, in `cwd`. */
-  openInteractive(args: string[] = [], cwd?: string): { ok: boolean; backend: string; opened: number } {
+  openInteractive(args: string[] = [], cwd?: string): { ok: boolean; backend: string; opened: number; error?: string } {
     return openInteractiveWindow(args, cwd ?? this.currentCwd())
+  }
+
+  // ---- tmux control center ("the wall"): real, tile-able, closable terminals managed from the dashboard ----
+  /** Is tmux available? When false, the dashboard hides wall controls and uses separate windows. */
+  tmuxOn(): boolean {
+    return tmuxAvailable()
+  }
+  /** Add a pane to the wall: a fresh chat (no args), a resumed session (`-s <id>`), or a read-only
+   * watch (`attach <id>`). `title` labels the pane in the tiled view. */
+  wallOpen(args: string[], title: string, cwd?: string): Promise<{ ok: boolean; error?: string }> {
+    return wallAdd(args, cwd ?? this.currentCwd(), title)
+  }
+  wallList(): Promise<TmuxPane[]> {
+    return wallPanes()
+  }
+  wallRemove(paneId: string): Promise<{ ok: boolean; error?: string }> {
+    return wallKill(paneId)
+  }
+  wallRemoveAll(): Promise<{ ok: boolean; error?: string }> {
+    return wallKillAll()
+  }
+  wallArrange(layout: TmuxLayout): Promise<{ ok: boolean; error?: string }> {
+    return wallLayout(layout)
+  }
+  /** Open a real OS terminal window attached to the wall, so the user watches every pane tiled. */
+  wallView(): { ok: boolean; backend: string; opened: number; error?: string } {
+    return openTerminalRunning(wallAttachCommand())
   }
   /** Force-activate deferred tools (by name prefix) for the focused session so the model can use them
    * immediately without calling tool_search first. Returns the number activated. */
@@ -507,7 +548,7 @@ export class Engine {
     return uninstallComputerUse()
   }
   /** Open a viewer window per running task (tmux pane / OS terminal); returns the chosen backend. */
-  openFleet(): { ok: boolean; backend: string; opened: number } {
+  openFleet(): { ok: boolean; backend: string; opened: number; error?: string } {
     const ids = this.taskList()
       .filter((t) => t.status === "running")
       .map((t) => t.id)
@@ -711,8 +752,15 @@ export class Engine {
   currentRoots(): string[] {
     return this.focused().currentRoots()
   }
-  contextInfo(): { files: string[] } {
+  contextInfo(): { files: string[]; pinned: string[] } {
     return this.focused().contextInfo()
+  }
+  /** Pin/unpin a file (relative to the focused session's primary root) into context for the session. */
+  pinContextFile(rel: string): void {
+    this.focused().pinFile(rel)
+  }
+  unpinContextFile(rel: string): void {
+    this.focused().unpinFile(rel)
   }
   listSkills(): SkillInfo[] {
     return this.focused().listSkills()
@@ -780,6 +828,7 @@ export class Engine {
     const prev = this.focusedId
     this.focusedId = id
     this.discardIfEmpty(prev) // throw away the empty session we just left
+    this.applySessionSelection(id) // restore this session's model/provider/mode/effort
     runner.emitState(true)
   }
   /** Add a directory to the focused session's workspace (no new session). */
@@ -915,7 +964,16 @@ export class Engine {
     this.modelReasoning = reasoning
     if (contextWindow && contextWindow > 0) this.contextWindow = contextWindow
     this.modelCost = cost ?? this.modelCost
+    // Save to the global config (the default for NEW sessions) AND to THIS session's meta, so resuming
+    // it later restores the model it was using rather than the current global default.
     saveConfig({ providerId, model, reasoning, contextWindow: this.contextWindow || undefined, cost: this.modelCost })
+    this.store.setMeta(this.focusedId, {
+      providerId,
+      model,
+      reasoning,
+      contextWindow: this.contextWindow || undefined,
+      cost: this.modelCost,
+    })
     this.dispatch(this.focusedId, {
       type: "model-changed",
       model,
@@ -926,6 +984,32 @@ export class Engine {
   }
   setMode(m: ModeId): void {
     this.mode = m
+    this.store.setMeta(this.focusedId, { mode: m })
+  }
+  /**
+   * Apply a session's persisted selection (model/provider/effort/mode) to the engine when it becomes
+   * focused, so a resumed/switched-to session restores exactly what it was using. New sessions have no
+   * meta, so the current global defaults stand. Emits model-changed; the TUI re-reads mode/effort from
+   * engine.selection() on the accompanying session-changed event.
+   */
+  private applySessionSelection(id: string): void {
+    const m = this.store.loadMeta(id)
+    if (m.providerId) this.providerId = m.providerId
+    if (m.model) this.model = m.model
+    if (typeof m.reasoning === "boolean") this.modelReasoning = m.reasoning
+    if (m.contextWindow && m.contextWindow > 0) this.contextWindow = m.contextWindow
+    if (m.cost) this.modelCost = m.cost
+    if (m.mode) this.mode = m.mode
+    if (m.effort) this.effort = m.effort
+    if (m.model) {
+      this.dispatch(id, {
+        type: "model-changed",
+        model: this.model!,
+        provider: this.providerId!,
+        reasoning: this.modelReasoning,
+        contextWindow: this.contextWindow,
+      })
+    }
   }
 
   // ---- command intake ----
@@ -949,10 +1033,12 @@ export class Engine {
       case "set-mode":
         this.mode = cmd.mode
         saveConfig({ mode: cmd.mode })
+        this.store.setMeta(this.focusedId, { mode: cmd.mode })
         break
       case "set-effort":
         this.effort = cmd.effort as Effort
         saveConfig({ effort: cmd.effort as Effort })
+        this.store.setMeta(this.focusedId, { effort: cmd.effort as Effort })
         break
       case "set-model":
         break

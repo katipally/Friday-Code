@@ -2,6 +2,7 @@ import { theme } from "@friday/shared"
 import { useKeyboard } from "@opentui/solid"
 import { createSignal, For, Show } from "solid-js"
 import { type TeamMember, useApp, type ViewItem } from "../store.tsx"
+import { G } from "../util/term.ts"
 import { bandBg, SectionLabel } from "./ui.tsx"
 
 /** Status → dot glyph + color. */
@@ -28,7 +29,7 @@ export function line(it: ViewItem): { text: string; c: string } {
     case "assistant":
       return { text: it.text || (it.done ? "" : "…"), c: theme.text }
     case "tool":
-      return { text: `⚙ ${it.name}${it.title ? `: ${it.title}` : ""}`, c: theme.textMuted }
+      return { text: `${G.tool} ${it.name}${it.title ? `: ${it.title}` : ""}`, c: theme.textMuted }
     case "error":
       return { text: `✗ ${it.text}`, c: theme.error }
     case "notice":

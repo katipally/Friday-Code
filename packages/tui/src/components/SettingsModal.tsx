@@ -4,7 +4,7 @@ import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { createMemo, createSignal, For, Show } from "solid-js"
 import { useApp } from "../store.tsx"
 import { Scrim } from "./Scrim.tsx"
-import { Overlay, Row, SectionLabel } from "./ui.tsx"
+import { Overlay, Row, Tabs } from "./ui.tsx"
 
 const TABS: { key: string; label: string }[] = [
   { key: "general", label: "General" },
@@ -163,16 +163,11 @@ export function SettingsModal() {
         hint="↑↓ move · ⏎ change · ←→ section · esc close"
         width={Math.min(76, dims().width - 4)}
       >
-        <box flexDirection="row" gap={1}>
-          {/* Left tab rail — opencode-style vertical sections. */}
-          <box flexDirection="column" width={16} flexShrink={0}>
-            <For each={TABS}>
-              {(t) => <Row label={t.label} selected={tab() === t.key} onSelect={() => switchTab(t.key)} />}
-            </For>
-          </box>
-          {/* Active section's rows. */}
+        <box flexDirection="column" gap={1}>
+          {/* Horizontal tab bar — same Tabs primitive the dashboard uses, for a consistent feel. */}
+          <Tabs items={TABS} active={tab()} onSelect={switchTab} />
+          {/* Active tab's rows, full width. */}
           <box flexDirection="column" flexGrow={1} gap={0}>
-            <SectionLabel text={TABS.find((t) => t.key === tab())!.label} />
             <For each={rows()}>
               {(r, i) => (
                 <Row

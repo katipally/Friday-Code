@@ -10,6 +10,7 @@ import { CompactionCard, CompactionSummary } from "./components/CompactionCard.t
 import { Composer } from "./components/Composer.tsx"
 import { ComputerModal } from "./components/ComputerModal.tsx"
 import { ConsoleView } from "./components/ConsoleView.tsx"
+import { ContextFilesModal } from "./components/ContextFilesModal.tsx"
 import { ContextPanel } from "./components/ContextPanel.tsx"
 import { Dashboard } from "./components/Dashboard.tsx"
 import { DirectoryModal } from "./components/DirectoryModal.tsx"
@@ -198,6 +199,9 @@ function Shell() {
       <Show when={app.skillsModalOpen()}>
         <SkillsModal />
       </Show>
+      <Show when={app.contextModalOpen()}>
+        <ContextFilesModal />
+      </Show>
       <Show when={app.computerModalOpen()}>
         <ComputerModal />
       </Show>
@@ -272,6 +276,14 @@ function AppRoot() {
     // Every other modal / HITL prompt owns its own keyboard; global shortcuts must not fire under
     // them. anyModalOpen() is the single source of truth (store), so nothing can be forgotten here.
     if (app.anyModalOpen()) return
+    // Cmd+Enter pauses the agent. Gated on `super` (Cmd under the kitty protocol) — NOT `meta`,
+    // because legacy terminals deliver Option+Enter as meta+return (a newline), so matching meta
+    // here would hijack the newline key. This lives in the global handler, not the textarea
+    // keyBindings, because the textarea folds Option onto meta and can't tell the two apart.
+    // Ctrl+P (pause.open) is the reliable path on terminals without the kitty protocol.
+    if (key.name === "return" && key.super && !key.ctrl && !key.shift) {
+      return void app.runCommand("pause")
+    }
     // Rebindable named actions (see ~/.friday/keybindings.json). Resolved before the bespoke
     // arming keys below; a plain Esc never matches a chord (shift+escape ≠ escape) so stop/checkpoint
     // arming still works.

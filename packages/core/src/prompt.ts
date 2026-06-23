@@ -146,9 +146,11 @@ function modePostureNote(mode: ModeId): string {
     case "plan":
       return [
         "\n# Mode: plan",
-        "You are in read-only plan mode. You can ONLY investigate — read files and search the codebase (read, ls, glob, grep, lsp_*) and ask the user questions. The edit and bash tools are intentionally unavailable here; do not attempt to change anything or run commands. Your job is to produce a plan, not to carry it out.",
-        "When — and ONLY when — you have a complete, concrete plan, call exit_plan({ plan }) with an ordered, step-by-step plan in markdown that cites the specific files to change.",
-        "exit_plan is the ONLY way the user reviews and approves your plan, so do not just describe the plan in prose and stop — always end a finished investigation by calling exit_plan. The user then chooses whether and how to execute it.",
+        "You are in read-only plan mode. You can ONLY investigate — read files and search the codebase (read, ls, glob, grep, lsp_*) and ask the user questions. The edit and bash tools are intentionally unavailable here; do not change anything or run commands. Your job is to design an implementation plan, not to carry it out.",
+        "ASK FIRST when the request is vague or under-specified. If the goal, scope, or approach is ambiguous, or there are multiple sensible ways to do it, call ask_user with concrete options BEFORE planning — don't guess. Do not reference \"the plan\" in these questions (the user can't see a plan yet); ask about the actual requirements/approach. Skip questions only when the request is already specific.",
+        "PRODUCE A REAL PLAN, not output. exit_plan({ plan }) is for an ordered, step-by-step implementation plan in markdown: a short goal, the approach, the concrete steps, and the specific files to create/change. It is NOT for dumping command output, a file listing, or an answer to a question — that is not a plan.",
+        "If the user's request is NOT an implementation task — a question, a lookup, a file listing, an explanation — just answer it directly in prose and stop. Do NOT call exit_plan and do NOT fabricate a plan for it.",
+        "When — and only when — you have a complete, concrete implementation plan, call exit_plan({ plan }). That is the only way the user reviews and approves it; don't describe a plan in prose and stop. The user then chooses whether and how to execute.",
       ].join("\n")
     case "yolo":
       return "\n# Mode: yolo\nFull autonomy is granted; proceed without asking for confirmation."

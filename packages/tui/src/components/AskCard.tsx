@@ -327,6 +327,9 @@ export function AskCard() {
               <text fg={shimmerAccent(theme.brand)}>
                 <strong>? QUESTION</strong>
               </text>
+              <Show when={app.askFrom()}>
+                <text fg={theme.textMuted}>· {app.askFrom()}</text>
+              </Show>
               <Show when={a().questions.length > 1 && !review()}>
                 <text fg={theme.textFaint}>
                   · {qIdx() + 1} of {a().questions.length}

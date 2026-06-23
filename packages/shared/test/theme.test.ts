@@ -19,7 +19,7 @@ test("themeNames lists the built-in presets with dark first", () => {
 test("applyTheme layers a preset, then resets to default", () => {
   const defaultText = theme.text
   applyTheme("light")
-  expect(theme.bg).toBe("#ffffff") // preset override applied
+  expect(theme.bg).toBe("#faf9f5") // preset override applied (warm-paper light)
   applyTheme("dark")
   expect(theme.text).toBe(defaultText) // reset back to the default palette
 })

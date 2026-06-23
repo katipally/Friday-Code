@@ -48,6 +48,30 @@ list.
 Most of these can also be set from inside the TUI: `/model`, `/effort`,
 `/theme`, `/budget`, `/mcp`. Changes made there are written back to `config.json`.
 
+## Settings precedence (user → project → local)
+
+Like Claude Code, config is layered. Friday reads three files and deep-merges
+them, with later layers winning (nested objects merge key-by-key; arrays and
+scalars are replaced):
+
+1. `~/.friday/config.json` — **user** settings, apply everywhere.
+2. `.friday/settings.json` — **project** settings, committed to the repo so the
+   whole team shares them (model, mcp, hooks, bash policy, theme…).
+3. `.friday/settings.local.json` — **project-local** overrides, **gitignored**;
+   your personal tweaks for this checkout.
+
+All three use the same shape as `config.json` above. TUI changes are written to
+the user file by default. Recommended `.gitignore` for a project that commits
+its settings:
+
+```gitignore
+.friday/*
+!.friday/settings.json
+```
+
+That commits `.friday/settings.json` while keeping `settings.local.json` (and
+everything else under `.friday/`) out of version control.
+
 ## Bash allow and deny
 
 The `bash` block gates shell commands before they run. `deny` blocks a command

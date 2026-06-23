@@ -16,14 +16,14 @@ function makeStreamFn(scripts: ProviderEvent[][]): StreamFn {
   }
 }
 
-test("plan mode: a completed turn emits plan-ready with the plan text", async () => {
+test("plan mode: plain prose does NOT fabricate a plan-ready (only exit_plan does)", async () => {
+  // Regression: a trivial answer (e.g. a file listing) must not masquerade as a "PLAN READY" gate.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-test-"))
-  const plan = "# Plan\n\n1. Read the schema\n2. Write the migration\n3. Run the tests"
   const engine = new Engine({
     cwd: dir,
     streamFn: makeStreamFn([
       [
-        { type: "text", delta: plan },
+        { type: "text", delta: "Files in this folder: a.txt, b.txt, README.md" },
         { type: "done", stopReason: "stop" },
       ],
     ]),
@@ -33,12 +33,11 @@ test("plan mode: a completed turn emits plan-ready with the plan text", async ()
 
   const events: EngineEvent[] = []
   engine.subscribe((e) => events.push(e))
-  engine.send({ type: "prompt", text: "how should we do this?" })
+  engine.send({ type: "prompt", text: "list everything in the folder" })
   await Bun.sleep(40)
 
-  const planReady = events.find((e) => e.type === "plan-ready") as Extract<EngineEvent, { type: "plan-ready" }>
-  expect(planReady).toBeTruthy()
-  expect(planReady.plan).toContain("Write the migration")
+  // No exit_plan was called → no plan gate; the prose just stands as a normal answer.
+  expect(events.some((e) => e.type === "plan-ready")).toBe(false)
   fs.rmSync(dir, { recursive: true, force: true })
 })
 
