@@ -51,6 +51,10 @@ All notable changes to this project are documented here. The format is based on
 - Removed dead code surfaced by an unused-export scan (a few unused motion,
   color, and UI helpers) and fixed a stale "four modes" comment in
   `packages/shared/src/modes.ts`.
+- Release build: `onnxruntime-node` (pulled in by the on-device mic via
+  `@huggingface/transformers`) ships no darwin/x64 prebuilt, which broke the
+  `darwin-x64` binary build and blocked the release. It is now marked external
+  for that target only; the mic's lazy import degrades gracefully on Intel Macs.
 
 ## [2.0.2] - 2026-06-18
 

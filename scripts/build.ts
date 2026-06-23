@@ -191,8 +191,17 @@ for (const t of targets) {
   // on launch. `Bun.build({ plugins })` lets us load the Solid babel plugin
   // directly, producing the correct lazy-children shape (and matching dev
   // mode, where bunfig.toml's preload registers the same plugin).
+  // onnxruntime-node (pulled in by @huggingface/transformers for the on-device
+  // mic) ships no darwin/x64 prebuilt — its bin/napi-v6/ has darwin/arm64 only.
+  // Its binding.js does `require(`../bin/napi-v6/${platform}/${arch}/…node`)`,
+  // so bundling on the Intel-mac runner can't resolve darwin/x64 and the build
+  // fails. Mark it external there: the binary still builds, and the mic's lazy
+  // `import("@huggingface/transformers")` (mic.ts) catches the missing module
+  // and degrades gracefully — Intel Macs can't run the native runtime anyway.
+  const external = t.name === "darwin-x64" ? ["onnxruntime-node"] : undefined
   const result = await Bun.build({
     entrypoints: [ENTRY],
+    external,
     compile: {
       target: t.bun as Bun.Build.CompileTarget,
       outfile: outBase,
