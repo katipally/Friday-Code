@@ -19,7 +19,7 @@ const KEYS: { keys: string; label: string }[] = [
   { keys: "/ · @", label: "slash command · file mention" },
   { keys: "? · F1", label: "this keymap (or click ? keys)" },
   { keys: "Esc", label: "close overlay / cancel" },
-  { keys: "Ctrl+C", label: "quit" },
+  { keys: "Ctrl+C", label: "quit (press twice)" },
 ]
 
 /** Full-screen keymap overlay. Dismissed via Esc or click (handled in App + backdrop). */
