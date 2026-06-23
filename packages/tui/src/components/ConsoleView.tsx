@@ -2,7 +2,7 @@ import { theme } from "@friday/shared"
 import { useKeyboard } from "@opentui/solid"
 import { createSignal, For, Show } from "solid-js"
 import { type TeamMember, useApp, type ViewItem } from "../store.tsx"
-import { SectionLabel } from "./ui.tsx"
+import { bandBg, SectionLabel } from "./ui.tsx"
 
 /** Status → dot glyph + color. */
 export function dot(status: string): { g: string; c: string } {
@@ -114,19 +114,15 @@ export function ConsoleView() {
                 const d = dot(m.status)
                 const on = () => i() === clampedSel()
                 return (
-                  <box
-                    flexDirection="column"
-                    backgroundColor={on() ? theme.bgSelected : "transparent"}
-                    onMouseDown={() => setSel(i())}
-                  >
+                  <box flexDirection="column" backgroundColor={bandBg(on())} onMouseDown={() => setSel(i())}>
                     <box flexDirection="row" gap={1}>
-                      <text fg={d.c}>{d.g}</text>
-                      <text fg={on() ? theme.text : theme.textMuted}>{m.role}</text>
+                      <text fg={on() ? theme.textOnAccent : d.c}>{d.g}</text>
+                      <text fg={on() ? theme.textOnAccent : theme.textMuted}>{m.role}</text>
                       <box flexGrow={1} />
-                      <text fg={theme.textFaint}>{m.status}</text>
+                      <text fg={on() ? theme.textOnAccent : theme.textFaint}>{m.status}</text>
                     </box>
                     <Show when={m.activity}>
-                      <text fg={theme.textFaint}>{`  ${m.activity}`.slice(0, 30)}</text>
+                      <text fg={on() ? theme.textOnAccent : theme.textFaint}>{`  ${m.activity}`.slice(0, 30)}</text>
                     </Show>
                   </box>
                 )
