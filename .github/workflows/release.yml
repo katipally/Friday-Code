@@ -305,7 +305,7 @@ jobs:
           fi
           echo "✓ 6 required npm packages present and parseable"
 
-      - name: Publish npm + open Homebrew/Scoop PRs
+      - name: Publish npm + bump Homebrew/Scoop
         run: bun run scripts/publish.ts
         env:
           VERSION:           ${{ needs.release.outputs.version }}

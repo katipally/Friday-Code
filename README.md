@@ -33,7 +33,7 @@ friday is an attempt to ship a complete CLI coding agent in OSS, written from sc
 
 | Platform | Command | Notes |
 |---|---|---|
-| macOS / Linux (Homebrew) | `brew install katipally/tap/friday` | `friday` ends up in your brew prefix |
+| macOS / Linux (Homebrew) | `brew tap katipally/tap && brew install friday` | upgrades with `brew upgrade friday` |
 | Anywhere with npm | `npm i -g friday-code` | needs Node 18+. Launcher auto-detects arch + musl |
 | macOS / Linux (curl) | `curl -fsSL https://raw.githubusercontent.com/katipally/friday-code/main/install.sh \| sh` | lands in `~/.friday/bin` |
 | Windows (Scoop) | `scoop bucket add katipally https://github.com/katipally/scoop-bucket && scoop install friday` | updates with `scoop update friday` |
@@ -180,7 +180,7 @@ To add a tool: implement in `packages/tools/src/builtin/`, register in `packages
 2. GitHub Release with all binaries + `SHASUMS256.txt`
 3. Manual approval in the `release` environment (nothing goes to npm until you click)
 4. 9 npm packages publish with provenance (8 platform + 1 launcher)
-5. Homebrew + Scoop PRs open on the tap and bucket repos
+5. Homebrew tap + Scoop bucket get the new version committed to them automatically
 
 If a stable build fails, the release is blocked. If a musl or Windows ARM build fails, the release still proceeds. The publish script is idempotent: re-run and already-shipped packages are skipped.
 

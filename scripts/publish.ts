@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
-// Publish the release: platform packages + launcher to npm, then open
-// PRs against the Homebrew tap and Scoop bucket with the new version + SHA256.
+// Publish the release: platform packages + launcher to npm, then commit the new
+// version + SHA256 straight to the Homebrew tap and Scoop bucket default branches.
 //
 // Idempotent: every `npm publish` is skipped if the version is already on npm.
 // Stable platforms (5) and the launcher get the full treatment; musl and
@@ -147,7 +147,7 @@ async function updateHomebrew(): Promise<void> {
     .replace(/REPLACE_WITH_DARWIN_X64_SHA256/g, shas["darwin-x64"] ?? "")
     .replace(/REPLACE_WITH_LINUX_ARM64_SHA256/g, shas["linux-arm64"] ?? "")
     .replace(/REPLACE_WITH_LINUX_X64_SHA256/g, shas["linux-x64"] ?? "")
-  await openOrUpdateFile(tap, "Formula/friday.rb", rendered, `friday ${VERSION}`, `chore: bump friday to ${VERSION}`)
+  await commitFile(tap, "Formula/friday.rb", rendered, `chore: bump friday to ${VERSION}`)
   console.log(`  ✓ homebrew tap updated: ${tap}`)
 }
 
@@ -168,21 +168,17 @@ async function updateScoop(): Promise<void> {
   tpl.version = VERSION
   tpl.architecture["64bit"].url = `${url}#/friday.exe`
   tpl.architecture["64bit"].hash = sha
-  await openOrUpdateFile(
-    bucket,
-    "friday.json",
-    `${JSON.stringify(tpl, null, 2)}\n`,
-    `friday ${VERSION}`,
-    `chore: bump friday to ${VERSION}`,
-  )
+  await commitFile(bucket, "friday.json", `${JSON.stringify(tpl, null, 2)}\n`, `chore: bump friday to ${VERSION}`)
   console.log(`  ✓ scoop bucket updated: ${bucket}`)
 }
 
-async function openOrUpdateFile(
+// Commit the rendered manifest straight to the tap/bucket default branch — no PR,
+// no merge step, so releases are zero-touch. These are our own repos and the content
+// is mechanically rendered, so the review a PR would add buys nothing.
+async function commitFile(
   repo: string,
   filePath: string,
   content: string,
-  title: string,
   commitMessage: string,
 ): Promise<void> {
   const [owner, name] = repo.split("/")
@@ -201,26 +197,9 @@ async function openOrUpdateFile(
     return
   }
   const branch = repoInfo.default_branch
-  const branchRef: any = await j(await fetch(`${apiBase}/git/ref/heads/${branch}`, { headers }))
-  if (!branchRef) {
-    console.log(`  ! could not read default branch on ${repo}`)
-    return
-  }
-  const headSha: string = branchRef.object.sha
 
-  // Create branch (idempotent: 422 = already exists, fine)
-  const branchName = `friday-${VERSION}-${Date.now()}`
-  const refRes = await fetch(`${apiBase}/git/refs`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ ref: `refs/heads/${branchName}`, sha: headSha }),
-  })
-  if (refRes.status >= 400 && refRes.status !== 422) {
-    console.log(`  ! could not create branch ${branchName} on ${repo} (${refRes.status})`)
-    return
-  }
-
-  // Look up existing file sha (if any) so the update is a real update
+  // Look up existing file sha (if any) so the update is a real update, then commit
+  // directly to the default branch.
   const existing: any = await j(
     await fetch(`${apiBase}/contents/${encodeURIComponent(filePath)}?ref=${branch}`, { headers }),
   )
@@ -230,7 +209,7 @@ async function openOrUpdateFile(
     body: JSON.stringify({
       message: commitMessage,
       content: Buffer.from(content, "utf8").toString("base64"),
-      branch: branchName,
+      branch,
       sha: existing?.sha,
     }),
   })
@@ -238,21 +217,7 @@ async function openOrUpdateFile(
     console.log(`  ! could not commit ${filePath} on ${repo} (${putRes.status})`)
     return
   }
-
-  // Open a PR (422 = a PR already exists for this head/base, fine)
-  const prRes = await fetch(`${apiBase}/pulls`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      title,
-      head: branchName,
-      base: branch,
-      body: `Automated bump for friday v${VERSION}.`,
-      maintainer_can_modify: true,
-    }),
-  })
-  if (prRes.status === 422) console.log(`  · PR already exists for this version — no-op`)
-  else if (prRes.status >= 400) console.log(`  ! could not open PR on ${repo} (${prRes.status})`)
+  console.log(`  ✓ committed ${filePath} to ${repo}@${branch}`)
 }
 
 // ───────────────────────── shell helper ─────────────────────────
