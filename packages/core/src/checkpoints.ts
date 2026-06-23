@@ -65,18 +65,20 @@ export function lineDelta(before: string | null, after: string | null): { added:
   if (before === after) return { added: 0, removed: 0 }
   const a = before === null ? [] : before.split("\n")
   const b = after === null ? [] : after.split("\n")
-  // ponytail: LCS is O(n·m); cap large files with a coarse full-rewrite count rather than stalling.
+  // ponytail: LCS is O(n·m) time; cap large files with a coarse full-rewrite count rather than stall.
   if (a.length > 5000 || b.length > 5000) return { added: b.length, removed: a.length }
   const m = a.length
   const n = b.length
-  // dp[i][j] = LCS length of a[i:] and b[j:]
-  const dp: Int32Array[] = Array.from({ length: m + 1 }, () => new Int32Array(n + 1))
-  for (let i = m - 1; i >= 0; i--) {
-    for (let j = n - 1; j >= 0; j--) {
-      dp[i]![j] = a[i] === b[j] ? dp[i + 1]![j + 1]! + 1 : Math.max(dp[i + 1]![j]!, dp[i]![j + 1]!)
+  // Rolling two-row LCS — O(n) memory (not O(m·n)), so listing many checkpoints stays cheap.
+  let prev = new Int32Array(n + 1)
+  let cur = new Int32Array(n + 1)
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      cur[j] = a[i - 1] === b[j - 1] ? prev[j - 1]! + 1 : Math.max(prev[j]!, cur[j - 1]!)
     }
+    ;[prev, cur] = [cur, prev]
   }
-  const lcs = dp[0]![0]!
+  const lcs = prev[n]!
   return { added: n - lcs, removed: m - lcs }
 }
 
