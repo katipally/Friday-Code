@@ -21,7 +21,6 @@ import { shimmerAccent, useHover } from "../motion/index.ts"
 /** One spacing scale so padding/gap stop drifting between components. */
 export const PAD = 1
 export const GAP = 1
-export const SECTION_GAP = 2
 
 /** Bold title. Chrome titles glow brand amber; chat passes the mode accent via `color`. */
 export function Title(props: { text: string; color?: string }) {

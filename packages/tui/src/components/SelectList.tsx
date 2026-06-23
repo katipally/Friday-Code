@@ -1,5 +1,4 @@
 import { theme } from "@friday/shared"
-import type { SelectOption } from "@opentui/core"
 
 export type SelectItem = {
   id: string
@@ -9,15 +8,6 @@ export type SelectItem = {
   key?: string
   /** Tint for the keycap/label (defaults to the list accent). */
   color?: string
-}
-
-/** Convert Friday SelectItems to OpenTUI SelectOptions. */
-export function toOptions(items: SelectItem[]): SelectOption[] {
-  return items.map((it) => ({
-    name: it.label,
-    description: it.hint ?? "",
-    value: it.id,
-  }))
 }
 
 /**

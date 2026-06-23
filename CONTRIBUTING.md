@@ -39,7 +39,7 @@ packaging/           the published launcher package + Homebrew / Scoop templates
 
 ## Development workflow
 
-Run these before opening a PR — CI runs the same checks:
+Run these before opening a PR. CI runs the same checks:
 
 ```bash
 bun run typecheck     # tsc --strict across every package
@@ -60,7 +60,7 @@ bunx biome check --write packages
 - **Biome** enforces formatting and linting (`biome.json`). Match the surrounding code.
 - TypeScript runs in `strict` mode with `noUncheckedIndexedAccess`; non-null assertions
   (`x!`) on indexed access are idiomatic here.
-- Double quotes, no semicolons, 2-space indent, ~120 col width — Biome handles all of it.
+- Double quotes, no semicolons, 2-space indent, ~120 col width. Biome handles all of it.
 - Keep dependencies minimal; the engine is intentionally zero-SDK.
 
 ## Adding things
@@ -74,7 +74,7 @@ bunx biome check --write packages
 
 ## Tests
 
-Tests use `bun:test`. Keep them hermetic — set `FRIDAY_HOME` to a temp dir so they never
+Tests use `bun:test`. Keep them hermetic: set `FRIDAY_HOME` to a temp dir so they never
 touch a real `~/.friday`. Prefer polling a condition over fixed sleeps for anything that
 spawns subprocesses (see `packages/core/test/runtime-gaps.test.ts`).
 
@@ -93,6 +93,6 @@ explaining the *why* when it isn't obvious.
 ## Reporting bugs / requesting features
 
 Use the [issue templates](https://github.com/katipally/friday-code/issues/new/choose).
-For security issues, follow [SECURITY.md](SECURITY.md) — do **not** open a public issue.
+For security issues, follow [SECURITY.md](SECURITY.md) and do **not** open a public issue.
 
 By contributing, you agree your contributions are licensed under the [MIT License](LICENSE).

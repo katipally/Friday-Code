@@ -21,12 +21,6 @@ export function lighten(hex: string, amt: number): string {
   return toHex(r + (255 - r) * amt, g + (255 - g) * amt, b + (255 - b) * amt)
 }
 
-/** Mix `hex` toward black by `amt` (0..1). */
-export function darken(hex: string, amt: number): string {
-  const [r, g, b] = parse(hex)
-  return toHex(r * (1 - amt), g * (1 - amt), b * (1 - amt))
-}
-
 /** Linear blend a -> b by t (0..1). */
 export function mix(a: string, b: string, t: number): string {
   const [r1, g1, b1] = parse(a)

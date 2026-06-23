@@ -41,7 +41,7 @@ On first run, onboarding shows up and `/model` lets you pick a provider. The pic
 
 - 8 native binary builds (5 stable + 2 musl + 1 best-effort Windows ARM)
 - 19 built-in providers (Anthropic, Google Gemini, OpenAI-compat for 17 more including OpenRouter, Groq, DeepSeek, Moonshot/Kimi, xAI, Mistral, Perplexity, Together, Cerebras, DeepInfra, Fireworks, Azure OpenAI, MiniMax, OpenCode Zen, Ollama, llama.cpp)
-- 4 permission modes (plan, default, accept-edits, yolo) with per-mode glyph and accent
+- 3 permission modes (plan, default, yolo) with per-mode glyph and accent
 - 7-state animated mascot in the TUI status strip
 - 8 hook events (PreToolUse, PostToolUse, UserPromptSubmit, Stop, SessionStart, SubagentStop, PreCompact, Notification)
 - Checkpoints + rewind including files created by bash

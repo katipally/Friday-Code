@@ -5,7 +5,7 @@ embedded), distributed via npm, Homebrew, Scoop, a curl script, and GitHub Relea
 
 > **The whole release is one command:** `git tag v2.0.2 && git push origin v2.0.2`
 >
-> Versions are **derived from the git tag** — never hardcoded. There is no
+> Versions are **derived from the git tag**, never hardcoded. There is no
 > `bump` step, no manifest editing, nothing to forget.
 
 ## One-time setup
@@ -35,7 +35,7 @@ embedded), distributed via npm, Homebrew, Scoop, a curl script, and GitHub Relea
 git add -A
 git commit -m "release prep"  # or skip if nothing to commit
 
-# 3. tag + push — that's the whole release
+# 3. tag + push, that's the whole release
 git tag v2.0.2
 git push origin v2.0.2
 ```
@@ -51,7 +51,7 @@ The release workflow automatically:
 6. opens a **PR on `katipally/scoop-bucket`** with the new manifest + hash
 
 The `VERSION` everywhere (binary `--version`, npm `package.json` files, Homebrew
-formula, Scoop manifest) is stamped from the tag — you cannot accidentally have
+formula, Scoop manifest) is stamped from the tag, so you cannot accidentally have
 mismatched versions.
 
 ### Failure handling
@@ -76,7 +76,7 @@ when you upload a directory, the artifact's zip contains the directory's
 contents at the root (the directory name is stripped). All 8 `npm-<target>`
 zips then have **identical** top-level paths (`package.json`, `bin/`), and
 `download-artifact`'s `merge-multiple: true` happily overwrites them with
-"last writer wins" — silently producing an empty `dist/npm/<target>/` for 7
+"last writer wins", silently producing an empty `dist/npm/<target>/` for 7
 of the 8 platforms. This bug broke every v2.0.x release between 2026-06-18
 and 2026-06-19.
 
@@ -145,7 +145,7 @@ glibc on Linux) at install time and loads the correct optional dependency.
 ```bash
 bun install --frozen-lockfile
 
-# Host target — no FRIDAY_VERSION → binary reports "dev"
+# Host target, no FRIDAY_VERSION, binary reports "dev"
 bun run scripts/build.ts --target=darwin-arm64
 
 # Explicit version (what the release workflow does)

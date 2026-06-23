@@ -1,8 +1,7 @@
 /**
- * The four interaction modes. Shift+Tab cycles them; the whole frame recolors to `accent`.
+ * The three interaction modes. Shift+Tab cycles them; the whole frame recolors to `accent`.
  *
- * `policy` is the default permission posture the engine applies (consumed in M2); the UI only needs
- * id/label/glyph/accent/hint for M0.
+ * `policy` is the default permission posture the engine applies; the UI reads id/label/glyph/accent/hint.
  */
 export type ModeId = "plan" | "default" | "yolo"
 

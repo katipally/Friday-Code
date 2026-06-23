@@ -70,7 +70,7 @@ friday -h, --help
 | `Ctrl+1-9` | jump between parallel sessions |
 | `/` | slash command autocomplete |
 | `@` | file or image mention |
-| `?` or `F1` | full guide — slash commands · keyboard · modes |
+| `?` or `F1` | full guide: slash commands · keyboard · modes |
 | `Esc` | close overlay |
 | `Esc Esc` | rewind last change |
 | `Ctrl+C` | quit (press twice to confirm) |
@@ -90,6 +90,23 @@ Shift+Tab cycles. Each mode recolors the whole frame and gates every tool call.
 ### Mascot
 
 `⬡‿⬡` lives above the composer. It changes expression: `⬡‿⬡` idle, `⬡⌄⬡` thinking, `[>‿<]` streaming, `⬡▰⬡` working, `\⬡‿⬡/` done, `⬡_⬡` error, `⬡⊙⬡` waiting. The mood also tints the color: green for done, red for error, amber for waiting, mode accent for everything else. You can tell what's happening from across the room.
+
+### Steering
+
+Agents go wrong when they guess at something you knew and then build on the
+guess. `/add` is how you catch it mid-flight. Type `/add <note>` while Friday is
+working and it pauses the current generation, folds your note in, and
+course-corrects right now. Use `/add! <note>` when the current step is fine to
+finish and you just want the note picked up on the next one.
+
+```
+/add we are keeping the old auth API, do not rewrite it
+/add! the base url is staging.example.com, not prod
+```
+
+Full reference, including the cost model and the bare-`/add` composer, in
+[docs/steering.md](docs/steering.md). Every slash command is listed in
+[docs/commands.md](docs/commands.md).
 
 ## Features
 
@@ -157,7 +174,7 @@ To add a tool: implement in `packages/tools/src/builtin/`, register in `packages
 
 ## Releases
 
-`git tag v2.0.7 && git push origin v2.0.7` is the whole release. Versions are derived from the tag, nothing in source is hardcoded. The pipeline:
+`git tag v2.0.9 && git push origin v2.0.9` is the whole release. Versions are derived from the tag, nothing in source is hardcoded. The pipeline:
 
 1. 8 builds run in parallel on native runners (5 stable, 2 musl, 1 best-effort Windows ARM)
 2. GitHub Release with all binaries + `SHASUMS256.txt`
@@ -187,6 +204,18 @@ If a stable build fails, the release is blocked. If a musl or Windows ARM build 
 - **macOS Gatekeeper.** The binary isn't signed. Right-click → Open → confirm. Or `xattr -d com.apple.quarantine $(which friday)`.
 - **Windows SmartScreen.** Click "More info" → "Run anyway". Or use Scoop.
 - **Something else.** `~/.friday/logs/`. If logs don't help, open an issue with `friday --version` and the relevant log lines.
+
+## Documentation
+
+Deep dives on every feature live in [docs/](docs/index.md):
+
+- [Slash commands](docs/commands.md): every command you can type.
+- [Steering](docs/steering.md): `/add` and `/add!`.
+- [Configuration](docs/configuration.md): `~/.friday/`, keys, hooks, project context, skills, custom agents and commands.
+- [Providers](docs/providers.md): the 19 providers and reasoning effort.
+- [Tools](docs/tools.md): the capabilities the model calls.
+- [Agents and teams](docs/agents-and-teams.md): sub-agents, swarms, and coordinated teams.
+- [Integrations](docs/integrations.md): browser, computer use, voice, LSP, headless mode.
 
 ## Contributing, security, license
 
