@@ -27,6 +27,7 @@ export {
   BOARD_RELEASE,
   BOARD_TOOLS,
   SPAWN_TEAM,
+  TEAM,
 } from "./builtin/board.ts"
 export { BROWSER_TOOLS, closeBrowser, findBrowser, startBrowser } from "./builtin/browser.ts"
 export {
@@ -44,8 +45,11 @@ export {
   CRON_DELETE,
   CRON_LIST,
   CRON_TOOLS,
+  DELEGATE,
+  parseBudget,
   SEND_TO_TASK,
   SPAWN_AGENTS,
+  SWARM,
   TASK_BG_TOOLS,
   TASK_CREATE,
   TASK_LIST,

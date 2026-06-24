@@ -18,6 +18,8 @@ export interface FridayConfig {
   contextWindow?: number
   /** USD per 1M tokens for the selected model — drives the cost meter */
   cost?: { input: number; output: number }
+  /** model ids spawned agents may draw from (per-agent def.model wins; else first pool entry). */
+  modelPool?: string[]
   /** lifecycle hooks (deterministic scripts) */
   hooks?: HooksConfig
   /** bash command allow/deny lists (prefix or `*` glob) */

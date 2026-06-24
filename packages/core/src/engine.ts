@@ -51,7 +51,16 @@ import {
 } from "./mic.ts"
 import { notify } from "./notify.ts"
 import { persistPermission, projectPermissions, revokeProjectPermissions } from "./permissions.ts"
-import { type RunnerHost, SessionRunner, type SessionStats } from "./runner.ts"
+import {
+  type RunnerHost,
+  SessionRunner,
+  type SessionStats,
+  type SpawnBudget,
+  type SpawnJob,
+  type SpawnOpts,
+  type TeamMemberSpec,
+} from "./runner.ts"
+import { resolveAgent } from "./agents.ts"
 import { SessionStore } from "./sessions.ts"
 import type { SkillInfo } from "./skills.ts"
 import type { StreamFn } from "./stream.ts"
@@ -141,7 +150,7 @@ export class Engine {
     formatterEnabled: () => loadConfig().formatter,
     projectPermissions: (root) => projectPermissions(root),
     persistPermission: (root, rule) => persistPermission(root, rule),
-    spawnTask: (prompt, description, worktree) => this.spawnTask(prompt, description, worktree),
+    spawnTask: (prompt, description, opts) => this.spawnTask(prompt, description, opts),
     spawnAgents: (jobs) => this.spawnAgents(jobs),
     sendToTask: (id, text) => this.sendToTask(id, text),
     taskList: () => this.taskList(),
@@ -149,7 +158,7 @@ export class Engine {
     cronCreate: (description, prompt, every) => this.cronCreate(description, prompt, every),
     cronList: () => this.cronList(),
     cronDelete: (id) => this.cronDelete(id),
-    spawnTeam: (orchestrator, goal, roles) => this.spawnTeam(orchestrator, goal, roles),
+    spawnTeam: (orchestrator, goal, members, opts) => this.spawnTeam(orchestrator, goal, members, opts),
     boardPost: (sessionId, kind, text, toRole) => {
       const teamId = this.teamOf.get(sessionId)
       if (!teamId) return false
@@ -246,13 +255,23 @@ export class Engine {
   /** Spawn a detached background session that runs `prompt` to completion; returns its id. When
    * `worktree` is set, the task first enters an isolated git worktree of that name (parallel writable
    * work that won't collide with the main checkout or other tasks). */
-  spawnTask(prompt: string, description: string, worktree?: string): string {
+  spawnTask(prompt: string, description: string, opts?: SpawnOpts): string {
     const roots = this.focused().currentRoots()
     const title = (description || "task").slice(0, 60)
     const runner = this.makeRunner(this.store.buildRow(roots, crypto.randomUUID(), now(), title))
     this.taskMeta.set(runner.sessionId, { description, createdAt: now() })
+    // Resolve the agent def (built-in or on-disk) so the spawned session runs as that agent: its
+    // model, permission posture and presentation. Budget caps hard-stop the session.
+    const def = opts?.agent ? resolveAgent(opts.agent, roots) : undefined
+    runner.configureAgent({
+      agentName: def?.name ?? opts?.agent,
+      posture: opts?.posture ?? def?.posture,
+      model: def?.model,
+      budgetUsd: opts?.budgetUsd,
+      budgetTokens: opts?.budgetTokens,
+    })
     void (async () => {
-      if (worktree) await runner.enterWorktree(worktree)
+      if (opts?.worktree) await runner.enterWorktree(opts.worktree)
       await runner.runPrompt(prompt)
     })()
     this.emitTasks()
@@ -322,8 +341,15 @@ export class Engine {
     void r.runPrompt(next)
   }
   /** Fan out a list of subtasks as parallel background agents; returns their ids. */
-  spawnAgents(jobs: { description: string; prompt: string; worktree?: string }[]): string[] {
-    return jobs.map((j) => this.spawnTask(j.prompt, j.description, j.worktree?.trim() || undefined))
+  spawnAgents(jobs: SpawnJob[]): string[] {
+    return jobs.map((j) =>
+      this.spawnTask(j.prompt, j.description, {
+        worktree: j.worktree?.trim() || undefined,
+        agent: j.agent,
+        budgetUsd: j.budgetUsd,
+        budgetTokens: j.budgetTokens,
+      }),
+    )
   }
 
   // ---- agent teams (orchestrator + shared board) ----
@@ -332,15 +358,20 @@ export class Engine {
   /** Launch a coordinated team: spawn one worker per role (each in its own worktree), register them on
    * the shared board, and arm a gather timeout. Workers post findings to the board; when all finish the
    * orchestrator is automatically re-prompted to merge & report. Returns the team id. */
-  spawnTeam(orchestrator: string, goal: string, roles: { role: string; prompt: string; worktree?: string }[]): string {
+  spawnTeam(orchestrator: string, goal: string, members: TeamMemberSpec[], opts?: SpawnBudget): string {
     const teamId = this.board.createTeam(goal, orchestrator)
-    for (const r of roles) {
+    for (const r of members) {
       const wt = r.worktree || `team-${teamId}-${r.role}`.replace(/[^a-zA-Z0-9._/-]/g, "-")
       const briefing =
         `You are the “${r.role}” member of an agent team. Team goal: ${goal}\n` +
         `You work in an isolated git worktree (${wt}). Coordinate via the shared board: board_post your findings/handoffs, board_read to see teammates, and board_claim_file before editing a file others might touch. ` +
         `When done, board_post a 'finding' summarizing exactly what you changed (files + branch).\n\nYour task:\n${r.prompt}`
-      const sid = this.spawnTask(briefing, `${r.role} · ${goal.slice(0, 40)}`, wt)
+      const sid = this.spawnTask(briefing, `${r.role} · ${goal.slice(0, 40)}`, {
+        worktree: wt,
+        agent: r.agent,
+        budgetUsd: opts?.budgetUsd,
+        budgetTokens: opts?.budgetTokens,
+      })
       // Register on the board + team map synchronously, before the worker's async run can complete.
       this.board.addMember(teamId, sid, r.role, wt)
       this.teamOf.set(sid, teamId)

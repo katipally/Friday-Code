@@ -1,11 +1,12 @@
 import { obj, type Tool } from "../tool.ts"
 
 export const SPAWN_TEAM = "spawn_team"
+export const TEAM = "team"
 export const BOARD_POST = "board_post"
 export const BOARD_READ = "board_read"
 export const BOARD_CLAIM = "board_claim_file"
 export const BOARD_RELEASE = "board_release_file"
-export const BOARD_TOOLS = new Set([SPAWN_TEAM, BOARD_POST, BOARD_READ, BOARD_CLAIM, BOARD_RELEASE])
+export const BOARD_TOOLS = new Set([SPAWN_TEAM, TEAM, BOARD_POST, BOARD_READ, BOARD_CLAIM, BOARD_RELEASE])
 
 // Like the task_* tools, these run inside the engine; the runner intercepts the calls (the bodies
 // below are safe fallbacks). spawn_team is deferred (search "team"); the board_* tools are
@@ -40,6 +41,40 @@ export const spawnTeamTool: Tool = {
   ),
   async execute() {
     return { output: "spawn_team is handled by the agent runtime." }
+  },
+}
+
+export const teamTool: Tool = {
+  name: TEAM,
+  description:
+    "Launch a coordinated TEAM of agents toward one shared goal — the orchestrator pattern. Define a `goal` and `members`, each a role backed by an agent def (set `agent` to a premade/custom agent like 'coder' or 'reviewer', plus an optional `prompt` to focus it) running in its own isolated git worktree. Members share a blackboard (board_post / board_read) and claim files to avoid collisions; when ALL finish you're automatically re-prompted with a digest to merge the worktrees and report. Use this (not `swarm`) when the work must be coordinated and merged. `budget` caps each member's spend ('$0.50' or a token count).",
+  permission: "bash",
+  deferred: true,
+  parameters: obj(
+    {
+      goal: { type: "string", description: "the shared objective for the whole team" },
+      members: {
+        type: "array",
+        description: "the team members to spawn, one focused agent per role",
+        items: obj(
+          {
+            role: { type: "string", description: "short role name, e.g. 'backend', 'tests', 'docs'" },
+            agent: { type: "string", description: "optional agent def name backing this role" },
+            prompt: { type: "string", description: "the full instruction for this member" },
+            worktree: {
+              type: "string",
+              description: "optional branch/worktree name; defaults to an isolated per-role worktree",
+            },
+          },
+          ["role", "prompt"],
+        ),
+      },
+      budget: { type: "string", description: "optional per-member spend cap, e.g. '$0.50' or '100000'" },
+    },
+    ["goal", "members"],
+  ),
+  async execute() {
+    return { output: "team is handled by the agent runtime." }
   },
 }
 
@@ -113,4 +148,11 @@ export const boardReleaseTool: Tool = {
   },
 }
 
-export const BOARD_TOOL_LIST: Tool[] = [spawnTeamTool, boardPostTool, boardReadTool, boardClaimTool, boardReleaseTool]
+export const BOARD_TOOL_LIST: Tool[] = [
+  teamTool,
+  spawnTeamTool,
+  boardPostTool,
+  boardReadTool,
+  boardClaimTool,
+  boardReleaseTool,
+]

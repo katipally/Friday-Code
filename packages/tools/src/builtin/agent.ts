@@ -46,8 +46,9 @@ export const todoWriteTool: Tool = {
 export const taskTool: Tool = {
   name: TASK_TOOL,
   description:
-    "Spawn a focused, read-only sub-agent to research the codebase (search + read many files) and return a concise summary. Use for broad exploration so the main thread stays focused.",
+    "Alias of delegate (inline read-only sub-agent). Prefer delegate({ prompt }). Spawns a focused, read-only sub-agent to research the codebase and return a concise summary.",
   permission: "read",
+  deferred: true,
   parameters: obj(
     {
       description: { type: "string", description: "short label for the subtask" },

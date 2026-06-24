@@ -31,14 +31,18 @@ import {
   EXIT_PLAN,
   EXIT_WORKTREE,
   LSP_DEFINITION,
+  DELEGATE,
   LSP_HOVER,
   LSP_SYMBOLS,
   LSP_TOOLS,
   MEMORY_TOOL,
+  parseBudget,
   SEND_TO_TASK,
   SKILL_TOOL,
   SPAWN_AGENTS,
   SPAWN_TEAM,
+  SWARM,
+  TEAM,
   searchTools,
   TASK_CREATE,
   TASK_LIST,
@@ -53,7 +57,7 @@ import {
   unifiedDiff,
   WORKTREE_LIST,
 } from "@friday/tools"
-import { type AgentDef, loadAgents } from "./agents.ts"
+import { type AgentDef, resolveAgent, resolveAgents } from "./agents.ts"
 import type { PostKind as BoardPostKind, TeamSnapshot as BoardSnapshot } from "./board.ts"
 import {
   applyFiles,
@@ -278,6 +282,32 @@ export interface SessionStats {
   durationMs: number
 }
 
+/** Per-spawn budget hard-stop (token and/or dollar cap). */
+export interface SpawnBudget {
+  budgetUsd?: number
+  budgetTokens?: number
+}
+/** Options for spawning a background agent: which agent def, isolation, posture, and budget. */
+export interface SpawnOpts extends SpawnBudget {
+  worktree?: string
+  agent?: string
+  posture?: ModeId
+}
+/** One job in a swarm fan-out. */
+export interface SpawnJob extends SpawnBudget {
+  description: string
+  prompt: string
+  agent?: string
+  worktree?: string
+}
+/** One member of a team: a role backed by an agent def, with its own task. */
+export interface TeamMemberSpec {
+  role: string
+  prompt: string
+  agent?: string
+  worktree?: string
+}
+
 /** Shared, manager-owned services a runner needs. */
 export interface RunnerHost {
   streamFn: StreamFn
@@ -314,9 +344,9 @@ export interface RunnerHost {
   /** persist an "allow always" decision for a project root */
   persistPermission: (root: string, rule: { category: PermissionCategory; command?: string }) => void
   /** spawn a detached background task (agent-driven session); optional isolated worktree; returns its id */
-  spawnTask: (prompt: string, description: string, worktree?: string) => string
+  spawnTask: (prompt: string, description: string, opts?: SpawnOpts) => string
   /** fan out several subtasks as parallel background agents; returns their ids */
-  spawnAgents: (jobs: { description: string; prompt: string; worktree?: string }[]) => string[]
+  spawnAgents: (jobs: SpawnJob[]) => string[]
   /** inject a follow-up prompt into a background task (queued if it's mid-turn) */
   sendToTask: (id: string, text: string) => boolean
   /** list background tasks with status */
@@ -330,11 +360,7 @@ export interface RunnerHost {
   /** delete a scheduled task */
   cronDelete: (id: string) => void
   /** launch a coordinated team of agents toward `goal` (orchestrator = the calling session); returns the team id */
-  spawnTeam: (
-    orchestrator: string,
-    goal: string,
-    roles: { role: string; prompt: string; worktree?: string }[],
-  ) => string
+  spawnTeam: (orchestrator: string, goal: string, members: TeamMemberSpec[], opts?: SpawnBudget) => string
   /** post to the caller's team board (no-op / false if not in a team) */
   boardPost: (sessionId: string, kind: BoardPostKind, text: string, toRole?: string) => boolean
   /** read the caller's team board (null if not in a team) */
@@ -360,6 +386,15 @@ export class SessionRunner {
   private persisted: boolean
   private startedAt = now()
   private totalTokens = 0
+  /** Per-spawn budget hard-stop: abort this session once spend crosses one of these. Set via setBudget. */
+  private budgetUsd?: number
+  private budgetTokens?: number
+  /** Posture pinned for this session (a spawned agent's def.posture); overrides the engine mode for gating. */
+  private posturePin?: ModeId
+  /** Model pinned for this session (a spawned agent's def.model); overrides the engine model. */
+  private modelPin?: string
+  /** Agent def name this session is running as, for the dashboard. */
+  agentName?: string
   /** input tokens the provider reported for the most recent request — the real size of the current
    * context, used to drive auto-compaction (more accurate than the char estimate). */
   private lastInputTokens = 0
@@ -455,7 +490,7 @@ export class SessionRunner {
     }
     this.context = loadProjectContext(this.roots)
     this.skills = loadSkills(this.roots)
-    this.agents = loadAgents(this.roots)
+    this.agents = resolveAgents(this.roots)
     this.lsp = new LspManager(this.cwd)
     void this.hook("SessionStart")
   }
@@ -725,7 +760,7 @@ export class SessionRunner {
     this.roots = this.host.store.addRoot(this.sessionId, dir, now())
     this.context = loadProjectContext(this.roots)
     this.skills = loadSkills(this.roots)
-    this.agents = loadAgents(this.roots)
+    this.agents = resolveAgents(this.roots)
     this.emit({
       type: "session-changed",
       sessionId: this.sessionId,
@@ -748,7 +783,7 @@ export class SessionRunner {
     this.persistMeta({ worktree: { path: res.path, pre: this.preWorktree } })
     this.context = loadProjectContext(this.roots)
     this.skills = loadSkills(this.roots)
-    this.agents = loadAgents(this.roots)
+    this.agents = resolveAgents(this.roots)
     this.emit({
       type: "session-changed",
       sessionId: this.sessionId,
@@ -767,7 +802,7 @@ export class SessionRunner {
     this.persistMeta({ worktree: undefined }) // no longer in a worktree — resume lands in the real dir
     this.context = loadProjectContext(this.roots)
     this.skills = loadSkills(this.roots)
-    this.agents = loadAgents(this.roots)
+    this.agents = resolveAgents(this.roots)
     this.emit({
       type: "session-changed",
       sessionId: this.sessionId,
@@ -776,6 +811,28 @@ export class SessionRunner {
       roots: this.roots,
     })
     return { ok: true, info: `back to ${this.cwd}` }
+  }
+
+  /** Configure a spawned agent: pin which def it runs as (name shown in the dashboard), its permission
+   * posture, and a per-spawn budget hard-stop. Called by the engine right after the runner is built. */
+  configureAgent(opts: {
+    agentName?: string
+    posture?: ModeId
+    model?: string
+    budgetUsd?: number
+    budgetTokens?: number
+  }): void {
+    if (opts.agentName) this.agentName = opts.agentName
+    if (opts.posture) this.posturePin = opts.posture
+    if (opts.model) this.modelPin = opts.model
+    if (opts.budgetUsd != null) this.budgetUsd = opts.budgetUsd
+    if (opts.budgetTokens != null) this.budgetTokens = opts.budgetTokens
+  }
+  /** True once this session's spend has crossed its per-spawn budget (if any). */
+  private overBudget(costUsd?: number): boolean {
+    if (this.budgetTokens != null && this.totalTokens >= this.budgetTokens) return true
+    if (this.budgetUsd != null && costUsd != null && costUsd >= this.budgetUsd) return true
+    return false
   }
 
   // ---- command handling ----
@@ -1353,17 +1410,19 @@ export class SessionRunner {
       await this.maybeCompact(provider, apiKey, signal, false)
 
       const req = {
-        model: sel.model!,
+        model: this.modelPin ?? sel.model!,
         messages: [
           {
             role: "system",
             text: systemPrompt({
               cwd: this.cwd,
               roots: this.roots,
-              mode: sel.mode,
+              mode: this.posturePin ?? sel.mode,
               context: this.context.content + this.pinnedContent(),
               skills: this.skills.map((s) => ({ name: s.name, description: s.description, whenToUse: s.whenToUse })),
-              agents: this.agents.map((a) => ({ name: a.name, description: a.description })),
+              agents: this.agents
+                .filter((a) => a.name !== "friday")
+                .map((a) => ({ name: a.name, description: a.description })),
               // Advertise deferred tools (by name) that aren't yet activated, so the model knows to search.
               deferredTools: registry.list
                 .filter((t) => t.deferred && !this.activatedTools.has(t.name))
@@ -1421,6 +1480,12 @@ export class SessionRunner {
               ? (inTok / 1_000_000) * sel.cost.input + (outTok / 1_000_000) * sel.cost.output
               : undefined
           this.emit({ type: "usage", input: inTok, output: outTok, costUsd: cost })
+          // Per-spawn budget hard-stop: a delegated agent/team-member/swarm-worker is aborted the
+          // moment it crosses its token/$ cap, so a runaway can't eat the whole budget.
+          if (this.overBudget(cost)) {
+            this.emit({ type: "status", text: "Budget reached — stopping.", elapsedMs: now() - start })
+            this.abortRun()
+          }
         },
       }
       // Per-step aborter for the interrupting /pause. The model stream listens to BOTH the run-level
@@ -1533,9 +1598,36 @@ export class SessionRunner {
           continue
         }
 
-        if (tc.name === TASK_CREATE) {
-          const a = safeParse(tc.arguments) as { description?: string; prompt?: string; worktree?: string }
-          const id = this.host.spawnTask(a.prompt ?? "", a.description ?? "task", a.worktree?.trim() || undefined)
+        if (tc.name === TASK_CREATE || tc.name === DELEGATE) {
+          const a = safeParse(tc.arguments) as {
+            description?: string
+            prompt?: string
+            worktree?: string
+            agent?: string
+            background?: boolean
+            budget?: string | number
+          }
+          // delegate defaults to the inline subagent (reports back, clean context); background:true
+          // and task_create are detached background sessions.
+          if (tc.name === DELEGATE && a.background !== true) {
+            const summary = await this.runSubagent(a.prompt ?? "", a.agent)
+            this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: summary })
+            this.emit({
+              type: "tool-result",
+              callId: tc.id,
+              ok: true,
+              output: summary,
+              title: `delegate: ${clip(a.description ?? a.agent ?? "subagent")}`,
+            })
+            continue
+          }
+          const budget = parseBudget(a.budget)
+          const id = this.host.spawnTask(a.prompt ?? "", a.description ?? "task", {
+            worktree: a.worktree?.trim() || undefined,
+            agent: a.agent,
+            budgetUsd: budget.usd,
+            budgetTokens: budget.tokens,
+          })
           const where = a.worktree ? ` (isolated in worktree “${a.worktree}”)` : ""
           const output = `Started background task ${id} — “${clip(a.description ?? "task")}”${where}. Check it with task_status({ id: "${id}" }).`
           this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output })
@@ -1575,13 +1667,26 @@ export class SessionRunner {
           this.emit({ type: "tool-result", callId: tc.id, ok: true, output, title: `task_stop ${a.id ?? ""}` })
           continue
         }
-        if (tc.name === SPAWN_AGENTS) {
+        if (tc.name === SPAWN_AGENTS || tc.name === SWARM) {
           const a = safeParse(tc.arguments) as {
-            jobs?: { description?: string; prompt?: string; worktree?: string }[]
+            jobs?: { description?: string; prompt?: string; worktree?: string; agent?: string; budget?: string | number }[]
+            agent?: string
+            budget?: string | number
           }
+          const fallback = parseBudget(a.budget)
           const jobs = (a.jobs ?? [])
             .filter((j) => j?.prompt)
-            .map((j) => ({ description: j.description ?? "agent", prompt: j.prompt!, worktree: j.worktree }))
+            .map((j) => {
+              const b = j.budget != null ? parseBudget(j.budget) : fallback
+              return {
+                description: j.description ?? "agent",
+                prompt: j.prompt!,
+                worktree: j.worktree,
+                agent: j.agent ?? a.agent,
+                budgetUsd: b.usd,
+                budgetTokens: b.tokens,
+              }
+            })
           const ids = jobs.length ? this.host.spawnAgents(jobs) : []
           const output = ids.length
             ? `Spawned ${ids.length} parallel agent(s):\n${ids.map((id, i) => `- ${id} — “${clip(jobs[i]!.description)}”`).join("\n")}\nCheck them with task_status / task_list.`
@@ -1592,7 +1697,7 @@ export class SessionRunner {
             callId: tc.id,
             ok: !!ids.length,
             output,
-            title: `spawn_agents ×${ids.length}`,
+            title: `swarm ×${ids.length}`,
           })
           continue
         }
@@ -1605,21 +1710,33 @@ export class SessionRunner {
           continue
         }
 
-        if (tc.name === SPAWN_TEAM) {
+        if (tc.name === SPAWN_TEAM || tc.name === TEAM) {
           const a = safeParse(tc.arguments) as {
             goal?: string
-            roles?: { role?: string; prompt?: string; worktree?: string }[]
+            // `members` is the new shape (each backed by an agent def); `roles` stays as an alias.
+            members?: { role?: string; prompt?: string; worktree?: string; agent?: string }[]
+            roles?: { role?: string; prompt?: string; worktree?: string; agent?: string }[]
+            budget?: string | number
           }
-          const roles = (a.roles ?? [])
+          const roles = (a.members ?? a.roles ?? [])
             .filter((r) => r?.prompt && r?.role)
-            .map((r) => ({ role: r.role!, prompt: r.prompt!, worktree: r.worktree?.trim() || undefined }))
+            .map((r) => ({
+              role: r.role!,
+              prompt: r.prompt!,
+              worktree: r.worktree?.trim() || undefined,
+              agent: r.agent,
+            }))
           if (!a.goal || !roles.length) {
-            const output = "spawn_team needs a goal and at least one role with a prompt."
+            const output = "team needs a goal and at least one member with a role and prompt."
             this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output, isError: true })
-            this.emit({ type: "tool-result", callId: tc.id, ok: false, output, title: "spawn_team" })
+            this.emit({ type: "tool-result", callId: tc.id, ok: false, output, title: "team" })
             continue
           }
-          const teamId = this.host.spawnTeam(this.sessionId, a.goal, roles)
+          const tb = parseBudget(a.budget)
+          const teamId = this.host.spawnTeam(this.sessionId, a.goal, roles, {
+            budgetUsd: tb.usd,
+            budgetTokens: tb.tokens,
+          })
           const output = `Launched team ${teamId} for “${clip(a.goal)}” with ${roles.length} member(s):\n${roles
             .map((r) => `- ${r.role}`)
             .join(
@@ -1860,7 +1977,7 @@ export class SessionRunner {
         }
         if (pre.input !== undefined) args = pre.input
 
-        const decision = await this.checkPermission(tool, args, sel.mode)
+        const decision = await this.checkPermission(tool, args, this.posturePin ?? sel.mode)
         if (decision === "deny") {
           const msg = `User denied permission to run ${tool.name}.`
           this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: msg, isError: true })
@@ -1933,7 +2050,10 @@ export class SessionRunner {
     // A custom agent type (.friday/agents/<name>.md) can supply its own prompt, model and
     // a narrowed tool allowlist. Sub-agents stay read-only — a custom `tools` list can only
     // pick from the read-only set, never escalate to edit/bash (which have no nested UI gate).
-    const def = agent ? this.agents.find((a) => a.name === agent) : undefined
+    // Built-in explore/friday keep the dedicated read-only prompt; on-disk defs supply their own
+    // prompt/model/tools. Write-capable agents run as background sessions (full permission gating),
+    // not on this inline path.
+    const def = agent ? this.agents.find((a) => a.name === agent && a.source !== "builtin") : undefined
     let tools = this.host
       .registry()
       .list.filter(
