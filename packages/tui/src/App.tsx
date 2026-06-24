@@ -21,6 +21,7 @@ import { McpModal } from "./components/McpModal.tsx"
 import { MicModal } from "./components/MicModal.tsx"
 import { ModelModal } from "./components/ModelModal.tsx"
 import { PauseModal } from "./components/PauseModal.tsx"
+import { PreviewModal } from "./components/PreviewModal.tsx"
 import { PermissionCard } from "./components/PermissionCard.tsx"
 import { PlanCard } from "./components/PlanCard.tsx"
 import { SessionHistory } from "./components/SessionHistory.tsx"
@@ -205,6 +206,9 @@ function Shell() {
       <Show when={app.pauseModalOpen()}>
         <PauseModal />
       </Show>
+      <Show when={app.preview()}>
+        <PreviewModal />
+      </Show>
       <Show when={app.mcpModalOpen()}>
         <McpModal />
       </Show>
@@ -284,7 +288,7 @@ function AppRoot() {
     // keyBindings, because the textarea folds Option onto meta and can't tell the two apart.
     // Ctrl+P (pause.open) is the reliable path on terminals without the kitty protocol.
     if (key.name === "return" && key.super && !key.ctrl && !key.shift) {
-      return void app.runCommand("pause")
+      return void app.runCommand("steer")
     }
     // Rebindable named actions (see ~/.friday/keybindings.json). Resolved before the bespoke
     // arming keys below; a plain Esc never matches a chord (shift+escape ≠ escape) so stop/checkpoint
@@ -301,7 +305,7 @@ function AppRoot() {
         case "mode.cycle":
           return app.toggleMode(1)
         case "pause.open":
-          return void app.runCommand("pause") // pause the agent & add context (Shift+Esc)
+          return void app.runCommand("steer") // steer the agent & add context (Ctrl+Space)
         case "settings.open":
           return app.setSettingsModalOpen(true)
         case "help.open":

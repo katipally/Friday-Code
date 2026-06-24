@@ -10,7 +10,7 @@ const KEYS: { keys: string; label: string }[] = [
   { keys: "Shift/Alt+Enter", label: "new line in composer (configurable in /settings)" },
   { keys: "↑ / ↓", label: "recall previous prompts (caret on first line)" },
   { keys: "Shift+Tab", label: "cycle mode (plan → default → yolo)" },
-  { keys: "Shift+Esc", label: "pause the running agent & add context (/pause)" },
+  { keys: "Ctrl+Space", label: "steer the running agent & add context (/steer)" },
   { keys: "Ctrl+B", label: "toggle context panel" },
   { keys: "Ctrl+G", label: "settings — autoupdate · keybindings · editor · theme" },
   { keys: "Ctrl+R", label: "mic — press to record, press again to transcribe (on-device)" },

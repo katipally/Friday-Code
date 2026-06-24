@@ -110,17 +110,17 @@ export function StatusStrip() {
         >
           <text fg={app.stopArmed() ? theme.bg : theme.error}>■ stop{app.stopArmed() ? " · esc again" : " · esc"}</text>
         </box>
-        {/* Pause — opens the /pause modal so you can course-correct the running agent by adding context.
+        {/* Steer — opens the /steer modal so you can course-correct the running agent by adding context.
             On kitty-protocol terminals show the nicer Cmd+Enter; otherwise the rebindable pause.open
-            binding (Ctrl+P), the chord that transmits everywhere. */}
+            binding (Ctrl+Space / Ctrl+P), the chord that transmits everywhere. */}
         <box
-          onMouseDown={() => app.runCommand("pause")}
+          onMouseDown={() => app.runCommand("steer")}
           backgroundColor={theme.bgElevated}
           paddingLeft={1}
           paddingRight={1}
         >
           <text fg={theme.warning}>
-            ⏸ Pause · {hasKittyKeyboard ? "Cmd+Enter" : fmtChord(app.keymap()["pause.open"])}
+            ⏸ Steer · {hasKittyKeyboard ? "Cmd+Enter" : fmtChord(app.keymap()["pause.open"])}
           </text>
         </box>
       </Show>

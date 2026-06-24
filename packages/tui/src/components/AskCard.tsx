@@ -1,8 +1,10 @@
 import { type AskOption, theme } from "@friday/shared"
+import { decodePasteBytes } from "@opentui/core"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { createEffect, createSignal, For, Show } from "solid-js"
 import { shimmerAccent, useHover } from "../motion/index.ts"
 import { type PendingAsk, useApp } from "../store.tsx"
+import { createPasteStore, isPasteKey, pasteFromClipboard } from "../util/attachments.ts"
 import { G } from "../util/term.ts"
 import { Scrim } from "./Scrim.tsx"
 import { bandBg, Overlay, SectionLabel } from "./ui.tsx"
@@ -70,6 +72,10 @@ export function AskCard() {
   const [notes, setNotes] = createSignal<Record<string, string>>({})
   const [noting, setNoting] = createSignal(false)
   let noteInput: any
+  // Paste stores: big/multi-line pastes collapse to a token (expanded on submit), small pastes inline —
+  // same behaviour as the composer, so clipboard works in the answer and note fields too.
+  const answerPaste = createPasteStore()
+  const notePaste = createPasteStore()
   // The synthetic "Submit" tab is active while this is true — it shows the review-of-every-answer screen.
   const [review, setReview] = createSignal(false)
 
@@ -240,14 +246,15 @@ export function AskCard() {
   }
   function saveNote() {
     const cur = q()
-    const text: string = (noteInput?.plainText ?? "").trim()
+    const text: string = notePaste.expand(noteInput?.plainText ?? "").trim()
     if (cur) setNotes((m) => ({ ...m, [cur.id]: text }))
+    notePaste.clear()
     setNoting(false)
   }
 
   function submitFree() {
     const cur = q()
-    const text: string = (input?.plainText ?? "").trim()
+    const text: string = answerPaste.expand(input?.plainText ?? "").trim()
     if (!cur) return
     if (text) {
       if (cur.multi) {
@@ -261,6 +268,7 @@ export function AskCard() {
       }
     }
     input?.clear?.()
+    answerPaste.clear()
     setTyping(false)
     if (text && !cur.multi && isLast() && allAnsweredAfter(cur.id, text)) confirm()
     else if (text && !cur.multi && !isLast()) nextQ(1)
@@ -281,10 +289,12 @@ export function AskCard() {
     if (!ask()) return
     if (typing()) {
       if (key.name === "escape") return setTyping(false)
+      if (isPasteKey(key)) return void pasteFromClipboard(input, answerPaste)
       return // textarea owns the rest while typing
     }
     if (noting()) {
       if (key.name === "escape") return setNoting(false)
+      if (isPasteKey(key)) return void pasteFromClipboard(noteInput, notePaste)
       return // note textarea owns the rest while noting
     }
     // Final confirm gate (Submit tab): review owns its keys.
@@ -478,11 +488,19 @@ export function AskCard() {
                         >
                           <box flexGrow={1} backgroundColor={theme.bgComposer} paddingLeft={1} paddingRight={1}>
                             <textarea
-                              ref={(r: any) => (input = r)}
+                              ref={(r: any) => {
+                                input = r
+                                if (r)
+                                  r.onPaste = (e: any) => {
+                                    const txt = decodePasteBytes(e?.bytes) ?? ""
+                                    if (txt.trim() ? answerPaste.insert(r, txt) : pasteFromClipboard(r, answerPaste))
+                                      e?.preventDefault?.()
+                                  }
+                              }}
                               onSubmit={submitFree}
                               keyBindings={[{ name: "return", action: "submit" }]}
                               focused={typing()}
-                              placeholder="type an answer, Enter to submit · Esc cancels"
+                              placeholder="type an answer · @file · ⌘/Ctrl+V paste · Enter submit · Esc cancels"
                               placeholderColor={theme.textFaint}
                               minHeight={1}
                               maxHeight={4}
@@ -530,11 +548,19 @@ export function AskCard() {
                   <Show when={noting()}>
                     <box backgroundColor={theme.bgComposer} paddingLeft={1} paddingRight={1}>
                       <textarea
-                        ref={(r: any) => (noteInput = r)}
+                        ref={(r: any) => {
+                          noteInput = r
+                          if (r)
+                            r.onPaste = (e: any) => {
+                              const txt = decodePasteBytes(e?.bytes) ?? ""
+                              if (txt.trim() ? notePaste.insert(r, txt) : pasteFromClipboard(r, notePaste))
+                                e?.preventDefault?.()
+                            }
+                        }}
                         onSubmit={saveNote}
                         keyBindings={[{ name: "return", action: "submit" }]}
                         focused={noting()}
-                        placeholder="note to attach to your choice, Enter to save"
+                        placeholder="note to attach · ⌘/Ctrl+V paste · Enter to save"
                         placeholderColor={theme.textFaint}
                         minHeight={1}
                         maxHeight={4}

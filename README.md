@@ -102,7 +102,7 @@ friday -h, --help
 | `Shift+Enter` | newline in composer |
 | `Shift+Tab` | cycle mode (plan → default → yolo) |
 | `Ctrl+B` | toggle context panel |
-| `Shift+Esc` | pause the running agent & add context |
+| `Ctrl+Space` | steer the running agent & add context |
 | `Ctrl+Y` | session history |
 | `/` | slash command autocomplete |
 | `@` | file or image mention |
@@ -127,22 +127,22 @@ Shift+Tab cycles. Each mode recolors the whole frame and gates every tool call.
 
 `⬡‿⬡` lives above the composer. It changes expression: `⬡‿⬡` idle, `⬡⌄⬡` thinking, `[>‿<]` streaming, `⬡▰⬡` working, `\⬡‿⬡/` done, `⬡_⬡` error, `⬡⊙⬡` waiting. The mood also tints the color: green for done, red for error, amber for waiting, mode accent for everything else. You can tell what's happening from across the room.
 
-### Pause
+### Steer
 
 Agents go wrong when they guess at something you knew and then build on the
-guess. `/pause` is how you catch it mid-flight. Type `/pause` (or press
-Shift+Esc) while Friday is working and it soft-interrupts the current generation
+guess. `/steer` is how you catch it mid-flight. Type `/steer` (or press
+Ctrl+Space) while Friday is working and it soft-interrupts the current generation
 and opens a composer. Write what it missed, press Enter, and your note folds in
 so the agent course-corrects right now.
 
 ```
-/pause
+/steer
 → "we are keeping the old auth API, do not rewrite it"
 ```
 
-`/nudge` and `/add` are aliases for `/pause`. Full reference, including the cost
-model and the composer's `@file` mentions, in [docs/pause.md](docs/pause.md).
-Every slash command is listed in [docs/commands.md](docs/commands.md).
+Full reference, including the cost model and the composer's `@file` mentions, in
+[docs/steer.md](docs/steer.md). Every slash command is listed in
+[docs/commands.md](docs/commands.md).
 
 ## Features
 
@@ -244,7 +244,7 @@ If a stable build fails, the release is blocked. If a musl or Windows ARM build 
 Deep dives on every feature live in [docs/](docs/index.md):
 
 - [Slash commands](docs/commands.md): every command you can type.
-- [Pause](docs/pause.md): `/pause`.
+- [Steer](docs/steer.md): `/steer`.
 - [Configuration](docs/configuration.md): `~/.friday/`, keys, hooks, project context, skills, and commands.
 - [Providers](docs/providers.md): the 19 providers and reasoning effort.
 - [Tools](docs/tools.md): the capabilities the model calls.

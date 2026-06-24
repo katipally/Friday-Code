@@ -3,7 +3,7 @@ import { decodePasteBytes } from "@opentui/core"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 import { useApp } from "../store.tsx"
-import { expandTokens, isBigPaste, makePasteToken } from "../util/attachments.ts"
+import { createPasteStore, isPasteKey, pasteFromClipboard } from "../util/attachments.ts"
 import { listProjectFiles } from "../util/files.ts"
 import { Scrim } from "./Scrim.tsx"
 import { bandBg, Overlay } from "./ui.tsx"
@@ -16,7 +16,7 @@ function truncate(s: string, n: number): string {
 }
 
 /**
- * /pause composer: pause the running agent and add context it missed. Opening /pause (or Shift+Esc)
+ * /steer composer: redirect the running agent and add context it missed. Opening /steer (or Ctrl+Space)
  * soft-interrupts the current generation immediately; on send the note is folded into the conversation
  * and the agent resumes. A full prompt composer — `@file` mentions autocomplete (resolved by the runner)
  * and big pastes collapse to placeholders, same as the main composer.
@@ -27,8 +27,7 @@ export function PauseModal() {
   const maxHeight = () => Math.max(4, Math.floor(dims().height / 3))
 
   let ta: any
-  const pastes = new Map<string, string>()
-  let pasteN = 0
+  const store = createPasteStore()
   const [text, setText] = createSignal("")
   const [files, setFiles] = createSignal<string[]>([])
   const [sel, setSel] = createSignal(0)
@@ -74,7 +73,7 @@ export function PauseModal() {
 
   function send() {
     const raw: string = ta?.plainText ?? ""
-    app.pauseInject(expandTokens(raw, pastes), true) // paste tokens → full content; runner expands @mentions/images
+    app.pauseInject(store.expand(raw), true) // paste tokens → full content; runner expands @mentions/images
   }
 
   // Enter applies a highlighted file suggestion (you then press Enter again to send); else submits.
@@ -86,13 +85,12 @@ export function PauseModal() {
 
   const onPaste = (event: any) => {
     try {
-      const txt = (decodePasteBytes(event?.bytes) ?? "").replace(/\x1b\[[0-9;]*m/g, "")
-      if (!isBigPaste(txt)) return
-      event?.preventDefault?.()
-      const token = makePasteToken(++pasteN, txt.length)
-      pastes.set(token, txt)
-      ta?.insertText?.(token)
-      refresh()
+      // Empty bracketed paste = an image/file (Cmd+V of a picture) → read the system clipboard for it.
+      const txt = decodePasteBytes(event?.bytes) ?? ""
+      if (txt.trim() ? store.insert(ta, txt) : pasteFromClipboard(ta, store)) {
+        event?.preventDefault?.()
+        refresh()
+      }
     } catch {
       /* fall through to default paste */
     }
@@ -100,6 +98,11 @@ export function PauseModal() {
 
   useKeyboard((key) => {
     if (!app.pauseModalOpen()) return
+    // Ctrl+V / Cmd+V: paste text, image, or file from the system clipboard.
+    if (isPasteKey(key)) {
+      pasteFromClipboard(ta, store)
+      return refresh()
+    }
     const items = suggestions()
     if (items.length) {
       if (key.name === "up") return setSel((s) => (s - 1 + items.length) % items.length)
@@ -115,8 +118,8 @@ export function PauseModal() {
   return (
     <Scrim onClose={() => app.pauseCancel()}>
       <Overlay
-        title="/pause"
-        hint="paused — agent is waiting; send to add context"
+        title="/steer"
+        hint="paused — agent is waiting; send to add context or redirect"
         width={Math.min(76, dims().width - 4)}
       >
         <Show when={suggestions().length > 0}>

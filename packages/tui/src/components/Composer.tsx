@@ -4,7 +4,7 @@ import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 import { shimmerAccent } from "../motion/index.ts"
 import { useApp } from "../store.tsx"
-import { expandTokens, isBigPaste, makePasteToken } from "../util/attachments.ts"
+import { createPasteStore, isPasteKey, pasteFromClipboard } from "../util/attachments.ts"
 import { listProjectFiles } from "../util/files.ts"
 import { modeGlyph } from "../util/term.ts"
 import { bandBg } from "./ui.tsx"
@@ -166,22 +166,20 @@ export function Composer() {
     queueMicrotask(() => sgScroll?.scrollChildIntoView?.(`sg-${i}`))
   })
 
-  // Inline paste tokens: a big/multi-line paste collapses to a placeholder at the cursor (kept here,
-  // not in a floating row) and is expanded back to full content on submit. File @mentions stay inline
-  // as `@path` text — that's already where they're typed, so no separate chip row is needed.
-  const pastes = new Map<string, string>()
-  let pasteN = 0
+  // Paste handling: a big/multi-line paste collapses to a placeholder token at the cursor, and a
+  // pasted image/file becomes a short inline `⟦▣ name⟧` token — both expand to full content / `@path`
+  // on submit (the model gets the real path). Small text pastes flow in inline. The bracketed-paste
+  // event and the Cmd/Ctrl+V fallback route through the same store.
+  const store = createPasteStore()
   const onPaste = (event: any) => {
     try {
-      const raw = decodePasteBytes(event?.bytes) ?? ""
-      // Strip simple ANSI SGR sequences a terminal may include in the paste.
-      const txt = raw.replace(/\x1b\[[0-9;]*m/g, "")
-      if (!isBigPaste(txt)) return // let small/single-line pastes flow in as normal text
-      event?.preventDefault?.()
-      const token = makePasteToken(++pasteN, txt.length)
-      pastes.set(token, txt)
-      ta?.insertText?.(token)
-      refresh()
+      // Text → token/inline; an empty bracketed paste means an image/file (Cmd+V of a picture) — read
+      // the system clipboard for it. Only swallow the native paste when we actually inserted something.
+      const txt = decodePasteBytes(event?.bytes) ?? ""
+      if (txt.trim() ? store.insert(ta, txt) : pasteFromClipboard(ta, store)) {
+        event?.preventDefault?.()
+        refresh()
+      }
     } catch {
       /* fall through to default paste */
     }
@@ -199,16 +197,23 @@ export function Composer() {
       return
     }
     const display: string = ta?.plainText ?? ""
-    const value = expandTokens(display, pastes) // paste tokens → full content for the model
-    if (value.trim()) app.submit(value, display !== value ? display : undefined)
+    const value = store.expand(display) // paste tokens → full content for the model
+    // Keep each live paste's content on the chat item so its chip can be previewed later.
+    const pastes = Object.fromEntries(store.live(display).map((t) => [t, store.pastes.get(t)!]))
+    if (value.trim()) app.submit(value, display !== value ? display : undefined, Object.keys(pastes).length ? pastes : undefined)
     ta?.clear?.()
     setText("")
-    pastes.clear()
-    pasteN = 0
+    store.clear()
   }
 
   useKeyboard((key) => {
     if (!focused()) return
+    // Ctrl+V / Cmd+V: paste text, image, or file from the system clipboard (the reliable path where
+    // the terminal doesn't bracket — and the only path for images/files).
+    if (isPasteKey(key)) {
+      pasteFromClipboard(ta, store)
+      return refresh()
+    }
     const items = suggestions()
     if (items.length) {
       if (key.name === "up") return setSel((s) => (s - 1 + items.length) % items.length)

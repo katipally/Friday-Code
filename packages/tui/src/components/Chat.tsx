@@ -6,6 +6,7 @@ import { useApp, type ViewItem } from "../store.tsx"
 import { copyText } from "../util/clipboard.ts"
 import { parseMentions } from "../util/mentions.ts"
 import { G, modeGlyph } from "../util/term.ts"
+import { tokenPreview } from "../util/attachments.ts"
 import { EmptyHome } from "./EmptyHome.tsx"
 import { FileChip } from "./FileChip.tsx"
 import { Markdown } from "./Markdown.tsx"
@@ -37,8 +38,16 @@ function UserBubble(props: { item: Extract<ViewItem, { kind: "user" }> }) {
   const accent = () => shimmerAccent(getMode(ranMode()).accent)
   // What the user saw (compact, with inline paste tokens) — falls back to the sent text.
   const shown = () => props.item.display ?? props.item.text
-  // File references in the prompt show as click-to-open chips beneath the text.
+  // Manually-typed `@path` mentions show as click-to-preview chips beneath the text.
   const chips = createMemo(() => parseMentions(shown(), app.roots()))
+  // Attachment tokens (pasted text, files, images) → click-to-preview chips; content/path kept on item.
+  const attachChips = createMemo(() => {
+    const m = props.item.pastes
+    if (!m) return []
+    return Object.entries(m)
+      .filter(([tok]) => shown().includes(tok))
+      .map(([tok, val]) => tokenPreview(tok, val))
+  })
   const copy = () => {
     copyText(props.item.text, renderer)
     app.focusComposer()
@@ -63,10 +72,34 @@ function UserBubble(props: { item: Extract<ViewItem, { kind: "user" }> }) {
           <text fg={theme.text} selectable>
             {shown()}
           </text>
-          <Show when={chips().length > 0}>
+          <Show when={chips().length > 0 || attachChips().length > 0}>
             <box flexDirection="row" gap={1} flexWrap="wrap">
               <For each={chips()}>
-                {(chip) => <FileChip chip={chip} accent={accent()} onOpen={() => app.openPath(chip.rel)} />}
+                {(chip) => (
+                  <FileChip
+                    chip={chip}
+                    accent={accent()}
+                    onOpen={() =>
+                      app.setPreview(
+                        chip.kind === "image"
+                          ? { kind: "image", title: chip.rel, path: chip.abs ?? chip.rel }
+                          : { kind: "file", title: chip.rel, path: chip.abs ?? chip.rel },
+                      )
+                    }
+                  />
+                )}
+              </For>
+              <For each={attachChips()}>
+                {(c) => (
+                  <Pressable
+                    label={`${c.kind === "image" ? "▣" : c.kind === "file" ? "▤" : "▥"} ${c.title}`}
+                    onClick={() =>
+                      app.setPreview(
+                        c.kind === "text" ? { kind: "text", title: c.title, text: c.text } : { kind: c.kind, title: c.title, path: c.path },
+                      )
+                    }
+                  />
+                )}
               </For>
             </box>
           </Show>

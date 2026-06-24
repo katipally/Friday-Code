@@ -6,7 +6,7 @@ below), and two run on the engine. Anything that is not a built-in is matched
 against your custom commands in `~/.friday/commands/` or `.friday/commands/`
 (see [configuration](configuration.md)).
 
-For the headline pause commands, see [pause](pause.md).
+For steering a running agent, see [steer](steer.md).
 
 ## Session
 
@@ -21,17 +21,17 @@ For the headline pause commands, see [pause](pause.md).
 | `/compact` | Summarize old context to free space. Runs on the engine. |
 | `/exit` | Quit Friday. Alias: `/quit`. |
 
-## Pause
+## Steer
 
 | Command | What it does |
 |---|---|
-| `/pause` | Pause the agent now: cut the current generation and open a composer to fold in context it missed. Also Shift+Esc. |
+| `/steer` | Steer the agent now: cut the current generation and open a composer to fold in context it missed or redirect it. Also Ctrl+Space. |
 
-`/pause` only works while the agent is busy — if it is idle, you get a "nothing
-to pause" toast. Any text typed after the command is ignored; the composer modal
+`/steer` only works while the agent is busy — if it is idle, you get a "nothing
+to steer" toast. Any text typed after the command is ignored; the composer modal
 is the single entry point (type a note, `@file` mentions included, then Enter to
-fold it in and resume, or Esc to release without adding anything). `/nudge` and
-`/add` are kept as aliases. See [pause](pause.md) for the full picture.
+fold it in and resume, or Esc to release without adding anything). See
+[steer](steer.md) for the full picture.
 
 ## Model and reasoning
 

@@ -32,10 +32,17 @@ import { createStore, produce } from "solid-js/store"
 
 export type ToolStatus = "running" | "done" | "error"
 
+/** A click-to-open preview: pasted text, a file's content (read on open), or an image (path + size). */
+export type Preview =
+  | { kind: "text"; title: string; text: string }
+  | { kind: "file"; title: string; path: string }
+  | { kind: "image"; title: string; path: string }
+
 export type ViewItem =
   /** `text` is what's sent to the model (paste tokens expanded); `display`, when set, is the compact
-   * buffer the user actually saw (with inline paste tokens) and is what the bubble renders. */
-  | { kind: "user"; id: string; text: string; display?: string; mode?: ModeId }
+   * buffer the user actually saw (with inline paste tokens) and is what the bubble renders. `pastes`
+   * keeps each ⟦paste⟧ token's full content so the chat bubble can preview it on click. */
+  | { kind: "user"; id: string; text: string; display?: string; pastes?: Record<string, string>; mode?: ModeId }
   | {
       kind: "assistant"
       id: string
@@ -267,6 +274,7 @@ export function createAppStore(engine: Engine, version = "dev") {
   const [historyOpen, setHistoryOpen] = createSignal(false)
   const [dirModalOpen, setDirModalOpen] = createSignal(false)
   const [pauseModalOpen, setPauseModalOpen] = createSignal(false)
+  const [preview, setPreview] = createSignal<Preview | null>(null)
   const [mcpModalOpen, setMcpModalOpen] = createSignal(false)
   const [skillsModalOpen, setSkillsModalOpen] = createSignal(false)
   const [computerModalOpen, setComputerModalOpen] = createSignal(false)
@@ -431,6 +439,7 @@ export function createAppStore(engine: Engine, version = "dev") {
     historyOpen() ||
     dirModalOpen() ||
     pauseModalOpen() ||
+    !!preview() ||
     mcpModalOpen() ||
     skillsModalOpen() ||
     contextModalOpen() ||
@@ -956,7 +965,7 @@ export function createAppStore(engine: Engine, version = "dev") {
     { name: "resume", description: "resume or switch to another session" },
     { name: "fork", description: "branch a session from a past turn" },
     { name: "dir", description: "change or add a working directory" },
-    { name: "pause", description: "pause the agent — opens a composer to add context it missed" },
+    { name: "steer", description: "steer the running agent — opens a composer to add context it missed or redirect it" },
     { name: "mic", description: "talk to Friday — on-device speech-to-text (Ctrl+R)" },
     { name: "mcp", description: "view / add / remove MCP servers" },
     { name: "skills", description: "browse installed skills and run one" },
@@ -1021,17 +1030,14 @@ export function createAppStore(engine: Engine, version = "dev") {
       case "dir":
         setDirModalOpen(true)
         return true
-      // `/nudge` and `/add` are kept as aliases for `/pause`.
-      case "pause":
-      case "nudge":
-      case "add": {
-        // Pausing only makes sense while the agent is working. When idle there's nothing to pause or
-        // fold into, so say so instead of silently turning the note into a fresh prompt.
+      case "steer": {
+        // Steering only makes sense while the agent is working. When idle there's nothing to redirect
+        // or fold into, so say so instead of silently turning the note into a fresh prompt.
         if (!busy()) {
-          pushToast("nothing to pause — the agent isn't working", "input")
+          pushToast("nothing to steer — the agent isn't working", "input")
           return true
         }
-        // `/pause` always pauses the agent NOW and opens the composer modal — any inline `args` are
+        // `/steer` always pauses the agent NOW and opens the composer modal — any inline `args` are
         // ignored (the modal is the single entry point, so you can attach @files / paste before sending).
         engine.send({ type: "inject-pause", interrupt: true })
         setPauseModalOpen(true)
@@ -1232,7 +1238,7 @@ export function createAppStore(engine: Engine, version = "dev") {
     return false
   }
 
-  function submitRaw(text: string, display?: string) {
+  function submitRaw(text: string, display?: string, pastes?: Record<string, string>) {
     const sid = activeSession()
     // If a turn is already running, queue the prompt instead of racing the engine — it drains at the
     // next turn boundary (see drainQueue). Lets the user stage follow-ups / course-correct mid-run.
@@ -1240,7 +1246,7 @@ export function createAppStore(engine: Engine, version = "dev") {
       setSessionQueue((m) => ({ ...m, [sid]: [...(m[sid] ?? []), text] }))
       return
     }
-    appendItem(sid, { kind: "user", id: nextLocalId(), text, display, mode: mode() })
+    appendItem(sid, { kind: "user", id: nextLocalId(), text, display, pastes, mode: mode() })
     // Optimistically flip to busy so the status strip + timer appear the instant Enter is pressed,
     // before the engine's first message-start arrives (closes the perceived "nothing happening" gap).
     setKey(setSessionBusy, sid, true)
@@ -1269,14 +1275,14 @@ export function createAppStore(engine: Engine, version = "dev") {
     setSessionQueue((m) => ({ ...m, [sid]: (m[sid] ?? []).filter((_, k) => k !== i) }))
   }
 
-  function submit(text: string, display?: string) {
+  function submit(text: string, display?: string, pastes?: Record<string, string>) {
     const t = text.trim()
     if (!t) return
     if (t.startsWith("/")) {
       const [name, ...rest] = t.slice(1).split(/\s+/)
       if (runCommand(name!, rest.join(" "))) return
     }
-    submitRaw(t, display)
+    submitRaw(t, display, pastes)
   }
 
   function openPath(p: string) {
@@ -1706,6 +1712,8 @@ export function createAppStore(engine: Engine, version = "dev") {
     setDirModalOpen,
     pauseModalOpen,
     setPauseModalOpen,
+    preview,
+    setPreview,
     pauseInject,
     pauseCancel,
     mcpModalOpen,
