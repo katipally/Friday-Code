@@ -56,6 +56,10 @@ export function ConsoleView() {
   const members = (): TeamMember[] => app.team()?.members ?? []
   const clampedSel = () => Math.min(sel(), Math.max(0, members().length - 1))
   const selected = (): TeamMember | undefined => members()[clampedSel()]
+  // A member whose live transcript isn't in THIS process (its team was spawned in another terminal).
+  // The shared board still shows its posts; the per-token tail only exists in the owning terminal.
+  const isRemote = (sid?: string) =>
+    !!sid && !app.sessionItems[sid] && app.remoteAgents().some((p) => p.sessionId === sid)
   const tail = (): ViewItem[] => {
     const sid = selected()?.sessionId
     const items = sid ? (app.sessionItems[sid] ?? []) : []
@@ -70,7 +74,9 @@ export function ConsoleView() {
     if (key.name === "k" || key.name === "up") return setSel((s) => Math.max(0, s - 1))
     const m = selected()
     if (!m) return
-    if (key.name === "v" || key.name === "return" || key.name === "enter") return app.visitAgent(m.sessionId)
+    // Visiting a member owned by another terminal can't switch THIS process to it → open its window.
+    if (key.name === "v" || key.name === "return" || key.name === "enter")
+      return isRemote(m.sessionId) ? app.resumeInWindow(m.sessionId) : app.visitAgent(m.sessionId)
     if (key.name === "s") return app.stopAgent(m.sessionId)
     if (key.name === "o") return app.popoutAgent(m.sessionId)
   })
@@ -95,7 +101,7 @@ export function ConsoleView() {
         fallback={
           <box flexGrow={1} alignItems="center" justifyContent="center">
             <text fg={theme.textFaint}>
-              No team running. Ask Friday to spawn_team a goal with roles, or press esc to go back.
+              No team running. Ask Friday to form a team for a goal, or launch one from the Agents tab. Esc to go back.
             </text>
           </box>
         }
@@ -160,8 +166,20 @@ export function ConsoleView() {
             </box>
 
             <box flexDirection="column" flexGrow={1} paddingLeft={1} paddingRight={1}>
-              <text fg={theme.textFaint}>watching: {selected()?.role ?? "—"} (v to open full session)</text>
-              <Show when={tail().length} fallback={<text fg={theme.textFaint}>(no output yet)</text>}>
+              <text fg={theme.textFaint}>
+                watching: {selected()?.role ?? "—"}
+                {isRemote(selected()?.sessionId) ? " (another terminal — ⏎ opens its window)" : " (v to open full session)"}
+              </text>
+              <Show
+                when={tail().length}
+                fallback={
+                  <text fg={theme.textFaint}>
+                    {isRemote(selected()?.sessionId)
+                      ? "(live transcript is in the terminal that spawned this team — board posts above are shared)"
+                      : "(no output yet)"}
+                  </text>
+                }
+              >
                 <For each={tail()}>
                   {(it) => {
                     const l = line(it)

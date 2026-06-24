@@ -105,7 +105,8 @@ export function Dashboard() {
     const t = teamList()[i - agents.length]
     return t ? { kind: "team" as const, team: t } : undefined
   }
-  const len = () => [sessions().length, teams().length, swarm().length, agentsTabLen()][tab()]!
+  const len = () =>
+    [sessions().length + remoteSessions().length, teams().length, swarm().length, agentsTabLen()][tab()]!
   const clampedSel = () => Math.min(sel(), Math.max(0, len() - 1))
 
   const swarmTail = createMemo<ViewItem[]>(() => {
@@ -164,10 +165,19 @@ export function Dashboard() {
     if (key.name === "k" || key.name === "up") return setSel((s) => Math.max(0, s - 1))
     const enter = key.name === "return" || key.name === "enter"
     if (tab() === 0) {
-      const s = sessions()[clampedSel()]
-      if (!s) return
-      if (enter) return app.visitAgent(s.id)
-      if (key.name === "d") return app.deleteSession(s.id)
+      const i = clampedSel()
+      const local = sessions()
+      if (i < local.length) {
+        const s = local[i]!
+        if (enter) return app.visitAgent(s.id)
+        if (key.name === "d") return app.deleteSession(s.id)
+      } else {
+        // Remote sessions (other terminals) — open in a window or stop; can't drive them from here.
+        const p = remoteSessions()[i - local.length]
+        if (!p) return
+        if (enter) return app.resumeInWindow(p.sessionId)
+        if (key.name === "s") return app.stopAgent(p.sessionId)
+      }
     } else if (tab() === 1) {
       if (!teams()[clampedSel()]) return
       if (enter) return app.setView("console")
@@ -308,8 +318,12 @@ export function Dashboard() {
                 <text fg={theme.textMuted}>other terminals (this project)</text>
               </box>
               <For each={remoteSessions()}>
-                {(p) => (
-                  <Row selected={false} onSelect={() => {}} onActivate={() => app.resumeInWindow(p.sessionId)}>
+                {(p, i) => (
+                  <Row
+                    selected={sessions().length + i() === clampedSel()}
+                    onSelect={() => setSel(sessions().length + i())}
+                    onActivate={() => app.resumeInWindow(p.sessionId)}
+                  >
                     <text fg={p.busy ? theme.success : theme.textMuted}>{p.busy ? "●" : "○"}</text>
                     <text fg={theme.textMuted}>{p.title}</text>
                     <text fg={theme.textFaint}>⟂</text>
