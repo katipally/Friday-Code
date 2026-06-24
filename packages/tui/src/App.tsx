@@ -426,7 +426,7 @@ function AppRoot() {
   )
 }
 
-export function App(props: { engine: Engine; version?: string; initialView?: "dashboard" | "console" }) {
+export function App(props: { engine: Engine; version?: string; initialView?: "console" }) {
   const store = createAppStore(props.engine, props.version, props.initialView)
   return (
     <AppProvider store={store}>

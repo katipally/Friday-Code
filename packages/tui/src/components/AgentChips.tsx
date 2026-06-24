@@ -46,7 +46,7 @@ export function AgentChips() {
           )}
         </For>
         <box flexGrow={1} />
-        <Pressable label="▦ dashboard ↗" fg={theme.textFaint} onClick={() => app.openDashboardWindow()} />
+        <Pressable label="▦ dashboard" fg={theme.textFaint} onClick={() => app.toggleDashboard()} />
       </box>
     </Show>
   )

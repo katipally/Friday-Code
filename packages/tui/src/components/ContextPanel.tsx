@@ -332,14 +332,7 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
                 onClick={() => app.setSettingsModalOpen(true)}
                 accent={accent()}
               />
-              {/* Click opens the dashboard in its OWN terminal window (chat view stays put); Ctrl+O
-                  still toggles the inline view for keyboard users. */}
-              <QuickButton
-                label="▦ dashboard ↗"
-                hint="Ctrl+O inline"
-                onClick={() => app.openDashboardWindow()}
-                accent={accent()}
-              />
+              <QuickButton label="▦ dashboard" hint="Ctrl+O" onClick={() => app.toggleDashboard()} accent={accent()} />
               {/* AGENTS — always-visible status/metadata of the dashboard. Click the header to open the
                   dashboard; click an agent to focus it (its transcript) and open the dashboard. */}
               <box flexDirection="column" paddingLeft={2}>

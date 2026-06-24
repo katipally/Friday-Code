@@ -158,7 +158,7 @@ function messagesToItems(messages: Message[]): ViewItem[] {
   return out
 }
 
-export function createAppStore(engine: Engine, version = "dev", initialView?: "dashboard" | "console") {
+export function createAppStore(engine: Engine, version = "dev", initialView?: "console") {
   const [view, setView] = createSignal<"shell" | "console" | "dashboard" | "exit">(initialView ?? "shell")
   const [mode, setModeSig] = createSignal<ModeId>(engine.selection().mode ?? DEFAULT_MODE)
   const [effort, setEffortSig] = createSignal<Effort>(engine.selection().effort ?? "medium")
@@ -997,11 +997,6 @@ export function createAppStore(engine: Engine, version = "dev", initialView?: "d
     const r = engine.popoutAgent(id)
     pushToast(r.ok ? `watching agent (${r.backend})` : winFail(r, "a watch window"), r.ok ? "done" : "error")
   }
-  /** Open the dashboard in its OWN terminal window (not inline), so the chat view stays put. */
-  function openDashboardWindow() {
-    const r = engine.openInteractive(["--view", "dashboard"])
-    pushToast(r.ok ? `opened dashboard (${r.backend})` : winFail(r, "the dashboard"), r.ok ? "done" : "error")
-  }
   /** Open the team console (Ctrl+T) in its own terminal window. */
   function openConsoleWindow() {
     const r = engine.openInteractive(["--view", "console"])
@@ -1829,7 +1824,6 @@ export function createAppStore(engine: Engine, version = "dev", initialView?: "d
     newChatWindow,
     resumeInWindow,
     openAgentWindow,
-    openDashboardWindow,
     openConsoleWindow,
     arrangeWindows,
     launchSwarm,
