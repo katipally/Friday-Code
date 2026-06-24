@@ -53,7 +53,6 @@ export const taskTool: Tool = {
     {
       description: { type: "string", description: "short label for the subtask" },
       prompt: { type: "string", description: "the full instruction for the sub-agent" },
-      agent: { type: "string", description: "agent type: general | explore" },
     },
     ["description", "prompt"],
   ),

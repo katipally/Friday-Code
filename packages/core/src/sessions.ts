@@ -85,98 +85,6 @@ export class SessionStore {
         /* column already exists */
       }
     }
-    // Cross-process presence registry: every friday process heartbeats the runners it owns here, so any
-    // OTHER terminal's dashboard can show live sessions / background tasks / team members it doesn't own.
-    // Rows are pruned when their heartbeat goes stale or the owning pid dies (see prunePresence).
-    this.db.exec(
-      `CREATE TABLE IF NOT EXISTS presence (
-        session_id TEXT PRIMARY KEY, pid INTEGER NOT NULL, root TEXT NOT NULL, title TEXT NOT NULL DEFAULT '',
-        kind TEXT NOT NULL DEFAULT 'session', busy INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT '',
-        description TEXT NOT NULL DEFAULT '', team_id TEXT, cost REAL NOT NULL DEFAULT 0,
-        updated_at INTEGER NOT NULL
-      );`,
-    )
-    // Cross-process control: a terminal can request the OWNING process stop a runner it doesn't hold.
-    this.db.exec(
-      `CREATE TABLE IF NOT EXISTS control (
-        session_id TEXT PRIMARY KEY, action TEXT NOT NULL, created_at INTEGER NOT NULL
-      );`,
-    )
-  }
-
-  // ---- cross-process presence registry ----
-  /** Upsert heartbeat rows for the runners this process owns (called on a timer + on every dispatch). */
-  heartbeat(rows: PresenceUpsert[]): void {
-    const t = Date.now()
-    const q = this.db.query(
-      `INSERT INTO presence (session_id, pid, root, title, kind, busy, status, description, team_id, cost, updated_at)
-       VALUES ($id,$pid,$root,$title,$kind,$busy,$status,$desc,$team,$cost,$t)
-       ON CONFLICT(session_id) DO UPDATE SET pid=$pid, root=$root, title=$title, kind=$kind, busy=$busy,
-         status=$status, description=$desc, team_id=$team, cost=$cost, updated_at=$t`,
-    )
-    for (const r of rows) {
-      q.run({
-        $id: r.sessionId,
-        $pid: r.pid,
-        $root: r.root,
-        $title: r.title ?? "",
-        $kind: r.kind,
-        $busy: r.busy ? 1 : 0,
-        $status: r.status ?? "",
-        $desc: r.description ?? "",
-        $team: r.teamId ?? null,
-        $cost: r.cost ?? 0,
-        $t: t,
-      })
-    }
-  }
-  dropPresence(sessionId: string): void {
-    this.db.query("DELETE FROM presence WHERE session_id = ?").run(sessionId)
-  }
-  dropPresenceForPid(pid: number): void {
-    this.db.query("DELETE FROM presence WHERE pid = ?").run(pid)
-  }
-  /** All fresh presence rows (heartbeat newer than `freshMs`), optionally scoped to a project root. */
-  livePresence(freshMs: number, root?: string): PresenceRow[] {
-    const cutoff = Date.now() - freshMs
-    const rows = (
-      root
-        ? this.db.query("SELECT * FROM presence WHERE updated_at > ? AND root = ? ORDER BY updated_at DESC").all(cutoff, root)
-        : this.db.query("SELECT * FROM presence WHERE updated_at > ? ORDER BY updated_at DESC").all(cutoff)
-    ) as any[]
-    return rows.map(rowToPresence)
-  }
-  /** Drop presence rows whose owning pid is no longer alive (best-effort, same-machine). */
-  prunePresence(freshMs: number): void {
-    const stale = Date.now() - freshMs
-    // Stale heartbeat → gone. Also prune fresh-looking rows whose pid is dead (hard crash, no cleanup).
-    const rows = this.db.query("SELECT DISTINCT pid FROM presence").all() as { pid: number }[]
-    for (const { pid } of rows) {
-      if (pid === process.pid) continue
-      try {
-        process.kill(pid, 0) // alive → keep
-      } catch {
-        this.db.query("DELETE FROM presence WHERE pid = ?").run(pid)
-      }
-    }
-    this.db.query("DELETE FROM presence WHERE updated_at < ?").run(stale)
-  }
-
-  // ---- cross-process control ----
-  requestControl(sessionId: string, action: "stop"): void {
-    this.db
-      .query("INSERT OR REPLACE INTO control (session_id, action, created_at) VALUES (?,?,?)")
-      .run(sessionId, action, Date.now())
-  }
-  /** Pop control requests for the given session ids (the caller owns them); returns the actions to apply. */
-  takeControl(sessionIds: string[]): { sessionId: string; action: string }[] {
-    if (!sessionIds.length) return []
-    const marks = sessionIds.map(() => "?").join(",")
-    const rows = this.db
-      .query(`SELECT session_id, action FROM control WHERE session_id IN (${marks})`)
-      .all(...sessionIds) as any[]
-    if (rows.length) this.db.query(`DELETE FROM control WHERE session_id IN (${marks})`).run(...sessionIds)
-    return rows.map((r) => ({ sessionId: r.session_id, action: r.action }))
   }
 
   private upsertState(
@@ -339,38 +247,6 @@ export class SessionStore {
       json: string
     }[]
     return rows.map((r) => JSON.parse(r.json) as Message)
-  }
-}
-
-/** A live runner advertised by some friday process (this one or another terminal). */
-export interface PresenceRow {
-  sessionId: string
-  pid: number
-  root: string
-  title: string
-  kind: "session" | "task" | "team"
-  busy: boolean
-  status: string
-  description: string
-  teamId?: string
-  cost: number
-  updatedAt: number
-}
-export type PresenceUpsert = Omit<PresenceRow, "busy" | "updatedAt" | "cost"> & { busy: boolean; cost?: number }
-
-function rowToPresence(r: any): PresenceRow {
-  return {
-    sessionId: r.session_id,
-    pid: r.pid,
-    root: r.root,
-    title: r.title,
-    kind: r.kind,
-    busy: !!r.busy,
-    status: r.status,
-    description: r.description,
-    teamId: r.team_id ?? undefined,
-    cost: r.cost ?? 0,
-    updatedAt: r.updated_at,
   }
 }
 

@@ -67,26 +67,6 @@ export type EngineEventBody =
       type: "tasks"
       items: { id: string; title: string; description: string; status: "running" | "done"; summary?: string }[]
     }
-  /** Agent-team shared board — drives the console/dashboard view. Null when no team is active. */
-  | {
-      type: "team"
-      team: {
-        teamId: string
-        goal: string
-        status: string
-        members: { sessionId: string; role: string; status: string; activity: string }[]
-        posts: {
-          id: number
-          sessionId: string
-          role: string
-          kind: string
-          toRole?: string
-          text: string
-          createdAt: number
-        }[]
-        claims: { path: string; sessionId: string }[]
-      } | null
-    }
   | { type: "error"; message: string }
   // A /add note (id correlates with the optimistic UI item) has been folded into the agent's context
   // at a step boundary — the UI flips its "pending" chip to "attached".

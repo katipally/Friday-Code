@@ -81,7 +81,6 @@ test("the side panel shows MODEL/CONTEXT cards and the nav rows", async () => {
   expect(frame).toContain("MODEL")
   expect(frame).toContain("CONTEXT")
   expect(frame).toContain("settings")
-  expect(frame).toContain("dashboard")
-  expect(frame).toContain("AGENTS") // always-visible dashboard status
+  expect(frame).toContain("voice")
   t.renderer.destroy()
 })

@@ -41,17 +41,6 @@ fold it in and resume, or Esc to release without adding anything). `/nudge` and
 | `/effort` | Set reasoning effort with a slider (low to max). Only for models with a reasoning channel. |
 | `/budget` | Set a token or dollar usage budget. Examples: `/budget 100000`, `/budget $5`, `/budget off`. |
 
-## Agents, teams, and swarms
-
-| Command | What it does |
-|---|---|
-| `/dashboard` | Open the dashboard over Sessions, Teams, and Swarm. Also Ctrl+O. |
-| `/console` | Open the live agent-team cockpit with the shared board and roster. Also Ctrl+T. |
-| `/fleet` | Open an external terminal window per running agent. |
-
-See [agents and teams](agents-and-teams.md) for how sub-agents, swarms, and
-coordinated teams work.
-
 ## Audit and project
 
 | Command | What it does |

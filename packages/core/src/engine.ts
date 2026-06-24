@@ -32,12 +32,9 @@ import {
   type Tool,
   uninstallComputerUse,
 } from "@friday/tools"
-import { TeamBoard } from "./board.ts"
 import { type CustomCommand, loadCommands } from "./commands.ts"
 import { loadConfig, saveConfig } from "./config.ts"
 import { type CronJob, loadCron, parseInterval, saveCron } from "./cron.ts"
-import { detectWindowBackend, openFleetWindows, openInteractiveWindow } from "./fleet.ts"
-import { arrangeTerminals, type WindowPreset } from "./oswindow.ts"
 import {
   cancelMic,
   type InputDevice,
@@ -52,18 +49,8 @@ import {
 } from "./mic.ts"
 import { notify } from "./notify.ts"
 import { persistPermission, projectPermissions, revokeProjectPermissions } from "./permissions.ts"
-import {
-  type RunnerHost,
-  SessionRunner,
-  type SessionStats,
-  type SpawnBudget,
-  type SpawnJob,
-  type SpawnOpts,
-  type TeamMemberSpec,
-} from "./runner.ts"
-import { type AgentDef, resolveAgent, resolveAgents } from "./agents.ts"
-import { type TeamDef, resolveTeam, resolveTeams } from "./teams.ts"
-import { type PresenceRow, SessionStore } from "./sessions.ts"
+import { type RunnerHost, SessionRunner, type SessionStats, type SpawnOpts } from "./runner.ts"
+import { SessionStore } from "./sessions.ts"
 import type { SkillInfo } from "./skills.ts"
 import type { StreamFn } from "./stream.ts"
 
@@ -113,11 +100,6 @@ export class Engine {
   private taskQueue = new Map<string, string[]>()
   private focusedId!: string
 
-  /** the shared agent-team blackboard */
-  private board = new TeamBoard()
-  /** sessionId -> teamId for agents that belong to a team */
-  private teamOf = new Map<string, string>()
-
   private host: RunnerHost = {
     streamFn: undefined as any, // set in constructor (needs `this.streamFn`)
     store: undefined as any,
@@ -141,42 +123,12 @@ export class Engine {
     projectPermissions: (root) => projectPermissions(root),
     persistPermission: (root, rule) => persistPermission(root, rule),
     spawnTask: (prompt, description, opts) => this.spawnTask(prompt, description, opts),
-    spawnAgents: (jobs) => this.spawnAgents(jobs),
     sendToTask: (id, text) => this.sendToTask(id, text),
     taskList: () => this.taskList(),
     stopTask: (id) => this.stopTask(id),
     cronCreate: (description, prompt, every) => this.cronCreate(description, prompt, every),
     cronList: () => this.cronList(),
     cronDelete: (id) => this.cronDelete(id),
-    spawnTeam: (orchestrator, goal, members, opts) => this.spawnTeam(orchestrator, goal, members, opts),
-    boardPost: (sessionId, kind, text, toRole) => {
-      const teamId = this.teamOf.get(sessionId)
-      if (!teamId) return false
-      this.board.post(teamId, sessionId, kind, text, toRole)
-      this.emitTeam(teamId)
-      return true
-    },
-    boardRead: (sessionId, since, role) => {
-      const teamId = this.teamOf.get(sessionId)
-      if (!teamId) return null
-      const snap = this.board.snapshot(teamId)
-      if (!snap) return null
-      return since || role ? { ...snap, posts: this.board.readPosts(teamId, since ?? 0, role) } : snap
-    },
-    boardClaim: (sessionId, claimPath, ttlMs) => {
-      const teamId = this.teamOf.get(sessionId)
-      if (!teamId) return null
-      const res = this.board.claimFile(teamId, claimPath, sessionId, ttlMs)
-      this.emitTeam(teamId)
-      return res
-    },
-    boardRelease: (sessionId, claimPath) => {
-      const teamId = this.teamOf.get(sessionId)
-      if (!teamId) return false
-      this.board.releaseFile(teamId, claimPath, sessionId)
-      this.emitTeam(teamId)
-      return true
-    },
   }
 
   constructor(opts: EngineOptions) {
@@ -205,18 +157,12 @@ export class Engine {
     this.focusedId = runner.sessionId
     // Restore a resumed session's own model/provider/mode/effort (new sessions keep the global default).
     if (resumed) this.applySessionSelection(runner.sessionId)
-    // Cross-terminal sync: heartbeat this process's live runners into the shared DB and honor remote
-    // stop requests, so every terminal's dashboard reflects the true, current state (no IPC sockets).
-    this.store.prunePresence(Engine.PRESENCE_STALE_MS)
-    this.heartbeatTimer = setInterval(() => this.syncPresence(), Engine.HEARTBEAT_MS)
-    this.heartbeatTimer.unref?.()
     // One set of exit hooks per process (not per Engine). On a hard signal — terminal closed (SIGHUP)
     // or kill (SIGTERM) — fully shut down: aborting every runner cascades to its bash process group,
-    // so background tasks/team members and anything they spawned (dev servers, watchers) die with
-    // Friday instead of orphaning and pinning the CPU. SIGINT is owned by the TUI's clean quit.
+    // so background tasks and anything they spawned (dev servers, watchers) die with Friday instead of
+    // orphaning and pinning the CPU. SIGINT is owned by the TUI's clean quit.
     if (!Engine.exitHooked) {
       Engine.exitHooked = true
-      process.once("exit", () => this.store.dropPresenceForPid(process.pid))
       for (const sig of ["SIGTERM", "SIGHUP"] as const) {
         process.once(sig, () => {
           this.dispose()
@@ -227,57 +173,9 @@ export class Engine {
   }
   private static exitHooked = false
 
-  // ---- cross-process presence / control ----
-  /** A runner is "fresh" in another terminal if its heartbeat is younger than this. */
-  private static PRESENCE_STALE_MS = 8_000
-  private static HEARTBEAT_MS = 1_500
-  private heartbeatTimer?: ReturnType<typeof setInterval>
-
-  /** Heartbeat every runner this process owns, prune dead processes, and apply remote stop requests. */
-  private syncPresence(): void {
-    const rows = [...this.runners.values()]
-      // Don't advertise empty placeholder chats (a fresh "new session" with nothing in it) as a live
-      // terminal — that's what produced the ghost "new session ⟂" rows. Background tasks and team
-      // members always count; a plain session only once it has real content or is actively working.
-      .filter((r) => this.teamOf.has(r.sessionId) || this.taskMeta.has(r.sessionId) || r.busy || !r.isEmpty())
-      .map((r) => {
-        const teamId = this.teamOf.get(r.sessionId)
-        const kind: "session" | "task" | "team" = teamId ? "team" : this.taskMeta.has(r.sessionId) ? "task" : "session"
-        return {
-          sessionId: r.sessionId,
-          pid: process.pid,
-          root: this.cwd,
-          title: r.currentTitle(),
-          kind,
-          busy: r.busy,
-          status: r.busy ? "running" : "done",
-          description: this.taskMeta.get(r.sessionId)?.description ?? "",
-          teamId,
-        }
-      })
-    // Replace this pid's prior presence wholesale so a now-empty/closed session drops immediately
-    // (heartbeat only upserts; without this a session that became empty would linger until stale).
-    this.store.dropPresenceForPid(process.pid)
-    this.store.heartbeat(rows)
-    this.store.prunePresence(Engine.PRESENCE_STALE_MS)
-    // Apply stop requests another terminal queued for runners we own.
-    const ours = [...this.runners.keys()]
-    for (const c of this.store.takeControl(ours)) {
-      if (c.action === "stop") this.runners.get(c.sessionId)?.abortRun()
-    }
-  }
-
-  /** Live runners owned by OTHER terminals in this project (fresh heartbeat), for the dashboard to merge. */
-  remoteAgents(): PresenceRow[] {
-    return this.store
-      .livePresence(Engine.PRESENCE_STALE_MS, this.cwd)
-      .filter((p) => p.pid !== process.pid && !this.runners.has(p.sessionId))
-  }
-  /** Ask the owning terminal to stop a runner we don't hold (cross-process). Local stop if we own it. */
+  /** Stop a runner this process owns. */
   requestStop(sessionId: string): void {
-    const local = this.runners.get(sessionId)
-    if (local) local.abortRun()
-    else this.store.requestControl(sessionId, "stop")
+    this.runners.get(sessionId)?.abortRun()
   }
 
   // ---- shared infra ----
@@ -297,19 +195,12 @@ export class Engine {
         notify("Friday", `“${label}” needs your input`)
     }
     this.emit({ ...body, sessionId } as EngineEvent)
-    // When a session finishes (or errors), refresh the Tasks panel, drain queued follow-ups, and —
-    // if it's a team member — mark it done on the board and check whether the team can gather. All on
-    // the next tick so `busy` has settled. This is the only completion hook; no polling anywhere.
+    // When a background task finishes (or errors), refresh the Tasks panel and drain queued follow-ups,
+    // on the next tick so `busy` has settled. This is the only completion hook; no polling anywhere.
     if (body.type === "turn-done" || body.type === "error") {
       setTimeout(() => {
         if (this.taskMeta.has(sessionId)) this.emitTasks()
         this.drainTask(sessionId)
-        const teamId = this.teamOf.get(sessionId)
-        if (teamId) {
-          this.board.setMemberStatus(teamId, sessionId, body.type === "error" ? "dead" : "done")
-          this.emitTeam(teamId)
-          this.maybeGather(teamId)
-        }
       }, 0)
     }
   }
@@ -323,13 +214,9 @@ export class Engine {
     const title = (description || "task").slice(0, 60)
     const runner = this.makeRunner(this.store.buildRow(roots, crypto.randomUUID(), now(), title))
     this.taskMeta.set(runner.sessionId, { description, createdAt: now() })
-    // Resolve the agent def (built-in or on-disk) so the spawned session runs as that agent: its
-    // model, permission posture and presentation. Budget caps hard-stop the session.
-    const def = opts?.agent ? resolveAgent(opts.agent, roots) : undefined
+    // Budget caps hard-stop the session; an optional posture pins its permission mode.
     runner.configureAgent({
-      agentName: def?.name ?? opts?.agent,
-      posture: opts?.posture ?? def?.posture,
-      model: def?.model,
+      posture: opts?.posture,
       budgetUsd: opts?.budgetUsd,
       budgetTokens: opts?.budgetTokens,
     })
@@ -360,7 +247,7 @@ export class Engine {
     this.runners.get(id)?.abortRun()
     this.emitTasks()
   }
-  /** Stop (if running) and drop a background/swarm agent from the list entirely. */
+  /** Stop (if running) and drop a background agent from the list entirely. */
   removeTask(id: string): void {
     const r = this.runners.get(id)
     if (r) {
@@ -369,16 +256,7 @@ export class Engine {
       this.runners.delete(id)
     }
     this.taskMeta.delete(id)
-    this.teamOf.delete(id)
     this.emitTasks()
-  }
-  /** Dismiss the current team: stop any running members and clear the team panel. */
-  dismissTeam(): void {
-    const teamId = this.board.latestTeamId()
-    if (!teamId) return
-    for (const m of this.board.members(teamId)) this.runners.get(m.sessionId)?.abortRun()
-    this.board.finishTeam(teamId, "done")
-    this.dispatch(this.focusedId, { type: "team", team: null })
   }
   /** Inject a follow-up prompt into a background task. Queues it if the task is mid-turn. */
   sendToTask(id: string, text: string): boolean {
@@ -403,162 +281,6 @@ export class Engine {
     if (!q.length) this.taskQueue.delete(id)
     void r.runPrompt(next)
   }
-  /** Fan out a list of subtasks as parallel background agents; returns their ids. */
-  spawnAgents(jobs: SpawnJob[]): string[] {
-    return jobs.map((j) =>
-      this.spawnTask(j.prompt, j.description, {
-        worktree: j.worktree?.trim() || undefined,
-        agent: j.agent,
-        budgetUsd: j.budgetUsd,
-        budgetTokens: j.budgetTokens,
-      }),
-    )
-  }
-
-  // ---- agent teams (orchestrator + shared board) ----
-  /** Max wall-clock a team runs before stragglers are stopped and results gathered (no hang). */
-  private static TEAM_TIMEOUT_MS = 20 * 60_000
-  /** Launch a coordinated team: spawn one worker per role (each in its own worktree), register them on
-   * the shared board, and arm a gather timeout. Workers post findings to the board; when all finish the
-   * orchestrator is automatically re-prompted to merge & report. Returns the team id. */
-  spawnTeam(orchestrator: string, goal: string, members: TeamMemberSpec[], opts?: SpawnBudget): string {
-    const teamId = this.board.createTeam(goal, orchestrator, this.cwd)
-    for (const r of members) {
-      const wt = r.worktree || `team-${teamId}-${r.role}`.replace(/[^a-zA-Z0-9._/-]/g, "-")
-      const briefing =
-        `You are the “${r.role}” member of an agent team. Team goal: ${goal}\n` +
-        `You work in an isolated git worktree (${wt}). Coordinate via the shared board: board_post your findings/handoffs, board_read to see teammates, and board_claim_file before editing a file others might touch. ` +
-        `When done, board_post a 'finding' summarizing exactly what you changed (files + branch).\n\nYour task:\n${r.prompt}`
-      const sid = this.spawnTask(briefing, `${r.role} · ${goal.slice(0, 40)}`, {
-        worktree: wt,
-        agent: r.agent,
-        budgetUsd: opts?.budgetUsd,
-        budgetTokens: opts?.budgetTokens,
-      })
-      // Register on the board + team map synchronously, before the worker's async run can complete.
-      this.board.addMember(teamId, sid, r.role, wt)
-      this.teamOf.set(sid, teamId)
-      this.runners.get(sid)?.activateTools("board_")
-    }
-    // The orchestrator needs the board tools too (to read progress / be re-prompted with context).
-    this.runners.get(orchestrator)?.activateTools("board_")
-    // ponytail: no auto-popout. The in-TUI Console (Ctrl+T) tails the team live; popping a real OS
-    // terminal per member whenever the model forms a team surprised users ("terminals open randomly").
-    // Opt in instead: `/fleet`, or `o` on a member in the Console.
-    const timer = setTimeout(() => this.gatherTimeout(teamId), Engine.TEAM_TIMEOUT_MS)
-    timer.unref?.()
-    this.emitTeam(teamId)
-    return teamId
-  }
-
-  /** When every member has finished (done/dead/timed-out), gather their results and re-prompt the
-   * orchestrator to merge & report. Guarded so it runs exactly once per team. Event-driven, no polling. */
-  private maybeGather(teamId: string): void {
-    const t = this.board.team(teamId)
-    if (t?.status !== "running") return
-    const members = this.board.members(teamId)
-    if (!members.length || members.some((m) => m.status === "running")) return
-    this.board.finishTeam(teamId, "gathering")
-    const digest = members
-      .map((m) => {
-        const r = this.runners.get(m.sessionId)
-        const msgs = r?.snapshotMessages() ?? []
-        const last = [...msgs]
-          .reverse()
-          .find((x) => x.role === "assistant" && "text" in x && (x as { text?: string }).text) as
-          | { text?: string }
-          | undefined
-        const wt = m.worktree ? ` (worktree: ${m.worktree})` : ""
-        return `## ${m.role} [${m.status}]${wt}\n${last?.text?.slice(0, 1200) ?? "(no output)"}`
-      })
-      .join("\n\n")
-    const findings = this.board.readPosts(teamId).filter((p) => p.kind === "finding" || p.kind === "handoff")
-    const board = findings.length
-      ? `\n\nBoard posts:\n${findings.map((p) => `- ${p.role} (${p.kind}): ${p.text}`).join("\n")}`
-      : ""
-    const stragglers = members.filter((m) => m.status !== "done").map((m) => m.role)
-    const note = stragglers.length ? `\n\nMembers that did NOT finish cleanly: ${stragglers.join(", ")}.` : ""
-    const prompt =
-      `TEAM COMPLETE — goal: “${t.goal}”.\n\nEach member worked in its own git worktree. Their results:\n\n${digest}${board}${note}\n\n` +
-      `Review the work, merge the worktrees into the working branch (resolve conflicts), then report a concise summary to the user. Use board_read for full detail.`
-    this.board.finishTeam(teamId, "done")
-    this.emitTeam(teamId)
-    this.injectToOrchestrator(t.orchestratorSession, prompt)
-  }
-
-  /** Force-stop any still-running members after the timeout, then gather whatever exists. */
-  private gatherTimeout(teamId: string): void {
-    const t = this.board.team(teamId)
-    if (t?.status !== "running") return
-    for (const m of this.board.members(teamId)) {
-      if (m.status === "running") {
-        this.runners.get(m.sessionId)?.abortRun()
-        this.board.setMemberStatus(teamId, m.sessionId, "timed-out")
-      }
-    }
-    this.emitTeam(teamId)
-    this.maybeGather(teamId)
-  }
-
-  /** Deliver a prompt to the orchestrator session — runs now if idle, else queued and drained at the
-   * next turn boundary (reusing the task follow-up machinery). Never blocks. */
-  private injectToOrchestrator(sessionId: string, text: string): void {
-    const r = this.runners.get(sessionId)
-    if (!r) {
-      this.dispatch(this.focusedId, { type: "notice", text })
-      return
-    }
-    if (r.busy) {
-      const q = this.taskQueue.get(sessionId) ?? []
-      q.push(text)
-      this.taskQueue.set(sessionId, q)
-    } else void r.runPrompt(text)
-  }
-
-  /** The bus-shaped payload for a team (or null). */
-  private teamPayload(teamId: string): Extract<EngineEventBody, { type: "team" }>["team"] {
-    const snap = this.board.snapshot(teamId)
-    if (!snap) return null
-    return {
-      teamId: snap.teamId,
-      goal: snap.goal,
-      status: snap.status,
-      members: snap.members.map((m) => ({
-        sessionId: m.sessionId,
-        role: m.role,
-        status: m.status,
-        activity: m.activity,
-      })),
-      posts: snap.posts,
-      claims: snap.claims,
-    }
-  }
-  private emitTeam(teamId: string): void {
-    this.dispatch(this.focusedId, { type: "team", team: this.teamPayload(teamId) })
-  }
-  /** Current team snapshot for the console's initial render (most recently active team IN THIS PROJECT,
-   * so a team started in another terminal of the same project shows up, but other projects don't leak). */
-  teamSnapshot(): Extract<EngineEventBody, { type: "team" }>["team"] {
-    const id = this.board.latestTeamId(this.cwd)
-    return id ? this.teamPayload(id) : null
-  }
-  /** Pop a single agent out into its own real OS terminal window (read-only watch). */
-  popoutAgent(sessionId: string): { ok: boolean; backend: string; opened: number; error?: string } {
-    return openFleetWindows([sessionId])
-  }
-  /** Open a NEW interactive friday window: fresh chat (no args) or resume `-s <id>`, in `cwd`. */
-  openInteractive(args: string[] = [], cwd?: string): { ok: boolean; backend: string; opened: number; error?: string } {
-    return openInteractiveWindow(args, cwd ?? this.currentCwd())
-  }
-  /** Which OS-window backend this environment will use (for the dashboard to inform the user). */
-  windowBackend(): { backend: string; osWindows: boolean } {
-    return detectWindowBackend()
-  }
-  /** Tile the open OS terminal windows into a preset (macOS; needs Automation permission). */
-  arrangeWindows(preset: WindowPreset): { ok: boolean; count: number; error?: string } {
-    return arrangeTerminals(preset)
-  }
-
   /** Force-activate deferred tools (by name prefix) for the focused session so the model can use them
    * immediately without calling tool_search first. Returns the number activated. */
   activateTools(prefix: string): number {
@@ -623,14 +345,6 @@ export class Engine {
   }
   uninstallComputerUse(): boolean {
     return uninstallComputerUse()
-  }
-  /** Open a viewer OS terminal window per running task; returns the chosen backend. */
-  openFleet(): { ok: boolean; backend: string; opened: number; error?: string } {
-    const ids = this.taskList()
-      .filter((t) => t.status === "running")
-      .map((t) => t.id)
-    if (!ids.length) return { ok: false, backend: "none", opened: 0 }
-    return openFleetWindows(ids)
   }
   private emitTasks(): void {
     this.dispatch(this.focusedId, { type: "tasks", items: this.taskList() })
@@ -750,19 +464,17 @@ export class Engine {
     saveConfig({ mcp })
     this.mcpServers = [...this.mcpConnections.keys()]
   }
-  /** Shut down EVERYTHING this process owns: stop the heartbeat, abort all runners (which kills their
-   * bash process groups + child processes), close MCP servers, and clear this pid's presence so other
-   * terminals don't show ghosts. Idempotent — safe to call from the clean quit and from signal hooks. */
+  /** Shut down EVERYTHING this process owns: abort all runners (which kills their bash process groups
+   * + child processes) and close MCP servers. Idempotent — safe to call from the clean quit and from
+   * signal hooks. */
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
-    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer)
     for (const [id, r] of this.runners) {
       if (r.isEmpty() && !r.busy) this.store.delete(id) // never persist empty placeholders
       r.dispose() // aborts the run → its bash tool's abort handler kills the whole process group
     }
     for (const c of this.mcpConnections.values()) c.close()
-    this.store.dropPresenceForPid(process.pid)
   }
   private disposed = false
 
@@ -849,26 +561,6 @@ export class Engine {
   }
   listSkills(): SkillInfo[] {
     return this.focused().listSkills()
-  }
-  /** Agent defs available to delegate to (built-ins + on-disk), for the Agents dashboard tab. */
-  listAgents(): AgentDef[] {
-    return resolveAgents(this.focused().currentRoots())
-  }
-  /** Reusable team defs (built-ins + on-disk), for the Agents dashboard tab and /team. */
-  listTeams(): TeamDef[] {
-    return resolveTeams(this.focused().currentRoots())
-  }
-  /** Launch a reusable team by name toward `goal`: delegates to Friday with the roster pre-filled. */
-  teamPromptFor(name: string, goal: string): string | undefined {
-    const def = resolveTeam(name, this.focused().currentRoots())
-    if (!def) return undefined
-    const roster = def.members
-      .map((m) => `- ${m.role}${m.agent ? ` (agent: ${m.agent})` : ""}: ${m.prompt}`)
-      .join("\n")
-    return (
-      `Form the "${def.name}" team and call the team tool. Goal: ${goal || def.description}\n` +
-      `Use these members (role, agent, focus):\n${roster}`
-    )
   }
   listCommands(): CustomCommand[] {
     return loadCommands(this.focused().currentRoots())

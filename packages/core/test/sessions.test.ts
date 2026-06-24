@@ -16,34 +16,6 @@ const textOnly: StreamFn = async function* () {
   for (const e of evs) yield e
 }
 
-test("SessionStore: presence heartbeat / staleness / pid-prune / control", () => {
-  const store = new SessionStore(path.join(tmp, "presence.db"))
-  // A row from THIS process (alive pid) and one from a fake dead pid.
-  store.heartbeat([
-    { sessionId: "s1", pid: process.pid, root: "/proj", title: "alpha", kind: "session", busy: true },
-    { sessionId: "t1", pid: process.pid, root: "/proj", title: "task", kind: "task", busy: false },
-  ])
-  // Fresh rows are visible, scoped by root.
-  expect(store.livePresence(10_000, "/proj").map((p) => p.sessionId).sort()).toEqual(["s1", "t1"])
-  expect(store.livePresence(10_000, "/other").length).toBe(0)
-  // busy flag round-trips.
-  expect(store.livePresence(10_000).find((p) => p.sessionId === "s1")?.busy).toBe(true)
-  // Staleness: a 0ms freshness window hides everything (all heartbeats are "old").
-  expect(store.livePresence(0).length).toBe(0)
-  // Dead-pid prune removes that pid's rows; live pid survives.
-  store.heartbeat([{ sessionId: "z1", pid: 2 ** 30, root: "/proj", title: "ghost", kind: "task", busy: false }])
-  store.prunePresence(10_000)
-  expect(store.livePresence(10_000).some((p) => p.sessionId === "z1")).toBe(false)
-  expect(store.livePresence(10_000).some((p) => p.sessionId === "s1")).toBe(true)
-  // Control: a queued stop is taken exactly once.
-  store.requestControl("s1", "stop")
-  expect(store.takeControl(["s1"]).map((c) => c.action)).toEqual(["stop"])
-  expect(store.takeControl(["s1"]).length).toBe(0)
-  // Dropping presence clears a row.
-  store.dropPresence("s1")
-  expect(store.livePresence(10_000).some((p) => p.sessionId === "s1")).toBe(false)
-})
-
 test("SessionStore: create / append / load / rename / list", () => {
   const store = new SessionStore(path.join(tmp, "store.db"))
   store.create("/cwd", "id1", 1000)

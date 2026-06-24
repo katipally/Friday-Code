@@ -104,7 +104,6 @@ friday -h, --help
 | `Ctrl+B` | toggle context panel |
 | `Shift+Esc` | pause the running agent & add context |
 | `Ctrl+Y` | session history |
-| `Ctrl+1-9` | jump between parallel sessions |
 | `/` | slash command autocomplete |
 | `@` | file or image mention |
 | `?` or `F1` | full guide: slash commands · keyboard · modes |
@@ -149,11 +148,11 @@ Every slash command is listed in [docs/commands.md](docs/commands.md).
 
 What's actually in `main`, no aspirational claims.
 
-**Engine.** Streaming everywhere, tool-calling loop, auto-compaction at ~80% (or `/compact`), 8 hook events (`PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop`, `SessionStart`, `SubagentStop`, `PreCompact`, `Notification`), sub-agents with custom Markdown agents in `~/.friday/agents/`, checkpoints + rewind (including files bash created), bash safety with allow/deny lists and risky-command detection, LSP grounding (typescript-language-server, pyright, gopls, rust-analyzer, auto-detected).
+**Engine.** Streaming everywhere, tool-calling loop, auto-compaction at ~80% (or `/compact`), 8 hook events (`PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop`, `SessionStart`, `SubagentStop`, `PreCompact`, `Notification`), read-only sub-agents, checkpoints + rewind (including files bash created), bash safety with allow/deny lists and risky-command detection, LSP grounding (typescript-language-server, pyright, gopls, rust-analyzer, auto-detected).
 
-**Tools.** `read`, `write`, `edit`, `multiEdit`, `applyPatch`, `ls`, `glob`, `grep`, `bash`, `webfetch`, `websearch`, `askUser`, `skill`, `task` (read-only sub-agent), `task_create` / `task_list` / `task_status` / `task_stop`, `spawn_agents` (swarm) / `spawn_team` + `board_*` (coordinated team), `todo_write`, `exit_plan`, `lsp_hover` / `lsp_definition` / `lsp_symbols`, `tool_search`, `memory`, `notebook_edit`, `cron_create` / `cron_list` / `cron_delete`, `enter_worktree` / `exit_worktree` / `worktree_list`, opt-in `browser_*` and `computer_*`. MCP client (stdio + streamable-http).
+**Tools.** `read`, `write`, `edit`, `multiEdit`, `applyPatch`, `ls`, `glob`, `grep`, `bash`, `webfetch`, `websearch`, `askUser`, `skill`, `delegate` / `task` (read-only sub-agent), `task_create` / `task_list` / `task_status` / `task_stop` / `send_to_task`, `todo_write`, `exit_plan`, `lsp_hover` / `lsp_definition` / `lsp_symbols`, `tool_search`, `memory`, `notebook_edit`, `cron_create` / `cron_list` / `cron_delete`, `enter_worktree` / `exit_worktree` / `worktree_list`, opt-in `browser_*` and `computer_*`. MCP client (stdio + streamable-http).
 
-**TUI.** Animated mascot (7 states, defined in `packages/shared/src/mascot.ts`), animated FRIDAY wordmark drawn from half-block subpixels in the TUI itself, 3-mode visual system with per-mode glyph + accent, responsive layout with auto-collapsing panels, motion layer with `FRIDAY_REDUCED_MOTION=1` accessibility fallback, multi-session tabs, context panel with plans/todos/files/context/tasks plus separate MCP and skills surfaces, dashboard (Sessions · Teams · Swarm · History, Ctrl+O), on-device speech-to-text mic with input-device select + live transcription (Ctrl+R), inline slash command + `@` mention autocomplete, markdown skills in `~/.friday/skills/`.
+**TUI.** Animated mascot (7 states, defined in `packages/shared/src/mascot.ts`), animated FRIDAY wordmark drawn from half-block subpixels in the TUI itself, 3-mode visual system with per-mode glyph + accent, responsive layout with auto-collapsing panels, motion layer with `FRIDAY_REDUCED_MOTION=1` accessibility fallback, context panel with plans/todos/files/context plus separate MCP and skills surfaces, on-device speech-to-text mic with input-device select + live transcription (Ctrl+R), inline slash command + `@` mention autocomplete, markdown skills in `~/.friday/skills/`.
 
 **Providers (19).** Anthropic and Google Gemini ship dedicated adapters. 17 more (OpenAI, OpenRouter, OpenCode Zen, Groq, Moonshot/Kimi, DeepSeek, xAI, Mistral, Perplexity, Together, Cerebras, DeepInfra, Fireworks, Azure OpenAI, MiniMax, Ollama, llama.cpp / LM Studio) go through one OpenAI-compat adapter. Ollama and llama.cpp are keyless. Model catalog from [models.dev](https://models.dev) with an offline snapshot fallback. Reasoning effort via `/effort` slider.
 
@@ -223,11 +222,9 @@ If a stable build fails, the release is blocked. If a musl or Windows ARM build 
 
 ## Roadmap
 
-**Shipped.** 3 permission modes with per-mode glyph + accent. 7-state animated mascot in TUI. Animated FRIDAY wordmark in TUI. 8 native binaries + 9 npm packages with launcher auto-resolve. 19 built-in providers (Anthropic, Gemini, OpenAI-compat for 17 more). 8 hook events. Sub-agents (read-only `task`), swarms (`spawn_agents`) and coordinated teams (`spawn_team` + shared board), each opening in its own terminal window. Dashboard over sessions/teams/swarm/history (Ctrl+O). On-device speech-to-text mic with input-device select + live transcription (Ctrl+R). Auto-compaction + manual `/compact`. Checkpoints + rewind (bash file snapshotting). LSP grounding (4 languages). MCP client. Background tasks, cron, worktree. Opt-in browser + computer-use control. Headless mode with JSON output. `FRIDAY.md` / `AGENTS.md` project context. Slash command + `@` mention autocomplete.
+**Shipped.** 3 permission modes with per-mode glyph + accent. 7-state animated mascot in TUI. Animated FRIDAY wordmark in TUI. 8 native binaries + 9 npm packages with launcher auto-resolve. 19 built-in providers (Anthropic, Gemini, OpenAI-compat for 17 more). 8 hook events. Read-only sub-agents (`delegate` / `task`). On-device speech-to-text mic with input-device select + live transcription (Ctrl+R). Auto-compaction + manual `/compact`. Checkpoints + rewind (bash file snapshotting). LSP grounding (4 languages). MCP client. Background tasks, cron, worktree. Opt-in browser + computer-use control. Headless mode with JSON output. `FRIDAY.md` / `AGENTS.md` project context. Slash command + `@` mention autocomplete.
 
-**In progress.** Custom agents via Markdown frontmatter (loader works, picker is not done). Windows ARM64 build (best-effort, smoke tested only). Session export/import.
-
-**Not yet.** Desktop app, IDE extension (VS Code / JetBrains), web interface, iOS / mobile, cloud-managed scheduled tasks, channel integrations (Slack / Discord / Telegram), JSON / SDK-defined custom agents, plugin system, ACP (Agent Client Protocol) for IDE handoff. These would need a separate initiative. The fastest way to get any of them is to send a PR.
+**Not yet.** Desktop app, IDE extension (VS Code / JetBrains), web interface, iOS / mobile, cloud-managed scheduled tasks, channel integrations (Slack / Discord / Telegram), plugin system, ACP (Agent Client Protocol) for IDE handoff. These would need a separate initiative. The fastest way to get any of them is to send a PR.
 
 ## Troubleshooting
 
@@ -248,10 +245,9 @@ Deep dives on every feature live in [docs/](docs/index.md):
 
 - [Slash commands](docs/commands.md): every command you can type.
 - [Pause](docs/pause.md): `/pause`.
-- [Configuration](docs/configuration.md): `~/.friday/`, keys, hooks, project context, skills, custom agents and commands.
+- [Configuration](docs/configuration.md): `~/.friday/`, keys, hooks, project context, skills, and commands.
 - [Providers](docs/providers.md): the 19 providers and reasoning effort.
 - [Tools](docs/tools.md): the capabilities the model calls.
-- [Agents and teams](docs/agents-and-teams.md): sub-agents, swarms, and coordinated teams.
 - [Integrations](docs/integrations.md): browser, computer use, voice, LSP, headless mode.
 
 ## Contributing, security, license

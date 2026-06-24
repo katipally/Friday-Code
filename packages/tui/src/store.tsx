@@ -9,11 +9,9 @@ import {
   type Keymap,
   loadKeybindings,
   normalizeChord,
-  type PresenceRow,
   RESERVED,
   type SessionStats,
   saveKeybindings,
-  type WindowPreset,
 } from "@friday/core"
 import {
   type AskQuestion,
@@ -98,24 +96,6 @@ export type PlanEntry = { id: string; title: string; text: string }
 export type SessionItem = { id: string; title: string; cwd: string; roots: string[] }
 export type ChangedFile = { path: string; status: string; added: number; removed: number; kind?: "file" | "dir" }
 export type TaskRow = { id: string; title: string; description: string; status: "running" | "done"; summary?: string }
-export type TeamMember = { sessionId: string; role: string; status: string; activity: string }
-export type TeamPost = {
-  id: number
-  sessionId: string
-  role: string
-  kind: string
-  toRole?: string
-  text: string
-  createdAt: number
-}
-export type TeamState = {
-  teamId: string
-  goal: string
-  status: string
-  members: TeamMember[]
-  posts: TeamPost[]
-  claims: { path: string; sessionId: string }[]
-}
 
 /** Prefix of the synthetic prompt sent when a plan is accepted — recognized so history replay renders
  * it as a flow breaker instead of a user bubble (keeps plan execution looking continuous). */
@@ -158,8 +138,8 @@ function messagesToItems(messages: Message[]): ViewItem[] {
   return out
 }
 
-export function createAppStore(engine: Engine, version = "dev", initialView?: "console") {
-  const [view, setView] = createSignal<"shell" | "console" | "dashboard" | "exit">(initialView ?? "shell")
+export function createAppStore(engine: Engine, version = "dev") {
+  const [view, setView] = createSignal<"shell" | "exit">("shell")
   const [mode, setModeSig] = createSignal<ModeId>(engine.selection().mode ?? DEFAULT_MODE)
   const [effort, setEffortSig] = createSignal<Effort>(engine.selection().effort ?? "medium")
   const [model, setModel] = createSignal<string>(engine.selection().model ?? "no model — open /model")
@@ -240,10 +220,6 @@ export function createAppStore(engine: Engine, version = "dev", initialView?: "c
   const [compactionView, setCompactionView] = createSignal<string | null>(null)
   // Background tasks (agent-spawned async sessions) — global, not per focused session.
   const [tasks, setTasks] = createSignal<TaskRow[]>([])
-  // Active agent team (orchestrator + shared board) — drives the console view. Null when no team.
-  const [team, setTeam] = createSignal<TeamState | null>(engine.teamSnapshot() as TeamState | null)
-  // Live runners owned by OTHER terminals in this project (cross-process presence), polled on refresh.
-  const [remoteAgents, setRemoteAgents] = createSignal<PresenceRow[]>(engine.remoteAgents())
   // Optional usage budget (tokens/$) — drives a warning in the context panel when exceeded.
   const [budget, setBudget] = createSignal<{ tokens?: number; usd?: number } | null>(engine.userConfig().budget ?? null)
   // Per-session unread marker: the item count last seen while focused on a session.
@@ -273,8 +249,6 @@ export function createAppStore(engine: Engine, version = "dev", initialView?: "c
   const [pinnedFiles, setPinnedFiles] = createSignal<string[]>(engine.contextInfo().pinned)
   const [contextModalOpen, setContextModalOpen] = createSignal(false)
   const [skills, setSkills] = createSignal(engine.listSkills())
-  const [agentDefs, setAgentDefs] = createSignal(engine.listAgents())
-  const [teamDefs, setTeamDefs] = createSignal(engine.listTeams())
   const [mcpServers, setMcpServers] = createSignal(engine.listMcpServers())
   const [sessions, setSessions] = createSignal<SessionItem[]>(engine.listSessions())
   const [allSessions, setAllSessions] = createSignal(engine.listAllSessions())
@@ -477,16 +451,6 @@ export function createAppStore(engine: Engine, version = "dev", initialView?: "c
     setContextFiles(engine.contextInfo().files)
     setPinnedFiles(engine.contextInfo().pinned)
     setSkills(engine.listSkills())
-    setAgentDefs(engine.listAgents())
-    setTeamDefs(engine.listTeams())
-    // Cross-terminal sync: re-read shared state every poll so teams/tasks/sessions started in another
-    // terminal of this project show up here (hot-reload), and stale ones drop off.
-    setRemoteAgents(engine.remoteAgents())
-    setTeam((cur) => {
-      const snap = engine.teamSnapshot() as TeamState | null
-      // Don't clobber a locally-driven team's richer live state with a thinner DB snapshot of the same team.
-      return cur && snap && cur.teamId === snap.teamId ? cur : snap
-    })
   }
 
   const pinContextFile = (rel: string) => {
@@ -792,10 +756,6 @@ export function createAppStore(engine: Engine, version = "dev", initialView?: "c
         // Global (not per-session): the agent-spawned background tasks panel.
         setTasks(e.items)
         break
-      case "team":
-        // Global: the agent-team shared board, feeds the console view.
-        setTeam(e.team as TeamState | null)
-        break
       case "compaction-start":
         setKey(setSessionCompacting, sid, true)
         setKey(setSessionCompactPct, sid, { before: e.pctBefore, after: e.pctBefore })
@@ -975,73 +935,6 @@ export function createAppStore(engine: Engine, version = "dev", initialView?: "c
       setMicModalOpen(true)
     }
   }
-  // ---- dashboard launchers — every "open" opens a real OS terminal window (direct device control) ----
-  /** A window-launch failure message that names the real reason (truncated) instead of a generic line. */
-  const winFail = (r: { backend: string; error?: string }, what: string) =>
-    r.error ? `couldn't open ${what} (${r.backend}): ${r.error.slice(0, 120)}` : `no terminal backend to open ${what}`
-
-  /** Open a brand-new chat in its own OS terminal window. */
-  function newChatWindow() {
-    const r = engine.openInteractive([])
-    pushToast(r.ok ? `opened new chat (${r.backend})` : winFail(r, "a window"), r.ok ? "done" : "error")
-  }
-  /** Resume an existing session in its own OS terminal window. */
-  function resumeInWindow(id: string) {
-    const row = allSessions().find((s) => s.id === id) ?? sessions().find((s) => s.id === id)
-    const r = engine.openInteractive(["-s", id], row?.cwd)
-    pushToast(r.ok ? `opened session (${r.backend})` : winFail(r, "the session"), r.ok ? "done" : "error")
-  }
-  // Every "open" below opens a real OS terminal window (Terminal.app on macOS) — direct device control.
-  /** Open a read-only watch window for a background agent (its own terminal, leaves chat alone). */
-  function openAgentWindow(id: string) {
-    const r = engine.popoutAgent(id)
-    pushToast(r.ok ? `watching agent (${r.backend})` : winFail(r, "a watch window"), r.ok ? "done" : "error")
-  }
-  /** Open the team console (Ctrl+T) in its own terminal window. */
-  function openConsoleWindow() {
-    const r = engine.openInteractive(["--view", "console"])
-    pushToast(r.ok ? `opened console (${r.backend})` : winFail(r, "the console"), r.ok ? "done" : "error")
-  }
-  /** Tile the open OS terminal windows into a preset (macOS; first use prompts for Automation perms). */
-  function arrangeWindows(preset: WindowPreset) {
-    const r = engine.arrangeWindows(preset)
-    pushToast(
-      r.ok ? `arranged ${r.count} window(s): ${preset}` : `arrange: ${r.error ?? "failed"}`,
-      r.ok ? "done" : "error",
-    )
-  }
-  /** Fan out a swarm of independent agents (one task per line) + a watch window for each. */
-  function launchSwarm(tasks: string[]) {
-    const jobs = tasks
-      .map((t) => t.trim())
-      .filter(Boolean)
-      .map((t) => ({ description: t.slice(0, 40), prompt: t }))
-    if (!jobs.length) return
-    const ids = engine.spawnAgents(jobs)
-    for (const id of ids) engine.popoutAgent(id) // read-only watch window per agent
-    pushToast(`spawned ${ids.length} swarm agent(s)`, "done")
-  }
-  /** Ask Friday to form a coordinated team for a goal (it decides the roles via the team tool). */
-  function launchTeam(goal: string) {
-    const g = goal.trim()
-    if (!g) return
-    setView("shell")
-    submit(`Form an agent team to accomplish this goal. Decide the roles yourself and call the team tool.\n\nGoal: ${g}`)
-  }
-  /** Delegate a task to a named agent def (background session). */
-  function launchAgent(name: string, task: string) {
-    const t = task.trim()
-    if (!t) return
-    setView("shell")
-    submit(`Delegate this to the "${name}" agent: call delegate({ agent: "${name}", background: true, prompt }).\n\nTask: ${t}`)
-  }
-  /** Launch a reusable team def toward a goal (roster pre-filled from the team def). */
-  function launchTeamDef(name: string, goal: string) {
-    const prompt = engine.teamPromptFor(name, goal.trim())
-    if (!prompt) return
-    setView("shell")
-    submit(prompt)
-  }
   function setEffort(e: Effort) {
     setEffortSig(e)
     engine.send({ type: "set-effort", effort: e })
@@ -1059,16 +952,11 @@ export function createAppStore(engine: Engine, version = "dev", initialView?: "c
     { name: "mic", description: "talk to Friday — on-device speech-to-text (Ctrl+R)" },
     { name: "mcp", description: "view / add / remove MCP servers" },
     { name: "skills", description: "browse installed skills and run one" },
-    { name: "agent", description: "create a reusable agent (AI wizard) — writes .friday/agents/<name>.md" },
-    { name: "team", description: "create a reusable team (AI wizard) — writes .friday/teams/<name>.json" },
     { name: "compact", description: "summarize old context to free space" },
     { name: "init", description: "scan the repo and write a FRIDAY.md guide (runs as a prompt)" },
     { name: "context", description: "show what's in the context window" },
     { name: "usage", description: "show token + cost usage this session" },
     { name: "doctor", description: "check model, provider & environment health" },
-    { name: "dashboard", description: "dashboard — Sessions · Teams · Swarm (Ctrl+O)" },
-    { name: "console", description: "live agent-team cockpit — shared board + roster (Ctrl+T)" },
-    { name: "fleet", description: "swarm: open an external window per running agent (inline view: Ctrl+O)" },
     { name: "browser", description: "launch the browser + activate browser tools (/browser close to stop)" },
     { name: "chrome", description: "alias for /browser" },
     { name: "computer", description: "desktop control — open the install / device-support panel" },
@@ -1109,7 +997,7 @@ export function createAppStore(engine: Engine, version = "dev", initialView?: "c
         setEffortOpen(true)
         return true
       case "new":
-        newSession() // a fresh session IN THIS TUI (opening a real terminal window is dashboard-only)
+        newSession() // a fresh session IN THIS TUI
         return true
       case "clear":
         newSession() // reset the conversation in place (this window)
@@ -1221,22 +1109,6 @@ export function createAppStore(engine: Engine, version = "dev", initialView?: "c
           "/security-review",
         )
         return true
-      case "agent": {
-        // AI wizard: Friday interviews the user and writes a reusable agent def.
-        submitRaw(
-          `Help me create a new reusable agent definition. Ask me (with ask_user) for: the agent's purpose, what tools/permissions it needs (read-only or able to edit/run), a preferred model if any, and a short name. Then write the def to .friday/agents/<name>.md with YAML frontmatter (name, description, optional tools, model, skills, mcp, posture: plan|default|yolo) followed by the system prompt as the body. Keep the prompt focused. ${args ? `\n\nStarting hint: ${args}` : ""}`,
-          "/agent new",
-        )
-        return true
-      }
-      case "team": {
-        // AI wizard: Friday interviews the user and writes a reusable team def.
-        submitRaw(
-          `Help me create a new reusable team definition. Ask me (with ask_user) for: the team's goal/purpose, the roles needed and which agent backs each (see the Sub-agents list), and a short name. Then write the def to .friday/teams/<name>.json as { "name", "description", "members": [{ "role", "agent", "prompt" }] }. ${args ? `\n\nStarting hint: ${args}` : ""}`,
-          "/team new",
-        )
-        return true
-      }
       case "context":
       case "usage":
       case "stats": {
@@ -1252,31 +1124,6 @@ export function createAppStore(engine: Engine, version = "dev", initialView?: "c
           `mode: ${mode()}`,
         ].filter(Boolean)
         appendItem(sid, { kind: "notice", id: nextLocalId(), text: parts.join(" · ") })
-        return true
-      }
-      case "dashboard": {
-        toggleDashboard()
-        return true
-      }
-      case "console": {
-        toggleConsole()
-        return true
-      }
-      case "fleet": {
-        const running = tasks().filter((t) => t.status === "running").length
-        if (!running) {
-          pushToast("no running agents to open — spawn some with spawn_agents / task_create", "input")
-          return true
-        }
-        const r = engine.openFleet()
-        pushToast(
-          r.ok
-            ? `opened ${r.opened} agent window(s) via ${r.backend}`
-            : r.error
-              ? `couldn't open agent windows (${r.backend}): ${r.error.slice(0, 120)}`
-              : "no terminal backend — see the dashboard's Swarm tab (Ctrl+O)",
-          r.ok ? "done" : "input",
-        )
         return true
       }
       case "computer":
@@ -1603,41 +1450,6 @@ export function createAppStore(engine: Engine, version = "dev", initialView?: "c
   function switchSession(id: string) {
     engine.send({ type: "switch-session", sessionId: id })
   }
-  function switchSessionByIndex(i: number) {
-    const s = sessions()[i]
-    if (s) switchSession(s.id)
-  }
-  // ---- console / agent-team actions ----
-  function toggleConsole() {
-    setView(view() === "console" ? "shell" : "console")
-  }
-  function toggleDashboard() {
-    setView(view() === "dashboard" ? "shell" : "dashboard")
-  }
-  /** Focus an agent's session and drop back into the chat shell. */
-  function visitAgent(sessionId: string) {
-    switchSession(sessionId)
-    setView("shell")
-  }
-  function stopAgent(sessionId: string) {
-    // requestStop aborts locally if we own it, else queues a stop for the owning terminal to apply.
-    engine.requestStop(sessionId)
-    pushToast("stopped agent", "input")
-  }
-  /** Remove a swarm/background agent from the dashboard (stops it first if running). */
-  function removeAgent(sessionId: string) {
-    engine.removeTask(sessionId)
-    pushToast("removed agent", "input")
-  }
-  /** Dismiss the current agent team (stops running members) and clear the panel. */
-  function dismissTeam() {
-    engine.dismissTeam()
-    pushToast("dismissed team", "input")
-  }
-  function popoutAgent(sessionId: string) {
-    const r = engine.popoutAgent(sessionId)
-    pushToast(r.ok ? `opened agent window via ${r.backend}` : winFail(r, "the agent window"), r.ok ? "done" : "input")
-  }
   function deleteSession(id: string) {
     engine.deleteSession(id)
     seeded.delete(id)
@@ -1821,17 +1633,6 @@ export function createAppStore(engine: Engine, version = "dev", initialView?: "c
     cycleMicDevice,
     closeMic,
     toggleMic,
-    newChatWindow,
-    resumeInWindow,
-    openAgentWindow,
-    openConsoleWindow,
-    arrangeWindows,
-    launchSwarm,
-    launchTeam,
-    launchAgent,
-    launchTeamDef,
-    agentDefs,
-    teamDefs,
     refreshSessions,
     trustOpen,
     trustCwd,
@@ -1885,7 +1686,6 @@ export function createAppStore(engine: Engine, version = "dev", initialView?: "c
     toggleToolFull,
     newSession,
     switchSession,
-    switchSessionByIndex,
     deleteSession,
     setRoot,
     addRoot,
@@ -1954,16 +1754,7 @@ export function createAppStore(engine: Engine, version = "dev", initialView?: "c
     todos,
     changedFiles,
     tasks,
-    team,
     sessionItems,
-    toggleConsole,
-    toggleDashboard,
-    visitAgent,
-    stopAgent,
-    removeAgent,
-    remoteAgents,
-    dismissTeam,
-    popoutAgent,
     budget,
     diagnostics,
     cost,

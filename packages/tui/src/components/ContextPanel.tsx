@@ -20,7 +20,7 @@ function truncate(s: string, n: number, fromStart = false): string {
 /**
  * A borderless quick-action button that rests on the elevated surface (so it reads as a tappable
  * block against the panel) and brightens to bgHover with a brand-tinted label on hover.
- * Used for the mic + dashboard launchers.
+ * Used for the mic + settings launchers.
  */
 function QuickButton(props: { label: string; hint: string; onClick: () => void; accent: string }) {
   const h = useHover({ base: theme.bgElevated, hover: theme.bgHover })
@@ -134,8 +134,6 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
   const [filesNew, setFilesNew] = createSignal(false)
   const [plansOpen, setPlansOpen] = createSignal(false)
   const [plansNew, setPlansNew] = createSignal(false)
-  const [taskHov, setTaskHov] = createSignal(-1)
-  const agentsHover = useHover({ base: theme.bgPanel, hover: theme.bgHover })
 
   // Auto-reveal Todos/Files when their backing data changes (signature compare).
   const todoSig = () =>
@@ -323,7 +321,7 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
 
             <Rule width={innerW()} />
 
-            {/* ── 2. NAV — voice · settings · dashboard (dashboard 3rd) ── */}
+            {/* ── 2. NAV — voice · settings ── */}
             <box flexDirection="column" gap={0}>
               <QuickButton label="🎙 voice" hint="Ctrl+R" onClick={() => app.toggleMic()} accent={accent()} />
               <QuickButton
@@ -332,54 +330,6 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
                 onClick={() => app.setSettingsModalOpen(true)}
                 accent={accent()}
               />
-              <QuickButton label="▦ dashboard" hint="Ctrl+O" onClick={() => app.toggleDashboard()} accent={accent()} />
-              {/* AGENTS — always-visible status/metadata of the dashboard. Click the header to open the
-                  dashboard; click an agent to focus it (its transcript) and open the dashboard. */}
-              <box flexDirection="column" paddingLeft={2}>
-                <box
-                  flexDirection="row"
-                  gap={1}
-                  backgroundColor={agentsHover.bg()}
-                  onMouseOver={agentsHover.onMouseOver}
-                  onMouseOut={agentsHover.onMouseOut}
-                  onMouseDown={() => app.toggleDashboard()}
-                >
-                  <text fg={agentsHover.hovered() ? theme.text : theme.textFaint}>AGENTS</text>
-                  <text fg={theme.textFaint}>({app.tasks().length})</text>
-                  <box flexGrow={1} />
-                  <Show when={agentsHover.hovered()}>
-                    <text fg={theme.textFaint}>open ▦</text>
-                  </Show>
-                </box>
-                <Show when={app.tasks().length} fallback={<text fg={theme.textFaint}>none running</text>}>
-                  <For each={app.tasks()}>
-                    {(t, i) => (
-                      <box
-                        flexDirection="row"
-                        gap={1}
-                        backgroundColor={taskHov() === i() ? theme.bgHover : "transparent"}
-                        onMouseOver={() => setTaskHov(i())}
-                        onMouseOut={() => setTaskHov(-1)}
-                        onMouseDown={() => {
-                          app.switchSession(t.id) // focus that agent's transcript…
-                          app.toggleDashboard() // …and surface it in the dashboard
-                        }}
-                      >
-                        <text fg={t.status === "running" ? accent() : theme.success}>
-                          {t.status === "running" ? G.caret : G.todoDone}
-                        </text>
-                        <text fg={taskHov() === i() ? theme.text : theme.textMuted}>
-                          {truncate(t.title, innerW() - 8)}
-                        </text>
-                        <box flexGrow={1} />
-                        <Show when={taskHov() === i()}>
-                          <text fg={theme.textFaint}>focus</text>
-                        </Show>
-                      </box>
-                    )}
-                  </For>
-                </Show>
-              </box>
             </box>
 
             <Rule width={innerW()} />
@@ -431,7 +381,7 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
 
             <Rule width={innerW()} />
 
-            {/* ── 4. PLANS · TODOS · FILES (AGENTS lives under the dashboard nav, above) ── */}
+            {/* ── 4. PLANS · TODOS · FILES ── */}
             {/* Plans proposed this session — click one to re-open the full plan + execute gate. */}
             <Section
               label="plans"

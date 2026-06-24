@@ -13,16 +13,10 @@ function skillsSection(skills?: SkillSummary[]): string {
   return `\n# Skills\nThese skills are available — call skill({ name }) to load one's instructions when it fits:\n${lines.join("\n")}`
 }
 
-function agentsSection(agents?: { name: string; description: string }[]): string {
-  // Always promote the synchronous sub-agent — it's how Friday should offload investigation, not a
-  // feature gated on the user having authored custom agents.
-  const custom = agents?.length
-    ? `\nCustom agents available (pass as { agent }):\n${agents.map((a) => `- ${a.name}: ${a.description}`).join("\n")}`
-    : ""
+function agentsSection(): string {
   return (
     `\n# Sub-agents\n` +
-    `Delegate read-only investigation with delegate({ prompt, background: false }) — it spawns a focused sub-agent that searches/reads the codebase and returns just the answer, keeping your own context clean. Reach for it whenever a question means sweeping many files ("where is X handled", "how does Y work", "find everything that calls Z") instead of reading them all yourself. The built-in agent is "explore"; pass { agent } to run as a specific agent def, and spawn several in parallel for independent questions.` +
-    custom
+    `Delegate read-only investigation with delegate({ prompt, background: false }) — it spawns a focused sub-agent that searches/reads the codebase and returns just the answer, keeping your own context clean. Reach for it whenever a question means sweeping many files ("where is X handled", "how does Y work", "find everything that calls Z") instead of reading them all yourself.`
   )
 }
 
@@ -64,7 +58,6 @@ export function systemPrompt(opts: {
   mode: ModeId
   context?: string
   skills?: SkillSummary[]
-  agents?: { name: string; description: string }[]
   deferredTools?: { name: string; description: string }[]
   memory?: string
   providerId?: string
@@ -98,12 +91,12 @@ export function systemPrompt(opts: {
     "- todo_write: for any task with 3+ steps, maintain a live task list. Pass the FULL list each call; keep one item 'active', mark items 'done' as you finish. This keeps the user oriented.",
     "- Language server (when available): lsp_hover / lsp_definition / lsp_symbols give real type info, jump-to-def, and symbol search. After you edit a file, its compiler diagnostics are appended to the tool result automatically — read them and fix real errors before moving on.",
     "- For web/UI work you can drive the user's real browser: load the browser_* tools via tool_search, then browser_navigate + browser_snapshot to inspect a page and browser_click/browser_type to act. For OS-level control (only when the task truly needs it) the computer_* tools exist if the user has installed that backend. ALWAYS computer_screenshot FIRST and read the returned image to locate elements before computer_click/computer_type — never click at guessed coordinates blind — then screenshot again to verify the action landed (the OS can silently drop input if permissions are missing; the screenshot is your only proof it worked). If a screenshot/action returns an error about support or permissions, STOP and tell the user exactly what to fix rather than continuing. They prompt for permission unless the user is in yolo mode.",
-    "- Parallel work — pick the right one of these distinct modes: (1) DELEGATE = a sub-agent for a focused piece; background by default (returns a task id, check with task_status), or { background: false } to run inline and get the answer back with clean context. (2) SWARM = fans out INDEPENDENT subtasks over a work-list that never talk to each other; you collect results yourself. Use for embarrassingly-parallel work (review N files, try N approaches). (3) TEAM = for ONE goal that must be COORDINATED and MERGED: a goal + members (each backed by an agent def) sharing a blackboard; members board_post findings and board_claim_file to avoid collisions, and you are AUTOMATICALLY re-prompted with a digest when all finish so you can merge their worktrees and report. Prefer team for multi-part features, broad refactors, and research that needs synthesis. (4) SESSIONS are the USER's own parallel projects — never spawn those yourself. Cap spend with `budget` ('$0.20' or a token count). Don't poll in a loop — board_read when you want to peek.",
+    "- Sub-agents — DELEGATE a focused piece to a read-only sub-agent: { background: false } runs inline and returns the answer with clean context (best for investigation — 'where is X', 'how does Y work'); background by default returns a task id you check with task_status. For longer detached work use task_create (returns a task id; manage with task_list / task_status / task_stop / send_to_task). Cap spend with `budget` ('$0.20' or a token count). Don't poll in a loop.",
     opts.memory
       ? `\n# Memory\nDurable facts you saved previously (use them; update via the memory tool when they change):\n${opts.memory}`
       : "",
     skillsSection(opts.skills),
-    agentsSection(opts.agents),
+    agentsSection(),
     deferredToolsSection(opts.deferredTools),
     providerOverlay(opts.providerId),
     outputStyleOverlay(opts.outputStyle),
@@ -114,27 +107,11 @@ export function systemPrompt(opts: {
 }
 
 /** Focused system prompt for a read-only research sub-agent. */
-export function subagentPrompt(agent: string | undefined, cwd: string): string {
-  const role =
-    agent === "explore"
-      ? "You are an exploration sub-agent: locate where things live and how they connect."
-      : "You are a research sub-agent."
+export function subagentPrompt(cwd: string): string {
   return [
-    role,
+    "You are a research sub-agent: locate where things live and how they connect.",
     "",
     "You are READ-ONLY: you may read, list, glob and grep, but you CANNOT edit files or run shell commands.",
-    "Investigate thoroughly, then return a concise summary that directly answers the request, citing file paths.",
-    "",
-    `Working directory: ${cwd}`,
-  ].join("\n")
-}
-
-/** Wrap a custom agent's body (.friday/agents/<name>.md) with the read-only sub-agent contract. */
-export function customAgentPrompt(body: string, cwd: string): string {
-  return [
-    body.trim(),
-    "",
-    "You are a READ-ONLY sub-agent: you may read, list, glob and grep, but you CANNOT edit files or run shell commands.",
     "Investigate thoroughly, then return a concise summary that directly answers the request, citing file paths.",
     "",
     `Working directory: ${cwd}`,

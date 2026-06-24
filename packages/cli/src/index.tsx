@@ -43,8 +43,7 @@ Usage:
   friday -s, --session <id>   Resume a specific session by id
   friday run "<prompt>"       Run one turn headless and print the result
   friday run "<prompt>" --json  Headless, emit JSON ({ "text": ... })
-  friday attach <id>          Watch a background/fleet session (read-only)
-  friday --view console       Open straight into the team console
+  friday attach <id>          Watch a background session (read-only)
 
 Options:
   -v, --version               Print the version and exit
@@ -71,17 +70,15 @@ if (argv[0] === "-v" || argv[0] === "--version") {
 } else {
   let resumeId: string | undefined
   let continueLast = false
-  let initialView: "console" | undefined
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (a === "-s" || a === "--session") resumeId = argv[++i]
     else if (a === "-c" || a === "--continue") continueLast = true
-    else if (a === "--view" && argv[++i] === "console") initialView = "console"
   }
   await maybeAutoUpdate()
   const engine = new Engine({ cwd: process.cwd(), resumeId, continueLast })
   await engine.init() // connect MCP servers (no-op if none configured)
-  await start(engine, VERSION, initialView)
+  await start(engine, VERSION)
 }
 
 // Auto-update on reopen: before the TUI (alt-screen) exists, in the plain terminal. Acts instantly
@@ -151,7 +148,7 @@ async function runHeadless(args: string[]): Promise<void> {
 }
 
 // `friday attach <id>` — a read-only viewer that tails one session's transcript from the shared
-// store, so a spawned fleet window can watch an agent without any IPC. Polls for newly-appended
+// store, so another terminal can watch a background agent without any IPC. Polls for newly-appended
 // messages (background runners persist each message as it completes).
 // ponytail: poll-tail at 1s, turn-granular (not token-stream). Upgrade to a socket only if the
 // lag is ever a problem in practice.

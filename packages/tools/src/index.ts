@@ -2,7 +2,6 @@ import type { ToolDef } from "@friday/shared"
 import { skillTool, taskTool, todoWriteTool } from "./builtin/agent.ts"
 import { askUserTool } from "./builtin/ask.ts"
 import { bashTool } from "./builtin/bash.ts"
-import { BOARD_TOOL_LIST } from "./builtin/board.ts"
 import { BROWSER_TOOL_LIST } from "./builtin/browser.ts"
 import { COMPUTER_TOOL_LIST } from "./builtin/computer.ts"
 import { editTool, lsTool, multiEditTool, readTool, writeTool } from "./builtin/file.ts"
@@ -20,15 +19,6 @@ import { type Tool, toToolDef } from "./tool.ts"
 
 export { SKILL_TOOL, TASK_TOOL, TODO_WRITE } from "./builtin/agent.ts"
 export { ASK_USER } from "./builtin/ask.ts"
-export {
-  BOARD_CLAIM,
-  BOARD_POST,
-  BOARD_READ,
-  BOARD_RELEASE,
-  BOARD_TOOLS,
-  SPAWN_TEAM,
-  TEAM,
-} from "./builtin/board.ts"
 export { BROWSER_TOOLS, closeBrowser, findBrowser, startBrowser } from "./builtin/browser.ts"
 export {
   COMPUTER_TOOLS,
@@ -48,8 +38,6 @@ export {
   DELEGATE,
   parseBudget,
   SEND_TO_TASK,
-  SPAWN_AGENTS,
-  SWARM,
   TASK_BG_TOOLS,
   TASK_CREATE,
   TASK_LIST,
@@ -83,7 +71,6 @@ export const BUILTIN_TOOLS: Tool[] = [
   lspSymbolsTool,
   toolSearchTool,
   ...TASK_BG_TOOL_LIST,
-  ...BOARD_TOOL_LIST,
   ...WORKTREE_TOOL_LIST,
   ...BROWSER_TOOL_LIST,
   ...COMPUTER_TOOL_LIST,

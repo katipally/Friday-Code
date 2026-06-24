@@ -15,8 +15,6 @@ const TABS: { key: string; label: string }[] = [
 const ACTION_LABELS: Record<KeyAction, string> = {
   "panel.toggle": "toggle side panel",
   "mic.toggle": "mic (speech-to-text)",
-  "console.toggle": "agent-team console",
-  "dashboard.toggle": "dashboard",
   "history.open": "session history",
   "mode.cycle": "cycle mode",
   "pause.open": "pause the agent (/pause)",
@@ -164,7 +162,7 @@ export function SettingsModal() {
         width={Math.min(76, dims().width - 4)}
       >
         <box flexDirection="column" gap={1}>
-          {/* Horizontal tab bar — same Tabs primitive the dashboard uses, for a consistent feel. */}
+          {/* Horizontal tab bar. */}
           <Tabs items={TABS} active={tab()} onSelect={switchTab} />
           {/* Active tab's rows, full width. */}
           <box flexDirection="column" flexGrow={1} gap={0}>

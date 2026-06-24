@@ -54,15 +54,11 @@ auto-detected and skipped if absent.
 
 | Tool | What it does |
 |---|---|
+| `delegate` | Run a read-only sub-agent inline (or `background: true` for a detached session). |
 | `task` | Spawn a read-only sub-agent. |
-| `spawn_agents` | Launch a swarm of independent agents. |
-| `spawn_team` | Create a coordinated team with a shared board. |
-| `board_post`, `board_read`, `board_claim_file`, `board_release_file` | Coordinate a team over the shared board. |
 | `task_create`, `task_list`, `task_status`, `task_stop`, `send_to_task` | Manage background tasks. |
 | `cron_create`, `cron_list`, `cron_delete` | Schedule recurring runs. |
 | `enter_worktree`, `exit_worktree`, `worktree_list` | Manage git worktrees. |
-
-See [agents and teams](agents-and-teams.md) for how these fit together.
 
 ## Opt-in
 

@@ -1,7 +1,6 @@
 /**
- * Shared session-history ordering, so the /resume modal (SessionHistory) and the dashboard History
- * tab sort and group identically: grouped by directory (alphabetical), newest-first within each
- * directory. A session appears under each of its roots.
+ * Shared session-history ordering for the /resume modal (SessionHistory): grouped by directory
+ * (alphabetical), newest-first within each directory. A session appears under each of its roots.
  */
 
 // `updatedAt` is optional: persisted history rows have it (sorted newest-first within a dir); the live

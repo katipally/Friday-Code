@@ -19,10 +19,6 @@ import {
 } from "@friday/shared"
 import {
   ASK_USER,
-  BOARD_CLAIM,
-  BOARD_POST,
-  BOARD_READ,
-  BOARD_RELEASE,
   CRON_CREATE,
   CRON_DELETE,
   CRON_LIST,
@@ -39,10 +35,6 @@ import {
   parseBudget,
   SEND_TO_TASK,
   SKILL_TOOL,
-  SPAWN_AGENTS,
-  SPAWN_TEAM,
-  SWARM,
-  TEAM,
   searchTools,
   TASK_CREATE,
   TASK_LIST,
@@ -57,8 +49,6 @@ import {
   unifiedDiff,
   WORKTREE_LIST,
 } from "@friday/tools"
-import { type AgentDef, resolveAgents } from "./agents.ts"
-import type { PostKind as BoardPostKind, TeamSnapshot as BoardSnapshot } from "./board.ts"
 import {
   applyFiles,
   type Checkpoint,
@@ -87,7 +77,7 @@ import {
 import { type HookEvent, type HookPayload, type HooksConfig, runHooks } from "./hooks.ts"
 import { deleteMemory, listMemory, memoryDigest, saveMemory } from "./memory.ts"
 import { collectImages, expandMentions } from "./mentions.ts"
-import { customAgentPrompt, subagentPrompt, systemPrompt } from "./prompt.ts"
+import { subagentPrompt, systemPrompt } from "./prompt.ts"
 import { bashRisk, matchesList } from "./safety.ts"
 import type { PlanRow, SessionMeta, SessionStore } from "./sessions.ts"
 import { loadSkills, type Skill, type SkillInfo } from "./skills.ts"
@@ -287,25 +277,10 @@ export interface SpawnBudget {
   budgetUsd?: number
   budgetTokens?: number
 }
-/** Options for spawning a background agent: which agent def, isolation, posture, and budget. */
+/** Options for spawning a background agent: isolation, posture, and budget. */
 export interface SpawnOpts extends SpawnBudget {
   worktree?: string
-  agent?: string
   posture?: ModeId
-}
-/** One job in a swarm fan-out. */
-export interface SpawnJob extends SpawnBudget {
-  description: string
-  prompt: string
-  agent?: string
-  worktree?: string
-}
-/** One member of a team: a role backed by an agent def, with its own task. */
-export interface TeamMemberSpec {
-  role: string
-  prompt: string
-  agent?: string
-  worktree?: string
 }
 
 /** Shared, manager-owned services a runner needs. */
@@ -345,8 +320,6 @@ export interface RunnerHost {
   persistPermission: (root: string, rule: { category: PermissionCategory; command?: string }) => void
   /** spawn a detached background task (agent-driven session); optional isolated worktree; returns its id */
   spawnTask: (prompt: string, description: string, opts?: SpawnOpts) => string
-  /** fan out several subtasks as parallel background agents; returns their ids */
-  spawnAgents: (jobs: SpawnJob[]) => string[]
   /** inject a follow-up prompt into a background task (queued if it's mid-turn) */
   sendToTask: (id: string, text: string) => boolean
   /** list background tasks with status */
@@ -359,16 +332,6 @@ export interface RunnerHost {
   cronList: () => { id: string; description: string; everyMs: number; nextRun: number }[]
   /** delete a scheduled task */
   cronDelete: (id: string) => void
-  /** launch a coordinated team of agents toward `goal` (orchestrator = the calling session); returns the team id */
-  spawnTeam: (orchestrator: string, goal: string, members: TeamMemberSpec[], opts?: SpawnBudget) => string
-  /** post to the caller's team board (no-op / false if not in a team) */
-  boardPost: (sessionId: string, kind: BoardPostKind, text: string, toRole?: string) => boolean
-  /** read the caller's team board (null if not in a team) */
-  boardRead: (sessionId: string, since?: number, role?: string) => BoardSnapshot | null
-  /** advisory file claim on the caller's team board (null if not in a team) */
-  boardClaim: (sessionId: string, path: string, ttlMs: number) => { ok: boolean; heldBy?: string } | null
-  /** release a file claim (false if not in a team) */
-  boardRelease: (sessionId: string, path: string) => boolean
 }
 
 /**
@@ -393,8 +356,6 @@ export class SessionRunner {
   private posturePin?: ModeId
   /** Model pinned for this session (a spawned agent's def.model); overrides the engine model. */
   private modelPin?: string
-  /** Agent def name this session is running as, for the dashboard. */
-  agentName?: string
   /** input tokens the provider reported for the most recent request — the real size of the current
    * context, used to drive auto-compaction (more accurate than the char estimate). */
   private lastInputTokens = 0
@@ -407,7 +368,6 @@ export class SessionRunner {
   /** in-flight base-ref capture (spawned concurrently with the stream, awaited before turn-done). */
   private baseCapture?: Promise<void>
   private skills: Skill[]
-  private agents: AgentDef[]
   private lsp: LspManager
   /** files with outstanding diagnostics, for the Files panel */
   private diag = new Map<string, { errors: number; warnings: number }>()
@@ -490,7 +450,6 @@ export class SessionRunner {
     }
     this.context = loadProjectContext(this.roots)
     this.skills = loadSkills(this.roots)
-    this.agents = resolveAgents(this.roots)
     this.lsp = new LspManager(this.cwd)
     void this.hook("SessionStart")
   }
@@ -760,7 +719,6 @@ export class SessionRunner {
     this.roots = this.host.store.addRoot(this.sessionId, dir, now())
     this.context = loadProjectContext(this.roots)
     this.skills = loadSkills(this.roots)
-    this.agents = resolveAgents(this.roots)
     this.emit({
       type: "session-changed",
       sessionId: this.sessionId,
@@ -783,7 +741,6 @@ export class SessionRunner {
     this.persistMeta({ worktree: { path: res.path, pre: this.preWorktree } })
     this.context = loadProjectContext(this.roots)
     this.skills = loadSkills(this.roots)
-    this.agents = resolveAgents(this.roots)
     this.emit({
       type: "session-changed",
       sessionId: this.sessionId,
@@ -802,7 +759,6 @@ export class SessionRunner {
     this.persistMeta({ worktree: undefined }) // no longer in a worktree — resume lands in the real dir
     this.context = loadProjectContext(this.roots)
     this.skills = loadSkills(this.roots)
-    this.agents = resolveAgents(this.roots)
     this.emit({
       type: "session-changed",
       sessionId: this.sessionId,
@@ -813,16 +769,9 @@ export class SessionRunner {
     return { ok: true, info: `back to ${this.cwd}` }
   }
 
-  /** Configure a spawned agent: pin which def it runs as (name shown in the dashboard), its permission
-   * posture, and a per-spawn budget hard-stop. Called by the engine right after the runner is built. */
-  configureAgent(opts: {
-    agentName?: string
-    posture?: ModeId
-    model?: string
-    budgetUsd?: number
-    budgetTokens?: number
-  }): void {
-    if (opts.agentName) this.agentName = opts.agentName
+  /** Configure a spawned agent: pin its permission posture, model, and a per-spawn budget hard-stop.
+   * Called by the engine right after the runner is built. */
+  configureAgent(opts: { posture?: ModeId; model?: string; budgetUsd?: number; budgetTokens?: number }): void {
     if (opts.posture) this.posturePin = opts.posture
     if (opts.model) this.modelPin = opts.model
     if (opts.budgetUsd != null) this.budgetUsd = opts.budgetUsd
@@ -1420,9 +1369,6 @@ export class SessionRunner {
               mode: this.posturePin ?? sel.mode,
               context: this.context.content + this.pinnedContent(),
               skills: this.skills.map((s) => ({ name: s.name, description: s.description, whenToUse: s.whenToUse })),
-              agents: this.agents
-                .filter((a) => a.name !== "friday")
-                .map((a) => ({ name: a.name, description: a.description })),
               // Advertise deferred tools (by name) that aren't yet activated, so the model knows to search.
               deferredTools: registry.list
                 .filter((t) => t.deferred && !this.activatedTools.has(t.name))
@@ -1480,8 +1426,8 @@ export class SessionRunner {
               ? (inTok / 1_000_000) * sel.cost.input + (outTok / 1_000_000) * sel.cost.output
               : undefined
           this.emit({ type: "usage", input: inTok, output: outTok, costUsd: cost })
-          // Per-spawn budget hard-stop: a delegated agent/team-member/swarm-worker is aborted the
-          // moment it crosses its token/$ cap, so a runaway can't eat the whole budget.
+          // Per-spawn budget hard-stop: a delegated/background agent is aborted the moment it crosses
+          // its token/$ cap, so a runaway can't eat the whole budget.
           if (this.overBudget(cost)) {
             this.emit({ type: "status", text: "Budget reached — stopping.", elapsedMs: now() - start })
             this.abortRun()
@@ -1603,28 +1549,26 @@ export class SessionRunner {
             description?: string
             prompt?: string
             worktree?: string
-            agent?: string
             background?: boolean
             budget?: string | number
           }
           // delegate defaults to the inline subagent (reports back, clean context); background:true
           // and task_create are detached background sessions.
           if (tc.name === DELEGATE && a.background !== true) {
-            const summary = await this.runSubagent(a.prompt ?? "", a.agent)
+            const summary = await this.runSubagent(a.prompt ?? "")
             this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: summary })
             this.emit({
               type: "tool-result",
               callId: tc.id,
               ok: true,
               output: summary,
-              title: `delegate: ${clip(a.description ?? a.agent ?? "subagent")}`,
+              title: `delegate: ${clip(a.description ?? "subagent")}`,
             })
             continue
           }
           const budget = parseBudget(a.budget)
           const id = this.host.spawnTask(a.prompt ?? "", a.description ?? "task", {
             worktree: a.worktree?.trim() || undefined,
-            agent: a.agent,
             budgetUsd: budget.usd,
             budgetTokens: budget.tokens,
           })
@@ -1667,134 +1611,12 @@ export class SessionRunner {
           this.emit({ type: "tool-result", callId: tc.id, ok: true, output, title: `task_stop ${a.id ?? ""}` })
           continue
         }
-        if (tc.name === SPAWN_AGENTS || tc.name === SWARM) {
-          const a = safeParse(tc.arguments) as {
-            jobs?: { description?: string; prompt?: string; worktree?: string; agent?: string; budget?: string | number }[]
-            agent?: string
-            budget?: string | number
-          }
-          const fallback = parseBudget(a.budget)
-          const jobs = (a.jobs ?? [])
-            .filter((j) => j?.prompt)
-            .map((j) => {
-              const b = j.budget != null ? parseBudget(j.budget) : fallback
-              return {
-                description: j.description ?? "agent",
-                prompt: j.prompt!,
-                worktree: j.worktree,
-                agent: j.agent ?? a.agent,
-                budgetUsd: b.usd,
-                budgetTokens: b.tokens,
-              }
-            })
-          const ids = jobs.length ? this.host.spawnAgents(jobs) : []
-          const output = ids.length
-            ? `Spawned ${ids.length} parallel agent(s):\n${ids.map((id, i) => `- ${id} — “${clip(jobs[i]!.description)}”`).join("\n")}\nCheck them with task_status / task_list.`
-            : "No agents spawned (each job needs a prompt)."
-          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output, isError: !ids.length })
-          this.emit({
-            type: "tool-result",
-            callId: tc.id,
-            ok: !!ids.length,
-            output,
-            title: `swarm ×${ids.length}`,
-          })
-          continue
-        }
         if (tc.name === SEND_TO_TASK) {
           const a = safeParse(tc.arguments) as { id?: string; text?: string }
           const ok = a.id && a.text ? this.host.sendToTask(a.id, a.text) : false
           const output = ok ? `Delivered to task ${a.id}.` : `Could not deliver to task ${a.id ?? "(missing id)"}.`
           this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output, isError: !ok })
           this.emit({ type: "tool-result", callId: tc.id, ok, output, title: `send_to_task ${a.id ?? ""}` })
-          continue
-        }
-
-        if (tc.name === SPAWN_TEAM || tc.name === TEAM) {
-          const a = safeParse(tc.arguments) as {
-            goal?: string
-            // `members` is the new shape (each backed by an agent def); `roles` stays as an alias.
-            members?: { role?: string; prompt?: string; worktree?: string; agent?: string }[]
-            roles?: { role?: string; prompt?: string; worktree?: string; agent?: string }[]
-            budget?: string | number
-          }
-          const roles = (a.members ?? a.roles ?? [])
-            .filter((r) => r?.prompt && r?.role)
-            .map((r) => ({
-              role: r.role!,
-              prompt: r.prompt!,
-              worktree: r.worktree?.trim() || undefined,
-              agent: r.agent,
-            }))
-          if (!a.goal || !roles.length) {
-            const output = "team needs a goal and at least one member with a role and prompt."
-            this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output, isError: true })
-            this.emit({ type: "tool-result", callId: tc.id, ok: false, output, title: "team" })
-            continue
-          }
-          const tb = parseBudget(a.budget)
-          const teamId = this.host.spawnTeam(this.sessionId, a.goal, roles, {
-            budgetUsd: tb.usd,
-            budgetTokens: tb.tokens,
-          })
-          const output = `Launched team ${teamId} for “${clip(a.goal)}” with ${roles.length} member(s):\n${roles
-            .map((r) => `- ${r.role}`)
-            .join(
-              "\n",
-            )}\nThey post to the shared board as they work; you'll be re-prompted with a digest when all finish. Inspect progress anytime with board_read.`
-          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output })
-          this.emit({ type: "tool-result", callId: tc.id, ok: true, output, title: `spawn_team ×${roles.length}` })
-          continue
-        }
-        if (tc.name === BOARD_POST) {
-          const a = safeParse(tc.arguments) as { kind?: BoardPostKind; text?: string; to_role?: string }
-          const ok = a.kind && a.text ? this.host.boardPost(this.sessionId, a.kind, a.text, a.to_role) : false
-          const output = ok ? `Posted to the team board (${a.kind}).` : "Not part of a team (or missing kind/text)."
-          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output, isError: !ok })
-          this.emit({ type: "tool-result", callId: tc.id, ok, output, title: `board_post ${a.kind ?? ""}` })
-          continue
-        }
-        if (tc.name === BOARD_READ) {
-          const a = safeParse(tc.arguments) as { since?: number; role?: string }
-          const snap = this.host.boardRead(this.sessionId, a.since, a.role)
-          let output: string
-          if (!snap) output = "You are not part of a team."
-          else {
-            const roster = snap.members
-              .map((m) => `- ${m.role} [${m.status}]${m.activity ? ` — ${m.activity}` : ""}`)
-              .join("\n")
-            const posts = snap.posts.length
-              ? snap.posts
-                  .map((p) => `[${p.id}] ${p.role} ${p.kind}${p.toRole ? `→${p.toRole}` : ""}: ${p.text}`)
-                  .join("\n")
-              : "(no posts yet)"
-            const claims = snap.claims.length ? `\nClaimed files: ${snap.claims.map((c) => c.path).join(", ")}` : ""
-            output = `Team “${snap.goal}” [${snap.status}]\nMembers:\n${roster}\n\nBoard:\n${posts}${claims}`
-          }
-          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output })
-          this.emit({ type: "tool-result", callId: tc.id, ok: true, output, title: "board_read" })
-          continue
-        }
-        if (tc.name === BOARD_CLAIM) {
-          const a = safeParse(tc.arguments) as { path?: string; ttl_minutes?: number }
-          const res = a.path
-            ? this.host.boardClaim(this.sessionId, a.path, Math.max(1, a.ttl_minutes ?? 10) * 60_000)
-            : null
-          const output = !res
-            ? "Not part of a team (or missing path)."
-            : res.ok
-              ? `Claimed ${a.path} — safe to edit.`
-              : `${a.path} is currently claimed by another agent (${res.heldBy}); pick a different file or coordinate via board_post.`
-          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output, isError: !!res && !res.ok })
-          this.emit({ type: "tool-result", callId: tc.id, ok: !!res?.ok, output, title: `board_claim ${a.path ?? ""}` })
-          continue
-        }
-        if (tc.name === BOARD_RELEASE) {
-          const a = safeParse(tc.arguments) as { path?: string }
-          const ok = a.path ? this.host.boardRelease(this.sessionId, a.path) : false
-          const output = ok ? `Released ${a.path}.` : "Not part of a team (or missing path)."
-          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output })
-          this.emit({ type: "tool-result", callId: tc.id, ok, output, title: `board_release ${a.path ?? ""}` })
           continue
         }
 
@@ -1898,10 +1720,10 @@ export class SessionRunner {
         }
 
         if (tc.name === TASK_TOOL) {
-          const a = safeParse(tc.arguments) as { description?: string; prompt?: string; agent?: string }
+          const a = safeParse(tc.arguments) as { description?: string; prompt?: string }
           this.emit({ type: "mascot", state: "working" })
           this.emit({ type: "status", text: `Subagent · ${clip(a.description ?? "task")}` })
-          const summary = await this.runSubagent(a.prompt ?? "", a.agent)
+          const summary = await this.runSubagent(a.prompt ?? "")
           void this.hook("SubagentStop", { tool_response: summary })
           this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: summary })
           this.emit({
@@ -2042,19 +1864,14 @@ export class SessionRunner {
     }
   }
 
-  private async runSubagent(prompt: string, agent?: string): Promise<string> {
+  private async runSubagent(prompt: string): Promise<string> {
     const sel = this.host.selection()
     const provider = this.host.resolveProvider()
     const apiKey = getProviderKey(provider.id)
     const signal = this.abort!.signal
-    // A custom agent type (.friday/agents/<name>.md) can supply its own prompt, model and
-    // a narrowed tool allowlist. Sub-agents stay read-only — a custom `tools` list can only
-    // pick from the read-only set, never escalate to edit/bash (which have no nested UI gate).
-    // Built-in explore/friday keep the dedicated read-only prompt; on-disk defs supply their own
-    // prompt/model/tools. Write-capable agents run as background sessions (full permission gating),
-    // not on this inline path.
-    const def = agent ? this.agents.find((a) => a.name === agent && a.source !== "builtin") : undefined
-    let tools = this.host
+    // Sub-agents are strictly read-only: they may read/list/glob/grep but never edit or run bash
+    // (those have no nested UI gate). Write-capable work runs as a background session instead.
+    const tools = this.host
       .registry()
       .list.filter(
         (t) =>
@@ -2065,12 +1882,11 @@ export class SessionRunner {
           t.name !== TODO_WRITE &&
           !LSP_TOOLS.has(t.name),
       )
-    if (def?.tools?.length) tools = tools.filter((t) => def.tools!.includes(t.name))
     const defs = tools.map(toToolDef)
     const get = (n: string) => tools.find((t) => t.name === n)
-    const model = def?.model ?? sel.model!
+    const model = sel.model!
     const messages: Message[] = [
-      { role: "system", text: def ? customAgentPrompt(def.content, this.cwd) : subagentPrompt(agent, this.cwd) },
+      { role: "system", text: subagentPrompt(this.cwd) },
       { role: "user", text: prompt },
     ]
     let lastText = ""

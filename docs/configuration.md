@@ -8,7 +8,6 @@ auth.json     provider keys (written 0600 by the /model modal)
 config.json   model, effort, mode, mcp, hooks, bash allow/deny, theme, budget
 memory/       user-level persistent memory
 skills/       user-level markdown skills
-agents/       user-level custom agents
 commands/     user-level custom commands
 sessions.db   bun:sqlite session state
 logs/         when something goes wrong, look here
@@ -108,10 +107,6 @@ the project copy taking precedence.
 - `skills/` holds skills the agent can invoke with the `skill` tool. Each is a
   Markdown file (or a folder with `SKILL.md`) with frontmatter for `name`,
   `description`, and `whenToUse`. Browse and run them with `/skills`.
-- `agents/` holds custom sub-agents. Each is a Markdown file (or a folder with
-  `AGENT.md`) with frontmatter for `name`, `description`, a read-only `tools`
-  allowlist, and an optional `model` override. See
-  [agents and teams](agents-and-teams.md).
 - `commands/` holds custom slash commands. Each is a Markdown file with a
   `description` in frontmatter and a prompt template in the body. Typing
   `/mycommand some args` sends the template with your args appended.

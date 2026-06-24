@@ -5,13 +5,11 @@ import { fridayDir, keybindingsPath } from "@friday/providers"
  * Rebindable keymap. The global shortcut handler dispatches NAMED actions; the chord each action
  * fires on lives here, overridable per-user via ~/.friday/keybindings.json. Only the simple,
  * single-chord global actions are rebindable — the armed/double-tap keys (Ctrl+C quit, Esc-Esc
- * stop/checkpoints) and Ctrl+1-9 session switch keep their bespoke handling in the TUI.
+ * stop/checkpoints) keep their bespoke handling in the TUI.
  */
 export const DEFAULT_KEYBINDINGS = {
   "panel.toggle": "ctrl+b",
   "mic.toggle": "ctrl+r",
-  "console.toggle": "ctrl+t",
-  "dashboard.toggle": "ctrl+o",
   "history.open": "ctrl+y",
   "mode.cycle": "shift+tab",
   // Ctrl+Space transmits in every terminal (a NUL byte → name "space" + ctrl) and is single-handed

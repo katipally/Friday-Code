@@ -11,6 +11,20 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [2.0.12] - 2026-06-23
+
+### Removed
+
+- **Multi-agent UI and parallel sessions.** Removed the dashboard (Ctrl+O), the
+  agent-team console (Ctrl+T), the agent chips rail, external "fleet" terminal
+  windows, agent swarms (`spawn_agents`/`swarm`), coordinated teams
+  (`spawn_team`/`team`) and the shared board, the agent/team definition systems
+  (`.friday/agents`, `.friday/teams`) with their `/agent` and `/team` wizards,
+  and cross-terminal session presence with parallel-session switching (Ctrl+1-9).
+  Sub-agent delegation remains: `delegate` (inline read-only sub-agent) and
+  `task_create`/`task_list`/`task_status`/`task_stop`/`send_to_task` (one detached
+  background agent), plus cron and worktree tools.
+
 ## [2.0.11] - 2026-06-23
 
 ### Added

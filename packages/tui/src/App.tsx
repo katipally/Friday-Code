@@ -6,13 +6,10 @@ import { AskCard } from "./components/AskCard.tsx"
 import { Chat } from "./components/Chat.tsx"
 import { CheckpointHistory } from "./components/CheckpointHistory.tsx"
 import { CompactionCard, CompactionSummary } from "./components/CompactionCard.tsx"
-import { AgentChips } from "./components/AgentChips.tsx"
 import { Composer } from "./components/Composer.tsx"
 import { ComputerModal } from "./components/ComputerModal.tsx"
-import { ConsoleView } from "./components/ConsoleView.tsx"
 import { ContextFilesModal } from "./components/ContextFilesModal.tsx"
 import { ContextPanel } from "./components/ContextPanel.tsx"
-import { Dashboard } from "./components/Dashboard.tsx"
 import { DirectoryModal } from "./components/DirectoryModal.tsx"
 import { CollapseTab, GripDivider } from "./components/Divider.tsx"
 import { EffortSlider } from "./components/EffortSlider.tsx"
@@ -169,7 +166,6 @@ function Shell() {
             {/* Status + composer share the chat's inset so the input box stays aligned with the
                 conversation column as it centers on wide terminals. */}
             <box flexShrink={0} flexDirection="column" paddingLeft={contentPad()} paddingRight={contentPad()}>
-              <AgentChips />
               <StatusStrip />
               <Composer />
             </box>
@@ -274,16 +270,6 @@ function AppRoot() {
       }, 2000)
       return
     }
-    if (app.view() === "console") {
-      // ConsoleView owns its keys; only the toggle is global so it can close from here too.
-      if (key.ctrl && key.name === "t") return app.toggleConsole()
-      return
-    }
-    if (app.view() === "dashboard") {
-      // Dashboard owns its keys; only the toggle is global so it can close from here too.
-      if (key.ctrl && key.name === "o") return app.toggleDashboard()
-      return
-    }
     // KeymapOverlay has no useKeyboard of its own — close it on Esc here.
     if (app.overlayOpen()) {
       if (key.name === "escape") app.setOverlayOpen(false)
@@ -310,10 +296,6 @@ function AppRoot() {
           return app.setRightOpen(!app.rightOpen())
         case "mic.toggle":
           return app.toggleMic()
-        case "console.toggle":
-          return app.toggleConsole()
-        case "dashboard.toggle":
-          return app.toggleDashboard()
         case "history.open":
           return app.setHistoryOpen(true)
         case "mode.cycle":
@@ -326,7 +308,6 @@ function AppRoot() {
           return app.setOverlayOpen(true)
       }
     }
-    if (key.ctrl && /^[1-9]$/.test(key.name)) return app.switchSessionByIndex(Number(key.name) - 1)
     if (key.ctrl && key.name === "/") return app.setOverlayOpen(true)
     // `?` opens the keymap, but only when the composer is empty so it never eats a literal "?".
     if ((key.name === "?" || (key.name === "/" && key.shift)) && app.composerEmpty()) {
@@ -416,18 +397,12 @@ function AppRoot() {
   return (
     <Switch fallback={<Shell />}>
       <Match when={app.view() === "exit"}>{null}</Match>
-      <Match when={app.view() === "console"}>
-        <ConsoleView />
-      </Match>
-      <Match when={app.view() === "dashboard"}>
-        <Dashboard />
-      </Match>
     </Switch>
   )
 }
 
-export function App(props: { engine: Engine; version?: string; initialView?: "console" }) {
-  const store = createAppStore(props.engine, props.version, props.initialView)
+export function App(props: { engine: Engine; version?: string }) {
+  const store = createAppStore(props.engine, props.version)
   return (
     <AppProvider store={store}>
       <AppRoot />
