@@ -3,10 +3,10 @@ import { useKeyboard, useRenderer } from "@opentui/solid"
 import { createMemo, For, Match, Show, Switch } from "solid-js"
 import { Appear, shimmerAccent } from "../motion/index.ts"
 import { useApp, type ViewItem } from "../store.tsx"
+import { tokenPreview } from "../util/attachments.ts"
 import { copyText } from "../util/clipboard.ts"
 import { parseMentions } from "../util/mentions.ts"
 import { G, modeGlyph } from "../util/term.ts"
-import { tokenPreview } from "../util/attachments.ts"
 import { EmptyHome } from "./EmptyHome.tsx"
 import { FileChip } from "./FileChip.tsx"
 import { Markdown } from "./Markdown.tsx"
@@ -95,7 +95,9 @@ function UserBubble(props: { item: Extract<ViewItem, { kind: "user" }> }) {
                     label={`${c.kind === "image" ? "▣" : c.kind === "file" ? "▤" : "▥"} ${c.title}`}
                     onClick={() =>
                       app.setPreview(
-                        c.kind === "text" ? { kind: "text", title: c.title, text: c.text } : { kind: c.kind, title: c.title, path: c.path },
+                        c.kind === "text"
+                          ? { kind: "text", title: c.title, text: c.text }
+                          : { kind: c.kind, title: c.title, path: c.path },
                       )
                     }
                   />

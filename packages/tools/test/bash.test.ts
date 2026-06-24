@@ -26,6 +26,9 @@ test("bash: aborting kills the child process tree, not just the shell", async ()
 })
 
 test("bash: normal command returns output", async () => {
-  const r = await bashTool.execute({ command: "echo hi" }, { cwd: os.tmpdir(), roots: [os.tmpdir()], signal: undefined as any })
+  const r = await bashTool.execute(
+    { command: "echo hi" },
+    { cwd: os.tmpdir(), roots: [os.tmpdir()], signal: undefined as any },
+  )
   expect(r.output).toContain("hi")
 })

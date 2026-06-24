@@ -965,7 +965,10 @@ export function createAppStore(engine: Engine, version = "dev") {
     { name: "resume", description: "resume or switch to another session" },
     { name: "fork", description: "branch a session from a past turn" },
     { name: "dir", description: "change or add a working directory" },
-    { name: "steer", description: "steer the running agent — opens a composer to add context it missed or redirect it" },
+    {
+      name: "steer",
+      description: "steer the running agent — opens a composer to add context it missed or redirect it",
+    },
     { name: "mic", description: "talk to Friday — on-device speech-to-text (Ctrl+R)" },
     { name: "mcp", description: "view / add / remove MCP servers" },
     { name: "skills", description: "browse installed skills and run one" },

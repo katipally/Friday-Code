@@ -200,7 +200,8 @@ export function Composer() {
     const value = store.expand(display) // paste tokens → full content for the model
     // Keep each live paste's content on the chat item so its chip can be previewed later.
     const pastes = Object.fromEntries(store.live(display).map((t) => [t, store.pastes.get(t)!]))
-    if (value.trim()) app.submit(value, display !== value ? display : undefined, Object.keys(pastes).length ? pastes : undefined)
+    if (value.trim())
+      app.submit(value, display !== value ? display : undefined, Object.keys(pastes).length ? pastes : undefined)
     ta?.clear?.()
     setText("")
     store.clear()

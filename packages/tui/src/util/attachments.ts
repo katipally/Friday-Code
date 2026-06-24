@@ -99,12 +99,7 @@ export type PasteStore = ReturnType<typeof createPasteStore>
  * super/meta+V on kitty-protocol terminals (others intercept Cmd+V and deliver it as a bracketed paste,
  * handled separately by onPaste).
  */
-export function isPasteKey(key: {
-  name?: string
-  ctrl?: boolean
-  meta?: boolean
-  super?: boolean
-}): boolean {
+export function isPasteKey(key: { name?: string; ctrl?: boolean; meta?: boolean; super?: boolean }): boolean {
   return key.name === "v" && (!!key.ctrl || !!key.meta || !!key.super)
 }
 
@@ -122,7 +117,10 @@ export function pasteFromClipboard(ta: any, store: PasteStore): boolean {
 }
 
 /** Build the click-to-open Preview for a live token, from its stored expansion (`@path` → file/image). */
-export function tokenPreview(token: string, value: string): { kind: "text" | "file" | "image"; title: string; text: string; path: string } {
+export function tokenPreview(
+  token: string,
+  value: string,
+): { kind: "text" | "file" | "image"; title: string; text: string; path: string } {
   const v = value.trimStart()
   if (v.startsWith("@")) {
     const path = v.slice(1).trim()

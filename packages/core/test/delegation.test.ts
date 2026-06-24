@@ -40,10 +40,7 @@ test("inline agent delegation: spawns a child, surfaces it in the agent tree, re
       { type: "done", stopReason: "stop" } as ProviderEvent,
     ],
     // turn 2: main agent wraps up after receiving the subagent summary.
-    [
-      { type: "text", delta: "done" } as ProviderEvent,
-      { type: "done", stopReason: "stop" } as ProviderEvent,
-    ],
+    [{ type: "text", delta: "done" } as ProviderEvent, { type: "done", stopReason: "stop" } as ProviderEvent],
   ])
   const engine = new Engine({ cwd: dir, streamFn })
   engine.send({ type: "set-mode", mode: "yolo" })
@@ -56,9 +53,7 @@ test("inline agent delegation: spawns a child, surfaces it in the agent tree, re
   await Bun.sleep(250)
 
   // The agent tree now has the main agent plus the spawned explore subagent.
-  const tree = [...events].reverse().find((e) => e.type === "agents") as
-    | (EngineEvent & { type: "agents" })
-    | undefined
+  const tree = [...events].reverse().find((e) => e.type === "agents") as (EngineEvent & { type: "agents" }) | undefined
   expect(tree).toBeTruthy()
   expect(tree!.items.some((a) => a.isMain)).toBe(true)
   expect(tree!.items.some((a) => a.name === "explore")).toBe(true)

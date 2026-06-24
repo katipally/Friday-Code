@@ -1,6 +1,6 @@
+import fs from "node:fs"
 import { theme } from "@friday/shared"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
-import fs from "node:fs"
 import { createMemo, Show } from "solid-js"
 import { useApp } from "../store.tsx"
 import { Pressable } from "./Pressable.tsx"
@@ -29,7 +29,8 @@ export function PreviewModal() {
   const body = createMemo(() => {
     const pv = app.preview()
     if (!pv) return { text: "", note: "" }
-    if (pv.kind === "text") return { text: pv.text.slice(0, MAX_CHARS), note: pv.text.length > MAX_CHARS ? "…truncated" : "" }
+    if (pv.kind === "text")
+      return { text: pv.text.slice(0, MAX_CHARS), note: pv.text.length > MAX_CHARS ? "…truncated" : "" }
     if (pv.kind === "file") {
       try {
         const raw = fs.readFileSync(pv.path, "utf8")
@@ -69,7 +70,13 @@ export function PreviewModal() {
           </Show>
           <box flexDirection="row" gap={2} alignItems="center">
             <Show when={p().kind !== "text"}>
-              <Pressable label="⧉ open externally" onClick={() => (app.openPath((p() as any).path), app.setPreview(null))} />
+              <Pressable
+                label="⧉ open externally"
+                onClick={() => {
+                  app.openPath((p() as any).path)
+                  app.setPreview(null)
+                }}
+              />
             </Show>
             <box flexGrow={1} />
             <text fg={theme.textFaint}>Esc close</text>
