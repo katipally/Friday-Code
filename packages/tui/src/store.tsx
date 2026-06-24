@@ -13,6 +13,7 @@ import {
   RESERVED,
   type SessionStats,
   saveKeybindings,
+  type WindowPreset,
 } from "@friday/core"
 import {
   type AskQuestion,
@@ -1006,6 +1007,14 @@ export function createAppStore(engine: Engine, version = "dev", initialView?: "d
     const r = engine.openInteractive(["--view", "console"])
     pushToast(r.ok ? `opened console (${r.backend})` : winFail(r, "the console"), r.ok ? "done" : "error")
   }
+  /** Tile the open OS terminal windows into a preset (macOS; first use prompts for Automation perms). */
+  function arrangeWindows(preset: WindowPreset) {
+    const r = engine.arrangeWindows(preset)
+    pushToast(
+      r.ok ? `arranged ${r.count} window(s): ${preset}` : `arrange: ${r.error ?? "failed"}`,
+      r.ok ? "done" : "error",
+    )
+  }
   /** Fan out a swarm of independent agents (one task per line) + a watch window for each. */
   function launchSwarm(tasks: string[]) {
     const jobs = tasks
@@ -1822,6 +1831,7 @@ export function createAppStore(engine: Engine, version = "dev", initialView?: "d
     openAgentWindow,
     openDashboardWindow,
     openConsoleWindow,
+    arrangeWindows,
     launchSwarm,
     launchTeam,
     launchAgent,

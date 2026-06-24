@@ -19,6 +19,7 @@ export {
   saveKeybindings,
 } from "./keybindings.ts"
 export { collectImages, expandMentions, isImagePath } from "./mentions.ts"
+export { arrangeTerminals, type WindowPreset, WINDOW_PRESETS, windowLayout } from "./oswindow.ts"
 export { systemPrompt } from "./prompt.ts"
 export { bashRisk, matchesList } from "./safety.ts"
 export { type PresenceRow, type SessionRow, SessionStore } from "./sessions.ts"

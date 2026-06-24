@@ -57,7 +57,7 @@ import {
   unifiedDiff,
   WORKTREE_LIST,
 } from "@friday/tools"
-import { type AgentDef, resolveAgent, resolveAgents } from "./agents.ts"
+import { type AgentDef, resolveAgents } from "./agents.ts"
 import type { PostKind as BoardPostKind, TeamSnapshot as BoardSnapshot } from "./board.ts"
 import {
   applyFiles,

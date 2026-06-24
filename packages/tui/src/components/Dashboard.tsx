@@ -1,3 +1,4 @@
+import { WINDOW_PRESETS } from "@friday/core"
 import { theme } from "@friday/shared"
 import { useKeyboard } from "@opentui/solid"
 import { createMemo, createSignal, For, type JSX, Match, onCleanup, onMount, Show, Switch } from "solid-js"
@@ -22,7 +23,8 @@ import { Pill, SectionLabel, Tabs } from "./ui.tsx"
  */
 const TABS = ["Sessions", "Teams", "Swarm", "Agents"] as const
 
-/** A clickable chip used for per-row actions (adopt/stop/↗). */
+/** A clickable chip used for per-row actions (adopt/stop/↗). stopPropagation so clicking the chip
+ * doesn't ALSO fire the parent Row's onActivate — that double-fire opened two windows per click. */
 function Chip(props: { label: string; onClick: () => void; fg?: string }) {
   const h = useHover({ base: "transparent", hover: theme.bgHover })
   return (
@@ -32,7 +34,10 @@ function Chip(props: { label: string; onClick: () => void; fg?: string }) {
       backgroundColor={h.bg()}
       onMouseOver={h.onMouseOver}
       onMouseOut={h.onMouseOut}
-      onMouseDown={props.onClick}
+      onMouseDown={(e: any) => {
+        e?.stopPropagation?.()
+        props.onClick()
+      }}
     >
       <text fg={h.hovered() ? theme.text : (props.fg ?? theme.textFaint)}>{props.label}</text>
     </box>
@@ -209,13 +214,13 @@ export function Dashboard() {
           onSelect={(k) => switchTab(Number(k))}
         />
         <box flexGrow={1} />
-        <text fg={theme.textFaint}>
-          {(() => {
-            const w = app.engine.windowBackend()
-            return w.osWindows ? `↗ ${w.backend}` : "↗ in-TUI only"
-          })()}
-          {"  ·  esc back"}
-        </text>
+        {/* Tile the open OS terminal windows — macOS, first use prompts for Automation permission. */}
+        <Show when={app.engine.windowBackend().osWindows}>
+          <text fg={theme.textFaint}>arrange</text>
+          <For each={WINDOW_PRESETS}>{(p) => <Pill label={p.label} onClick={() => app.arrangeWindows(p.key)} />}</For>
+          <text fg={theme.textFaint}>{"  ·  "}</text>
+        </Show>
+        <text fg={theme.textFaint}>esc back</text>
       </box>
 
       <Switch>

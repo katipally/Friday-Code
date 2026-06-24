@@ -37,6 +37,7 @@ import { type CustomCommand, loadCommands } from "./commands.ts"
 import { loadConfig, saveConfig } from "./config.ts"
 import { type CronJob, loadCron, parseInterval, saveCron } from "./cron.ts"
 import { detectWindowBackend, openFleetWindows, openInteractiveWindow } from "./fleet.ts"
+import { arrangeTerminals, type WindowPreset } from "./oswindow.ts"
 import {
   cancelMic,
   type InputDevice,
@@ -234,21 +235,29 @@ export class Engine {
 
   /** Heartbeat every runner this process owns, prune dead processes, and apply remote stop requests. */
   private syncPresence(): void {
-    const rows = [...this.runners.values()].map((r) => {
-      const teamId = this.teamOf.get(r.sessionId)
-      const kind: "session" | "task" | "team" = teamId ? "team" : this.taskMeta.has(r.sessionId) ? "task" : "session"
-      return {
-        sessionId: r.sessionId,
-        pid: process.pid,
-        root: this.cwd,
-        title: r.currentTitle(),
-        kind,
-        busy: r.busy,
-        status: r.busy ? "running" : "done",
-        description: this.taskMeta.get(r.sessionId)?.description ?? "",
-        teamId,
-      }
-    })
+    const rows = [...this.runners.values()]
+      // Don't advertise empty placeholder chats (a fresh "new session" with nothing in it) as a live
+      // terminal — that's what produced the ghost "new session ⟂" rows. Background tasks and team
+      // members always count; a plain session only once it has real content or is actively working.
+      .filter((r) => this.teamOf.has(r.sessionId) || this.taskMeta.has(r.sessionId) || r.busy || !r.isEmpty())
+      .map((r) => {
+        const teamId = this.teamOf.get(r.sessionId)
+        const kind: "session" | "task" | "team" = teamId ? "team" : this.taskMeta.has(r.sessionId) ? "task" : "session"
+        return {
+          sessionId: r.sessionId,
+          pid: process.pid,
+          root: this.cwd,
+          title: r.currentTitle(),
+          kind,
+          busy: r.busy,
+          status: r.busy ? "running" : "done",
+          description: this.taskMeta.get(r.sessionId)?.description ?? "",
+          teamId,
+        }
+      })
+    // Replace this pid's prior presence wholesale so a now-empty/closed session drops immediately
+    // (heartbeat only upserts; without this a session that became empty would linger until stale).
+    this.store.dropPresenceForPid(process.pid)
     this.store.heartbeat(rows)
     this.store.prunePresence(Engine.PRESENCE_STALE_MS)
     // Apply stop requests another terminal queued for runners we own.
@@ -544,6 +553,10 @@ export class Engine {
   /** Which OS-window backend this environment will use (for the dashboard to inform the user). */
   windowBackend(): { backend: string; osWindows: boolean } {
     return detectWindowBackend()
+  }
+  /** Tile the open OS terminal windows into a preset (macOS; needs Automation permission). */
+  arrangeWindows(preset: WindowPreset): { ok: boolean; count: number; error?: string } {
+    return arrangeTerminals(preset)
   }
 
   /** Force-activate deferred tools (by name prefix) for the focused session so the model can use them

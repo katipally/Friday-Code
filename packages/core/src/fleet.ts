@@ -40,7 +40,10 @@ function sh(parts: string[]): string {
 export function fridayCommand(args: string[], cwd?: string): string {
   const cmd = sh([...selfCmd(), ...args])
   const run = cwd ? `cd ${sh([cwd])} && ${cmd}` : cmd
-  return `${run}; echo; echo '[friday exited — press Enter to close]'; read _`
+  // Clean exit → let the window close (don't wait on Enter, which left dead terminals lying around).
+  // Only a crash keeps it open so the error stays readable. `exit` ends the script so Terminal can
+  // close the window per its profile.
+  return `${run}; code=$?; if [ $code -ne 0 ]; then echo; echo "[friday exited ($code) — press Enter to close]"; read _; fi; exit`
 }
 
 /** Run a command, capturing stderr so a failure carries a real reason instead of vanishing. */
