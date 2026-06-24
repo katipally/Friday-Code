@@ -159,8 +159,8 @@ function messagesToItems(messages: Message[]): ViewItem[] {
   return out
 }
 
-export function createAppStore(engine: Engine, version = "dev") {
-  const [view, setView] = createSignal<"shell" | "console" | "dashboard" | "exit">("shell")
+export function createAppStore(engine: Engine, version = "dev", initialView?: "dashboard" | "console") {
+  const [view, setView] = createSignal<"shell" | "console" | "dashboard" | "exit">(initialView ?? "shell")
   const [mode, setModeSig] = createSignal<ModeId>(engine.selection().mode ?? DEFAULT_MODE)
   const [effort, setEffortSig] = createSignal<Effort>(engine.selection().effort ?? "medium")
   const [model, setModel] = createSignal<string>(engine.selection().model ?? "no model — open /model")
@@ -1028,6 +1028,24 @@ export function createAppStore(engine: Engine, version = "dev") {
     const r = engine.openInteractive(["-s", id], row?.cwd)
     pushToast(r.ok ? `opened session (${r.backend})` : winFail(r, "the session"), r.ok ? "done" : "error")
   }
+  /** Open a read-only watch window/pane for a background agent (its own terminal, leaves chat alone). */
+  function openAgentWindow(id: string) {
+    if (tmuxOn()) return addToWall(["attach", id], "watch")
+    const r = engine.popoutAgent(id)
+    pushToast(r.ok ? `watching agent (${r.backend})` : winFail(r, "a watch window"), r.ok ? "done" : "error")
+  }
+  /** Open the dashboard in its OWN terminal window (not inline), so the chat view stays put. */
+  function openDashboardWindow() {
+    if (tmuxOn()) return addToWall(["--view", "dashboard"], "dashboard")
+    const r = engine.openInteractive(["--view", "dashboard"])
+    pushToast(r.ok ? `opened dashboard (${r.backend})` : winFail(r, "the dashboard"), r.ok ? "done" : "error")
+  }
+  /** Open the team console (Ctrl+T) in its own terminal window. */
+  function openConsoleWindow() {
+    if (tmuxOn()) return addToWall(["--view", "console"], "console")
+    const r = engine.openInteractive(["--view", "console"])
+    pushToast(r.ok ? `opened console (${r.backend})` : winFail(r, "the console"), r.ok ? "done" : "error")
+  }
   /** Fan out a swarm of independent agents (one task per line) + a watch pane/window for each. */
   function launchSwarm(tasks: string[]) {
     const jobs = tasks
@@ -1846,6 +1864,9 @@ export function createAppStore(engine: Engine, version = "dev") {
     toggleMic,
     newChatWindow,
     resumeInWindow,
+    openAgentWindow,
+    openDashboardWindow,
+    openConsoleWindow,
     launchSwarm,
     launchTeam,
     launchAgent,

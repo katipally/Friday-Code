@@ -6,6 +6,7 @@ import { AskCard } from "./components/AskCard.tsx"
 import { Chat } from "./components/Chat.tsx"
 import { CheckpointHistory } from "./components/CheckpointHistory.tsx"
 import { CompactionCard, CompactionSummary } from "./components/CompactionCard.tsx"
+import { AgentChips } from "./components/AgentChips.tsx"
 import { Composer } from "./components/Composer.tsx"
 import { ComputerModal } from "./components/ComputerModal.tsx"
 import { ConsoleView } from "./components/ConsoleView.tsx"
@@ -168,6 +169,7 @@ function Shell() {
             {/* Status + composer share the chat's inset so the input box stays aligned with the
                 conversation column as it centers on wide terminals. */}
             <box flexShrink={0} flexDirection="column" paddingLeft={contentPad()} paddingRight={contentPad()}>
+              <AgentChips />
               <StatusStrip />
               <Composer />
             </box>
@@ -424,8 +426,8 @@ function AppRoot() {
   )
 }
 
-export function App(props: { engine: Engine; version?: string }) {
-  const store = createAppStore(props.engine, props.version)
+export function App(props: { engine: Engine; version?: string; initialView?: "dashboard" | "console" }) {
+  const store = createAppStore(props.engine, props.version, props.initialView)
   return (
     <AppProvider store={store}>
       <AppRoot />

@@ -44,6 +44,8 @@ Usage:
   friday run "<prompt>"       Run one turn headless and print the result
   friday run "<prompt>" --json  Headless, emit JSON ({ "text": ... })
   friday attach <id>          Watch a background/fleet session (read-only)
+  friday --view dashboard     Open straight into the dashboard (own window)
+  friday --view console       Open straight into the team console
 
 Options:
   -v, --version               Print the version and exit
@@ -70,15 +72,20 @@ if (argv[0] === "-v" || argv[0] === "--version") {
 } else {
   let resumeId: string | undefined
   let continueLast = false
+  let initialView: "dashboard" | "console" | undefined
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (a === "-s" || a === "--session") resumeId = argv[++i]
     else if (a === "-c" || a === "--continue") continueLast = true
+    else if (a === "--view") {
+      const v = argv[++i]
+      if (v === "dashboard" || v === "console") initialView = v
+    }
   }
   await maybeAutoUpdate()
   const engine = new Engine({ cwd: process.cwd(), resumeId, continueLast })
   await engine.init() // connect MCP servers (no-op if none configured)
-  await start(engine, VERSION)
+  await start(engine, VERSION, initialView)
 }
 
 // Auto-update on reopen: before the TUI (alt-screen) exists, in the plain terminal. Acts instantly
