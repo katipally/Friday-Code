@@ -97,6 +97,14 @@ export function Dashboard() {
   const agentList = () => app.agentDefs().filter((a) => a.name !== "friday")
   const teamList = () => app.teamDefs()
   const agentsTabLen = () => agentList().length + teamList().length
+  // The currently-selected Agents-tab item (an agent def or a team def), for the detail pane.
+  const agentsSel = () => {
+    const i = clampedSel()
+    const agents = agentList()
+    if (i < agents.length) return { kind: "agent" as const, agent: agents[i]! }
+    const t = teamList()[i - agents.length]
+    return t ? { kind: "team" as const, team: t } : undefined
+  }
   const len = () => [sessions().length, teams().length, swarm().length, agentsTabLen()][tab()]!
   const clampedSel = () => Math.min(sel(), Math.max(0, len() - 1))
 
@@ -481,52 +489,110 @@ export function Dashboard() {
                 </box>
               </box>
             </Show>
-            <SectionLabel text={`AGENTS (${agentList().length})`} />
-            <For each={agentList()}>
-              {(a, i) => (
-                <Row
-                  selected={i() === clampedSel()}
-                  onSelect={() => setSel(i())}
-                  onActivate={() => {
-                    setComposeName(a.name)
-                    setCompose("agent")
+            <box flexDirection="row" flexGrow={1} gap={1}>
+              {/* left: selectable list of agents then teams */}
+              <box
+                flexDirection="column"
+                width={34}
+                backgroundColor={theme.bgElevated}
+                paddingLeft={1}
+                paddingRight={1}
+              >
+                <SectionLabel text={`AGENTS (${agentList().length})`} />
+                <For each={agentList()}>
+                  {(a, i) => (
+                    <Row
+                      selected={i() === clampedSel()}
+                      onSelect={() => setSel(i())}
+                      onActivate={() => {
+                        setComposeName(a.name)
+                        setCompose("agent")
+                      }}
+                    >
+                      <text fg={a.color ?? theme.textMuted}>{a.glyph ?? "◇"}</text>
+                      <text fg={i() === clampedSel() ? theme.text : theme.textMuted}>{a.name}</text>
+                    </Row>
+                  )}
+                </For>
+                <box marginTop={1} />
+                <SectionLabel text={`TEAMS (${teamList().length})`} />
+                <For each={teamList()}>
+                  {(t, i) => {
+                    const idx = () => agentList().length + i()
+                    return (
+                      <Row
+                        selected={idx() === clampedSel()}
+                        onSelect={() => setSel(idx())}
+                        onActivate={() => {
+                          setComposeName(t.name)
+                          setCompose("teamdef")
+                        }}
+                      >
+                        <text fg={theme.brand}>▦</text>
+                        <text fg={idx() === clampedSel() ? theme.text : theme.textMuted}>{t.name}</text>
+                      </Row>
+                    )
                   }}
-                >
-                  <text fg={a.color ?? theme.textMuted}>{a.glyph ?? "◇"}</text>
-                  <text fg={i() === clampedSel() ? theme.text : theme.textMuted}>{a.name}</text>
-                  <box flexGrow={1} />
-                  <text fg={theme.textFaint}>
-                    {[a.model ?? "session model", a.posture ?? "default", a.source].join(" · ")}
-                  </text>
-                </Row>
-              )}
-            </For>
-            <box marginTop={1} />
-            <SectionLabel text={`TEAMS (${teamList().length})`} />
-            <For each={teamList()}>
-              {(t, i) => {
-                const idx = () => agentList().length + i()
-                return (
-                  <Row
-                    selected={idx() === clampedSel()}
-                    onSelect={() => setSel(idx())}
-                    onActivate={() => {
-                      setComposeName(t.name)
-                      setCompose("teamdef")
-                    }}
-                  >
-                    <text fg={theme.brand}>▦</text>
-                    <text fg={idx() === clampedSel() ? theme.text : theme.textMuted}>{t.name}</text>
-                    <box flexGrow={1} />
-                    <text fg={theme.textFaint}>
-                      {t.members.length} roles · {t.source}
-                    </text>
-                  </Row>
-                )
-              }}
-            </For>
-            <box flexGrow={1} />
-            <text fg={theme.textFaint}>⏎ / click delegate · + new agent/team (AI wizard) · esc back</text>
+                </For>
+              </box>
+              {/* right: detail of the selected agent or team */}
+              <box flexDirection="column" flexGrow={1} paddingLeft={1} paddingRight={1}>
+                <Switch fallback={<text fg={theme.textFaint}>(select an agent or team)</text>}>
+                  <Match when={agentsSel()?.kind === "agent"}>
+                    {(() => {
+                      const a = agentsSel()!.agent!
+                      return (
+                        <box flexDirection="column">
+                          <text fg={a.color ?? theme.text}>
+                            {a.glyph ?? "◇"} <strong>{a.name}</strong>
+                          </text>
+                          <text fg={theme.textMuted}>{a.description}</text>
+                          <box marginTop={1} />
+                          <text fg={theme.textFaint}>model: {a.model ?? "session model"}</text>
+                          <text fg={theme.textFaint}>posture: {a.posture ?? "default"}</text>
+                          <text fg={theme.textFaint}>tools: {a.tools?.length ? a.tools.join(", ") : "all (parent's)"}</text>
+                          <Show when={a.skills?.length}>
+                            <text fg={theme.textFaint}>skills: {a.skills!.join(", ")}</text>
+                          </Show>
+                          <Show when={a.mcp?.length}>
+                            <text fg={theme.textFaint}>mcp: {a.mcp!.join(", ")}</text>
+                          </Show>
+                          <text fg={theme.textFaint}>source: {a.source}</text>
+                          <box marginTop={1} />
+                          <SectionLabel text="SYSTEM PROMPT" />
+                          <text fg={theme.textMuted}>{a.content.slice(0, 600)}</text>
+                        </box>
+                      )
+                    })()}
+                  </Match>
+                  <Match when={agentsSel()?.kind === "team"}>
+                    {(() => {
+                      const t = agentsSel()!.team!
+                      return (
+                        <box flexDirection="column">
+                          <text fg={theme.brand}>
+                            ▦ <strong>{t.name}</strong>
+                          </text>
+                          <text fg={theme.textMuted}>{t.description}</text>
+                          <text fg={theme.textFaint}>source: {t.source}</text>
+                          <box marginTop={1} />
+                          <SectionLabel text={`MEMBERS (${t.members.length})`} />
+                          <For each={t.members}>
+                            {(m) => (
+                              <text fg={theme.textMuted}>
+                                • {m.role}
+                                {m.agent ? ` (${m.agent})` : ""} — {m.prompt}
+                              </text>
+                            )}
+                          </For>
+                        </box>
+                      )
+                    })()}
+                  </Match>
+                </Switch>
+              </box>
+            </box>
+            <text fg={theme.textFaint}>⏎ delegate · + new agent/team (AI wizard) · esc back</text>
           </box>
         </Match>
       </Switch>
