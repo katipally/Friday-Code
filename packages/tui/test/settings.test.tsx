@@ -34,14 +34,14 @@ test("Ctrl+G opens settings with the keybindings tab reachable", async () => {
   t.renderer.destroy()
 })
 
-test("/pause is refused when the agent is idle (situational guard); /add still works as an alias", async () => {
+test("/steer is refused when the agent is idle (situational guard)", async () => {
   const t = await intoShell()
-  await t.mockInput.typeText("/add pause me") // /add is the back-compat alias for /pause
+  await t.mockInput.typeText("/steer redirect me")
   await t.flush()
   t.mockInput.pressEnter()
   await t.flush()
   const frame = t.captureCharFrame()
-  expect(frame).toContain("nothing to pause") // toast, not the pause modal
+  expect(frame).toContain("nothing to steer") // toast, not the steer modal
   expect(frame).not.toContain("paused — agent is waiting")
   t.renderer.destroy()
 })
