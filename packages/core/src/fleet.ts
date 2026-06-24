@@ -1,18 +1,15 @@
 /**
- * Window backends: open separate terminal/IDE windows so the dashboard can stay the "console" while
- * each new chat/session/agent gets its own window. Two flavors:
+ * Direct OS terminal windows — Friday opens a real, separate terminal window per chat/session/agent so
+ * the main view stays put. No tmux: the user wants direct device control. Two flavors:
  *   - INTERACTIVE  → `friday [args]` you can type in (new chat / resumed session).
- *   - WATCH (tiled)→ `friday attach <id>`, a read-only tail of a background agent's transcript.
+ *   - WATCH        → `friday attach <id>`, a read-only tail of a background agent's transcript.
  *
- * Backend is auto-detected and adaptive: inside tmux → panes/windows; macOS → a temp .command file
- * opened with `open` (no Automation/AppleScript permission needed — that was why windows silently
- * failed or opened blank behind the editor); the common emulators on Linux. Unknown env degrades to
- * "none" so the caller can fall back to the in-TUI view rather than guessing.
+ * macOS opens a temp .command file with `open` (no Automation/AppleScript permission needed — that was
+ * why windows silently failed or opened blank behind the editor); Linux uses the common emulators.
+ * Unknown env degrades to "none" so the caller can fall back to the in-TUI view rather than guessing.
  *
  * Failures are never swallowed: `run()` captures stderr and every result carries an `error` string so
  * the dashboard can tell the user WHY a window didn't open instead of a generic "no backend".
- *
- * ponytail: covers tmux + macOS (open .command) + common Linux emulators; add more as users hit them.
  */
 import fs from "node:fs"
 import os from "node:os"
@@ -39,8 +36,7 @@ function sh(parts: string[]): string {
 
 /** A shell command string for one window: optionally cd into `cwd`, then run friday with `args`.
  * Keeps the window open if friday ever exits (or fails to start) so it's never a blank black window —
- * the exit screen's resume hint stays visible, and any startup error is readable. Exported so the tmux
- * control center can run the SAME command inside a pane. */
+ * the exit screen's resume hint stays visible, and any startup error is readable. */
 export function fridayCommand(args: string[], cwd?: string): string {
   const cmd = sh([...selfCmd(), ...args])
   const run = cwd ? `cd ${sh([cwd])} && ${cmd}` : cmd
@@ -57,19 +53,6 @@ function run(cmd: string[]): { ok: boolean; error?: string } {
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) }
   }
-}
-
-function openTmux(cmds: string[], tile: boolean): { opened: number; error?: string } {
-  let opened = 0
-  let error: string | undefined
-  for (const c of cmds) {
-    // tile=watch panes (split); otherwise a fresh interactive window.
-    const r = tile ? run(["tmux", "split-window", "-h", c]) : run(["tmux", "new-window", c])
-    if (r.ok) opened++
-    else error ??= r.error
-  }
-  if (tile) run(["tmux", "select-layout", "tiled"])
-  return { opened, error }
 }
 
 /**
@@ -122,9 +105,9 @@ function openLinuxTerminal(cmds: string[]): { opened: number; backend: string; e
 type WinResult = { ok: boolean; backend: string; opened: number; error?: string }
 
 /** Detect the OS-window backend for THIS environment without opening anything — so the dashboard can
- * tell the user what "↗ window" will use (and whether it's available at all). */
+ * tell the user what "↗ window" will use (and whether it's available at all). Direct OS terminal
+ * windows only; Friday never uses tmux. */
 export function detectWindowBackend(): { backend: string; osWindows: boolean } {
-  if (process.env.TMUX) return { backend: "tmux", osWindows: true }
   if (process.platform === "darwin") {
     return { backend: process.env.TERM_PROGRAM === "iTerm.app" ? "iTerm" : "Terminal.app", osWindows: true }
   }
@@ -135,13 +118,9 @@ export function detectWindowBackend(): { backend: string; osWindows: boolean } {
   return { backend: "none", osWindows: false }
 }
 
-/** Open one window per command, picking the backend for the current environment. */
-function openWindows(cmds: string[], tile: boolean): WinResult {
+/** Open one real OS terminal window per command. Direct device control — no tmux. */
+function openWindows(cmds: string[]): WinResult {
   if (!cmds.length) return { ok: false, backend: "none", opened: 0 }
-  if (process.env.TMUX) {
-    const { opened, error } = openTmux(cmds, tile)
-    return { ok: opened > 0, backend: "tmux", opened, error }
-  }
   if (process.platform === "darwin") {
     const { opened, error } = openMacWindows(cmds)
     const backend = process.env.TERM_PROGRAM === "iTerm.app" ? "iTerm" : "Terminal.app"
@@ -154,32 +133,12 @@ function openWindows(cmds: string[], tile: boolean): WinResult {
   return { ok: false, backend: "none", opened: 0, error: `unsupported platform: ${process.platform}` }
 }
 
-/** Read-only tiled watch windows, one per background agent (`friday attach <id>`). */
+/** Read-only watch windows, one OS terminal per background agent (`friday attach <id>`). */
 export function openFleetWindows(ids: string[]): WinResult {
-  return openWindows(
-    ids.map((id) => fridayCommand(["attach", id])),
-    true,
-  )
+  return openWindows(ids.map((id) => fridayCommand(["attach", id])))
 }
 
 /** A new interactive friday window (new chat, or `-s <id>` to resume), in `cwd` if given. */
 export function openInteractiveWindow(args: string[] = [], cwd?: string): WinResult {
-  return openWindows([fridayCommand(args, cwd)], false)
-}
-
-/** Open ONE real OS terminal window running an arbitrary shell command — used to attach a window to
- * the tmux wall so the user can watch every pane tiled. Always a separate OS window (not a tmux split),
- * even when friday itself is running inside tmux. */
-export function openTerminalRunning(cmd: string): WinResult {
-  const full = `${cmd}; echo; echo '[closed — press Enter to close]'; read _`
-  if (process.platform === "darwin") {
-    const { opened, error } = openMacWindows([full])
-    const backend = process.env.TERM_PROGRAM === "iTerm.app" ? "iTerm" : "Terminal.app"
-    return { ok: opened > 0, backend, opened, error }
-  }
-  if (process.platform === "linux") {
-    const { opened, backend, error } = openLinuxTerminal([full])
-    return { ok: opened > 0, backend, opened, error }
-  }
-  return { ok: false, backend: "none", opened: 0, error: `unsupported platform: ${process.platform}` }
+  return openWindows([fridayCommand(args, cwd)])
 }

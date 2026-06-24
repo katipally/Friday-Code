@@ -36,7 +36,7 @@ import { TeamBoard } from "./board.ts"
 import { type CustomCommand, loadCommands } from "./commands.ts"
 import { loadConfig, saveConfig } from "./config.ts"
 import { type CronJob, loadCron, parseInterval, saveCron } from "./cron.ts"
-import { detectWindowBackend, openFleetWindows, openInteractiveWindow, openTerminalRunning } from "./fleet.ts"
+import { detectWindowBackend, openFleetWindows, openInteractiveWindow } from "./fleet.ts"
 import {
   cancelMic,
   type InputDevice,
@@ -65,21 +65,9 @@ import { type TeamDef, resolveTeam, resolveTeams } from "./teams.ts"
 import { type PresenceRow, SessionStore } from "./sessions.ts"
 import type { SkillInfo } from "./skills.ts"
 import type { StreamFn } from "./stream.ts"
-import {
-  type TmuxLayout,
-  type TmuxPane,
-  tmuxAvailable,
-  wallAdd,
-  wallAttachCommand,
-  wallKill,
-  wallKillAll,
-  wallLayout,
-  wallPanes,
-} from "./tmux.ts"
 
 export type { SessionStats } from "./runner.ts"
 export type { StreamFn } from "./stream.ts"
-export type { TmuxLayout, TmuxPane } from "./tmux.ts"
 
 const now = () => Date.now()
 
@@ -545,7 +533,7 @@ export class Engine {
     const id = this.board.latestTeamId(this.cwd)
     return id ? this.teamPayload(id) : null
   }
-  /** Pop a single agent out into a real terminal window (tmux pane / OS terminal). */
+  /** Pop a single agent out into its own real OS terminal window (read-only watch). */
   popoutAgent(sessionId: string): { ok: boolean; backend: string; opened: number; error?: string } {
     return openFleetWindows([sessionId])
   }
@@ -558,32 +546,6 @@ export class Engine {
     return detectWindowBackend()
   }
 
-  // ---- tmux control center ("the wall"): real, tile-able, closable terminals managed from the dashboard ----
-  /** Is tmux available? When false, the dashboard hides wall controls and uses separate windows. */
-  tmuxOn(): boolean {
-    return tmuxAvailable()
-  }
-  /** Add a pane to the wall: a fresh chat (no args), a resumed session (`-s <id>`), or a read-only
-   * watch (`attach <id>`). `title` labels the pane in the tiled view. */
-  wallOpen(args: string[], title: string, cwd?: string): Promise<{ ok: boolean; error?: string }> {
-    return wallAdd(args, cwd ?? this.currentCwd(), title)
-  }
-  wallList(): Promise<TmuxPane[]> {
-    return wallPanes()
-  }
-  wallRemove(paneId: string): Promise<{ ok: boolean; error?: string }> {
-    return wallKill(paneId)
-  }
-  wallRemoveAll(): Promise<{ ok: boolean; error?: string }> {
-    return wallKillAll()
-  }
-  wallArrange(layout: TmuxLayout): Promise<{ ok: boolean; error?: string }> {
-    return wallLayout(layout)
-  }
-  /** Open a real OS terminal window attached to the wall, so the user watches every pane tiled. */
-  wallView(): { ok: boolean; backend: string; opened: number; error?: string } {
-    return openTerminalRunning(wallAttachCommand())
-  }
   /** Force-activate deferred tools (by name prefix) for the focused session so the model can use them
    * immediately without calling tool_search first. Returns the number activated. */
   activateTools(prefix: string): number {
@@ -649,7 +611,7 @@ export class Engine {
   uninstallComputerUse(): boolean {
     return uninstallComputerUse()
   }
-  /** Open a viewer window per running task (tmux pane / OS terminal); returns the chosen backend. */
+  /** Open a viewer OS terminal window per running task; returns the chosen backend. */
   openFleet(): { ok: boolean; backend: string; opened: number; error?: string } {
     const ids = this.taskList()
       .filter((t) => t.status === "running")

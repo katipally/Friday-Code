@@ -13,8 +13,6 @@ import {
   RESERVED,
   type SessionStats,
   saveKeybindings,
-  type TmuxLayout,
-  type TmuxPane,
 } from "@friday/core"
 import {
   type AskQuestion,
@@ -976,77 +974,39 @@ export function createAppStore(engine: Engine, version = "dev", initialView?: "d
       setMicModalOpen(true)
     }
   }
-  // ---- dashboard launchers + the tmux "wall" (real, tile-able terminals managed from the dashboard) ----
+  // ---- dashboard launchers — every "open" opens a real OS terminal window (direct device control) ----
   /** A window-launch failure message that names the real reason (truncated) instead of a generic line. */
   const winFail = (r: { backend: string; error?: string }, what: string) =>
     r.error ? `couldn't open ${what} (${r.backend}): ${r.error.slice(0, 120)}` : `no terminal backend to open ${what}`
 
-  // The wall: a tmux session of tiled panes. When tmux is available the dashboard launches work INTO
-  // the wall (real terminals you can tile + close from here); otherwise it falls back to OS windows.
-  const tmuxOn = () => engine.tmuxOn()
-  const [wallPanes, setWallPanes] = createSignal<TmuxPane[]>([])
-  const refreshWall = () => {
-    if (tmuxOn()) void engine.wallList().then(setWallPanes)
-  }
-  /** Add a friday pane to the wall (args = [] new chat · ["-s",id] resume · ["attach",id] watch). */
-  function addToWall(args: string[], title: string, cwd?: string) {
-    void engine.wallOpen(args, title, cwd).then((r) => {
-      pushToast(r.ok ? `added "${title}" to the wall` : `wall: ${r.error ?? "failed"}`, r.ok ? "done" : "error")
-      refreshWall()
-    })
-  }
-  function removeWallPane(paneId: string) {
-    void engine.wallRemove(paneId).then(() => refreshWall())
-  }
-  function closeWall() {
-    void engine.wallRemoveAll().then(() => {
-      setWallPanes([])
-      pushToast("closed the wall", "input")
-    })
-  }
-  function arrangeWall(layout: TmuxLayout) {
-    void engine
-      .wallArrange(layout)
-      .then((r) => pushToast(r.ok ? `wall: ${layout}` : `wall: ${r.error ?? "failed"}`, "input"))
-  }
-  /** Open a real OS terminal attached to the wall so you watch every pane tiled. */
-  function viewWall() {
-    const r = engine.wallView()
-    pushToast(r.ok ? `opened the wall (${r.backend})` : winFail(r, "the wall"), r.ok ? "done" : "error")
-  }
-
-  /** Open a brand-new chat — into the wall when tmux is available, else its own OS window. */
+  /** Open a brand-new chat in its own OS terminal window. */
   function newChatWindow() {
-    if (tmuxOn()) return addToWall([], "new chat")
     const r = engine.openInteractive([])
     pushToast(r.ok ? `opened new chat (${r.backend})` : winFail(r, "a window"), r.ok ? "done" : "error")
   }
-  /** Resume an existing session, in its own folder. Into the wall when tmux is available. */
+  /** Resume an existing session in its own OS terminal window. */
   function resumeInWindow(id: string) {
     const row = allSessions().find((s) => s.id === id) ?? sessions().find((s) => s.id === id)
-    if (tmuxOn()) return addToWall(["-s", id], row?.title ?? "session", row?.cwd)
     const r = engine.openInteractive(["-s", id], row?.cwd)
     pushToast(r.ok ? `opened session (${r.backend})` : winFail(r, "the session"), r.ok ? "done" : "error")
   }
-  /** Open a read-only watch window/pane for a background agent (its own terminal, leaves chat alone). */
+  // Every "open" below opens a real OS terminal window (Terminal.app on macOS) — direct device control.
+  /** Open a read-only watch window for a background agent (its own terminal, leaves chat alone). */
   function openAgentWindow(id: string) {
-    if (tmuxOn()) return addToWall(["attach", id], "watch")
     const r = engine.popoutAgent(id)
     pushToast(r.ok ? `watching agent (${r.backend})` : winFail(r, "a watch window"), r.ok ? "done" : "error")
   }
   /** Open the dashboard in its OWN terminal window (not inline), so the chat view stays put. */
   function openDashboardWindow() {
-    if (tmuxOn()) return addToWall(["--view", "dashboard"], "dashboard")
     const r = engine.openInteractive(["--view", "dashboard"])
     pushToast(r.ok ? `opened dashboard (${r.backend})` : winFail(r, "the dashboard"), r.ok ? "done" : "error")
   }
   /** Open the team console (Ctrl+T) in its own terminal window. */
   function openConsoleWindow() {
-    if (tmuxOn()) return addToWall(["--view", "console"], "console")
     const r = engine.openInteractive(["--view", "console"])
     pushToast(r.ok ? `opened console (${r.backend})` : winFail(r, "the console"), r.ok ? "done" : "error")
   }
-  /** Fan out a swarm of independent agents (one task per line) + a watch pane/window for each. */
+  /** Fan out a swarm of independent agents (one task per line) + a watch window for each. */
   function launchSwarm(tasks: string[]) {
     const jobs = tasks
       .map((t) => t.trim())
@@ -1054,11 +1014,7 @@ export function createAppStore(engine: Engine, version = "dev", initialView?: "d
       .map((t) => ({ description: t.slice(0, 40), prompt: t }))
     if (!jobs.length) return
     const ids = engine.spawnAgents(jobs)
-    for (const id of ids) {
-      if (tmuxOn()) void engine.wallOpen(["attach", id], "swarm")
-      else engine.popoutAgent(id) // read-only watch window per agent
-    }
-    refreshWall()
+    for (const id of ids) engine.popoutAgent(id) // read-only watch window per agent
     pushToast(`spawned ${ids.length} swarm agent(s)`, "done")
   }
   /** Ask Friday to form a coordinated team for a goal (it decides the roles via the team tool). */
@@ -1675,7 +1631,6 @@ export function createAppStore(engine: Engine, version = "dev", initialView?: "d
     pushToast("dismissed team", "input")
   }
   function popoutAgent(sessionId: string) {
-    if (tmuxOn()) return addToWall(["attach", sessionId], titleOf(sessionId))
     const r = engine.popoutAgent(sessionId)
     pushToast(r.ok ? `opened agent window via ${r.backend}` : winFail(r, "the agent window"), r.ok ? "done" : "input")
   }
@@ -1874,14 +1829,6 @@ export function createAppStore(engine: Engine, version = "dev", initialView?: "d
     agentDefs,
     teamDefs,
     refreshSessions,
-    // tmux wall (control center)
-    tmuxOn,
-    wallPanes,
-    refreshWall,
-    removeWallPane,
-    closeWall,
-    arrangeWall,
-    viewWall,
     trustOpen,
     trustCwd,
     declineTrust,

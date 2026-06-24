@@ -23,7 +23,6 @@ export { systemPrompt } from "./prompt.ts"
 export { bashRisk, matchesList } from "./safety.ts"
 export { type PresenceRow, type SessionRow, SessionStore } from "./sessions.ts"
 export { loadSkills, type Skill, type SkillInfo } from "./skills.ts"
-export type { TmuxLayout, TmuxPane } from "./tmux.ts"
 export {
   compareSemver,
   detectInstallMethod,
