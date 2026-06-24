@@ -16,11 +16,12 @@ import { Pill, SectionLabel, Tabs } from "./ui.tsx"
  *   SESSIONS — live sessions running this run, grouped by folder.  click jump · ↗ window · ✗ remove
  *   TEAMS    — Friday orchestrates one goal (shared board).        click open console · ✗ dismiss
  *   SWARM    — independent agents on different tasks.              click watch · adopt · stop · ✗ remove
+ *   AGENTS   — reusable agents + teams to delegate to.            ⏎ delegate · + new (AI wizard)
  *
  * Past sessions live in /resume (Ctrl+Y). Launching opens work in its OWN window (new chat/session
  * interactive; team/swarm watch windows), so this view stays the console and updates live.
  */
-const TABS = ["Sessions", "Teams", "Swarm"] as const
+const TABS = ["Sessions", "Teams", "Swarm", "Agents"] as const
 
 /** A clickable chip used for per-row actions (adopt/stop/↗). */
 function Chip(props: { label: string; onClick: () => void; fg?: string }) {
@@ -63,8 +64,9 @@ export function Dashboard() {
   const app = useApp()
   const [tab, setTab] = createSignal(0)
   const [sel, setSel] = createSignal(0)
-  // inline launcher input: "" (none) | "team" | "swarm"
-  const [compose, setCompose] = createSignal<"" | "team" | "swarm">("")
+  // inline launcher input: "" (none) | "team" | "swarm" | "agent" | "teamdef"
+  const [compose, setCompose] = createSignal<"" | "team" | "swarm" | "agent" | "teamdef">("")
+  const [composeName, setComposeName] = createSignal("")
   const [draft, setDraft] = createSignal("")
   // Chrome surface — brand amber, never the per-mode chat accent.
   const accent = () => theme.brand
@@ -74,7 +76,11 @@ export function Dashboard() {
   const sessions = () => grouped().flat
   const teams = () => (app.team() ? [app.team()!] : [])
   const swarm = () => app.tasks()
-  const len = () => [sessions().length, teams().length, swarm().length][tab()]!
+  // Agents tab: a flat selectable list of agent defs followed by team defs.
+  const agentList = () => app.agentDefs().filter((a) => a.name !== "friday")
+  const teamList = () => app.teamDefs()
+  const agentsTabLen = () => agentList().length + teamList().length
+  const len = () => [sessions().length, teams().length, swarm().length, agentsTabLen()][tab()]!
   const clampedSel = () => Math.min(sel(), Math.max(0, len() - 1))
 
   const swarmTail = createMemo<ViewItem[]>(() => {
@@ -109,8 +115,11 @@ export function Dashboard() {
     const v = draft().trim()
     if (compose() === "team" && v) app.launchTeam(v)
     if (compose() === "swarm" && v) app.launchSwarm(v.split(";"))
+    if (compose() === "agent" && v) app.launchAgent(composeName(), v)
+    if (compose() === "teamdef") app.launchTeamDef(composeName(), v)
     setDraft("")
     setCompose("")
+    setComposeName("")
   }
 
   useKeyboard((key) => {
@@ -144,10 +153,24 @@ export function Dashboard() {
       if (enter) return app.visitAgent(t.id)
       if (key.name === "s") return app.stopAgent(t.id)
       if (key.name === "d") return app.removeAgent(t.id)
+    } else if (tab() === 3) {
+      if (!enter) return
+      const i = clampedSel()
+      const agents = agentList()
+      if (i < agents.length) {
+        setComposeName(agents[i]!.name)
+        setCompose("agent")
+      } else {
+        const t = teamList()[i - agents.length]
+        if (!t) return
+        setComposeName(t.name)
+        setCompose("teamdef")
+      }
     }
   })
 
-  const tabCount = (i: number) => [sessions().length, teams().length, swarm().length][i]!
+  const tabCount = (i: number) =>
+    [sessions().length, teams().length, swarm().length, agentsTabLen()][i]!
 
   return (
     <box flexDirection="column" flexGrow={1} backgroundColor={theme.bgPanel} paddingLeft={2} paddingRight={2}>
@@ -163,7 +186,13 @@ export function Dashboard() {
           onSelect={(k) => switchTab(Number(k))}
         />
         <box flexGrow={1} />
-        <text fg={theme.textFaint}>esc back</text>
+        <text fg={theme.textFaint}>
+          {(() => {
+            const w = app.engine.windowBackend()
+            return w.osWindows ? `↗ ${w.backend}` : "↗ in-TUI only"
+          })()}
+          {"  ·  esc back"}
+        </text>
       </box>
 
       {/* tmux WALL control center — real, tile-able terminals. Launching anything from the tabs below
@@ -351,6 +380,9 @@ export function Dashboard() {
                           {(t.title || t.description).slice(0, 18)}
                         </text>
                         <box flexGrow={1} />
+                        <Show when={app.sessionCost()[t.id]}>
+                          <text fg={theme.textFaint}>${(app.sessionCost()[t.id] ?? 0).toFixed(3)}</text>
+                        </Show>
                         <Chip label="adopt" onClick={() => app.visitAgent(t.id)} />
                         <Show when={t.status === "running"}>
                           <Chip label="stop" fg={theme.warning} onClick={() => app.stopAgent(t.id)} />
@@ -375,6 +407,83 @@ export function Dashboard() {
                 </Show>
               </box>
             </box>
+          </box>
+        </Match>
+
+        {/* AGENTS — reusable agents + teams you can delegate to */}
+        <Match when={tab() === 3}>
+          <box flexDirection="column" flexGrow={1} paddingLeft={1} paddingRight={1}>
+            <box flexDirection="row" alignItems="center" paddingBottom={1}>
+              <text fg={theme.textFaint}>reusable agents & teams — ⏎ delegate · + new (AI wizard)</text>
+              <box flexGrow={1} />
+              <Pill label="＋ new agent" onClick={() => app.runCommand("agent")} />
+              <Pill label="＋ new team" onClick={() => app.runCommand("team")} />
+            </box>
+            <Show when={compose() === "agent" || compose() === "teamdef"}>
+              <box flexDirection="column" paddingBottom={1}>
+                <text fg={theme.textFaint}>
+                  {compose() === "agent"
+                    ? `task for "${composeName()}" (⏎ delegate · esc cancel)`
+                    : `goal for "${composeName()}" team — blank uses its default (⏎ launch · esc cancel)`}
+                </text>
+                <box backgroundColor={theme.bgComposer} paddingLeft={1} paddingRight={1}>
+                  <input
+                    value={draft()}
+                    onInput={setDraft}
+                    onSubmit={submitCompose}
+                    focused
+                    placeholder={compose() === "agent" ? "e.g. review the auth module for bugs" : "e.g. add OAuth login"}
+                    placeholderColor={theme.textFaint}
+                  />
+                </box>
+              </box>
+            </Show>
+            <SectionLabel text={`AGENTS (${agentList().length})`} />
+            <For each={agentList()}>
+              {(a, i) => (
+                <Row
+                  selected={i() === clampedSel()}
+                  onSelect={() => setSel(i())}
+                  onActivate={() => {
+                    setComposeName(a.name)
+                    setCompose("agent")
+                  }}
+                >
+                  <text fg={a.color ?? theme.textMuted}>{a.glyph ?? "◇"}</text>
+                  <text fg={i() === clampedSel() ? theme.text : theme.textMuted}>{a.name}</text>
+                  <box flexGrow={1} />
+                  <text fg={theme.textFaint}>
+                    {[a.model ?? "session model", a.posture ?? "default", a.source].join(" · ")}
+                  </text>
+                </Row>
+              )}
+            </For>
+            <box marginTop={1} />
+            <SectionLabel text={`TEAMS (${teamList().length})`} />
+            <For each={teamList()}>
+              {(t, i) => {
+                const idx = () => agentList().length + i()
+                return (
+                  <Row
+                    selected={idx() === clampedSel()}
+                    onSelect={() => setSel(idx())}
+                    onActivate={() => {
+                      setComposeName(t.name)
+                      setCompose("teamdef")
+                    }}
+                  >
+                    <text fg={theme.brand}>▦</text>
+                    <text fg={idx() === clampedSel() ? theme.text : theme.textMuted}>{t.name}</text>
+                    <box flexGrow={1} />
+                    <text fg={theme.textFaint}>
+                      {t.members.length} roles · {t.source}
+                    </text>
+                  </Row>
+                )
+              }}
+            </For>
+            <box flexGrow={1} />
+            <text fg={theme.textFaint}>⏎ / click delegate · + new agent/team (AI wizard) · esc back</text>
           </box>
         </Match>
       </Switch>

@@ -121,6 +121,20 @@ function openLinuxTerminal(cmds: string[]): { opened: number; backend: string; e
 
 type WinResult = { ok: boolean; backend: string; opened: number; error?: string }
 
+/** Detect the OS-window backend for THIS environment without opening anything — so the dashboard can
+ * tell the user what "↗ window" will use (and whether it's available at all). */
+export function detectWindowBackend(): { backend: string; osWindows: boolean } {
+  if (process.env.TMUX) return { backend: "tmux", osWindows: true }
+  if (process.platform === "darwin") {
+    return { backend: process.env.TERM_PROGRAM === "iTerm.app" ? "iTerm" : "Terminal.app", osWindows: true }
+  }
+  if (process.platform === "linux") {
+    const found = ["wezterm", "gnome-terminal", "konsole", "x-terminal-emulator"].find((b) => Bun.which(b))
+    return { backend: found ?? "none", osWindows: !!found }
+  }
+  return { backend: "none", osWindows: false }
+}
+
 /** Open one window per command, picking the backend for the current environment. */
 function openWindows(cmds: string[], tile: boolean): WinResult {
   if (!cmds.length) return { ok: false, backend: "none", opened: 0 }

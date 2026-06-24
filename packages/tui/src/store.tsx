@@ -271,6 +271,8 @@ export function createAppStore(engine: Engine, version = "dev") {
   const [pinnedFiles, setPinnedFiles] = createSignal<string[]>(engine.contextInfo().pinned)
   const [contextModalOpen, setContextModalOpen] = createSignal(false)
   const [skills, setSkills] = createSignal(engine.listSkills())
+  const [agentDefs, setAgentDefs] = createSignal(engine.listAgents())
+  const [teamDefs, setTeamDefs] = createSignal(engine.listTeams())
   const [mcpServers, setMcpServers] = createSignal(engine.listMcpServers())
   const [sessions, setSessions] = createSignal<SessionItem[]>(engine.listSessions())
   const [allSessions, setAllSessions] = createSignal(engine.listAllSessions())
@@ -473,6 +475,8 @@ export function createAppStore(engine: Engine, version = "dev") {
     setContextFiles(engine.contextInfo().files)
     setPinnedFiles(engine.contextInfo().pinned)
     setSkills(engine.listSkills())
+    setAgentDefs(engine.listAgents())
+    setTeamDefs(engine.listTeams())
   }
 
   const pinContextFile = (rel: string) => {
@@ -1028,12 +1032,26 @@ export function createAppStore(engine: Engine, version = "dev") {
     refreshWall()
     pushToast(`spawned ${ids.length} swarm agent(s)`, "done")
   }
-  /** Ask Friday to form a coordinated team for a goal (it decides the roles via spawn_team). */
+  /** Ask Friday to form a coordinated team for a goal (it decides the roles via the team tool). */
   function launchTeam(goal: string) {
     const g = goal.trim()
     if (!g) return
     setView("shell")
-    submit(`Form an agent team to accomplish this goal. Decide the roles yourself and call spawn_team.\n\nGoal: ${g}`)
+    submit(`Form an agent team to accomplish this goal. Decide the roles yourself and call the team tool.\n\nGoal: ${g}`)
+  }
+  /** Delegate a task to a named agent def (background session). */
+  function launchAgent(name: string, task: string) {
+    const t = task.trim()
+    if (!t) return
+    setView("shell")
+    submit(`Delegate this to the "${name}" agent: call delegate({ agent: "${name}", background: true, prompt }).\n\nTask: ${t}`)
+  }
+  /** Launch a reusable team def toward a goal (roster pre-filled from the team def). */
+  function launchTeamDef(name: string, goal: string) {
+    const prompt = engine.teamPromptFor(name, goal.trim())
+    if (!prompt) return
+    setView("shell")
+    submit(prompt)
   }
   function setEffort(e: Effort) {
     setEffortSig(e)
@@ -1052,6 +1070,8 @@ export function createAppStore(engine: Engine, version = "dev") {
     { name: "mic", description: "talk to Friday — on-device speech-to-text (Ctrl+R)" },
     { name: "mcp", description: "view / add / remove MCP servers" },
     { name: "skills", description: "browse installed skills and run one" },
+    { name: "agent", description: "create a reusable agent (AI wizard) — writes .friday/agents/<name>.md" },
+    { name: "team", description: "create a reusable team (AI wizard) — writes .friday/teams/<name>.json" },
     { name: "compact", description: "summarize old context to free space" },
     { name: "init", description: "scan the repo and write a FRIDAY.md guide (runs as a prompt)" },
     { name: "context", description: "show what's in the context window" },
@@ -1212,6 +1232,22 @@ export function createAppStore(engine: Engine, version = "dev") {
           "/security-review",
         )
         return true
+      case "agent": {
+        // AI wizard: Friday interviews the user and writes a reusable agent def.
+        submitRaw(
+          `Help me create a new reusable agent definition. Ask me (with ask_user) for: the agent's purpose, what tools/permissions it needs (read-only or able to edit/run), a preferred model if any, and a short name. Then write the def to .friday/agents/<name>.md with YAML frontmatter (name, description, optional tools, model, skills, mcp, posture: plan|default|yolo) followed by the system prompt as the body. Keep the prompt focused. ${args ? `\n\nStarting hint: ${args}` : ""}`,
+          "/agent new",
+        )
+        return true
+      }
+      case "team": {
+        // AI wizard: Friday interviews the user and writes a reusable team def.
+        submitRaw(
+          `Help me create a new reusable team definition. Ask me (with ask_user) for: the team's goal/purpose, the roles needed and which agent backs each (see the Sub-agents list), and a short name. Then write the def to .friday/teams/<name>.json as { "name", "description", "members": [{ "role", "agent", "prompt" }] }. ${args ? `\n\nStarting hint: ${args}` : ""}`,
+          "/team new",
+        )
+        return true
+      }
       case "context":
       case "usage":
       case "stats": {
@@ -1800,6 +1836,10 @@ export function createAppStore(engine: Engine, version = "dev") {
     resumeInWindow,
     launchSwarm,
     launchTeam,
+    launchAgent,
+    launchTeamDef,
+    agentDefs,
+    teamDefs,
     refreshSessions,
     // tmux wall (control center)
     tmuxOn,
@@ -1848,6 +1888,7 @@ export function createAppStore(engine: Engine, version = "dev") {
     sessionRunning,
     sessionNeedsInput,
     sessionTokenCount,
+    sessionCost,
     sessionActivity,
     toggleMode,
     submit,

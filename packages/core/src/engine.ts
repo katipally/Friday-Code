@@ -36,7 +36,7 @@ import { TeamBoard } from "./board.ts"
 import { type CustomCommand, loadCommands } from "./commands.ts"
 import { loadConfig, saveConfig } from "./config.ts"
 import { type CronJob, loadCron, parseInterval, saveCron } from "./cron.ts"
-import { openFleetWindows, openInteractiveWindow, openTerminalRunning } from "./fleet.ts"
+import { detectWindowBackend, openFleetWindows, openInteractiveWindow, openTerminalRunning } from "./fleet.ts"
 import {
   cancelMic,
   type InputDevice,
@@ -60,7 +60,8 @@ import {
   type SpawnOpts,
   type TeamMemberSpec,
 } from "./runner.ts"
-import { resolveAgent } from "./agents.ts"
+import { type AgentDef, resolveAgent, resolveAgents } from "./agents.ts"
+import { type TeamDef, resolveTeam, resolveTeams } from "./teams.ts"
 import { SessionStore } from "./sessions.ts"
 import type { SkillInfo } from "./skills.ts"
 import type { StreamFn } from "./stream.ts"
@@ -486,6 +487,10 @@ export class Engine {
   openInteractive(args: string[] = [], cwd?: string): { ok: boolean; backend: string; opened: number; error?: string } {
     return openInteractiveWindow(args, cwd ?? this.currentCwd())
   }
+  /** Which OS-window backend this environment will use (for the dashboard to inform the user). */
+  windowBackend(): { backend: string; osWindows: boolean } {
+    return detectWindowBackend()
+  }
 
   // ---- tmux control center ("the wall"): real, tile-able, closable terminals managed from the dashboard ----
   /** Is tmux available? When false, the dashboard hides wall controls and uses separate windows. */
@@ -795,6 +800,26 @@ export class Engine {
   }
   listSkills(): SkillInfo[] {
     return this.focused().listSkills()
+  }
+  /** Agent defs available to delegate to (built-ins + on-disk), for the Agents dashboard tab. */
+  listAgents(): AgentDef[] {
+    return resolveAgents(this.focused().currentRoots())
+  }
+  /** Reusable team defs (built-ins + on-disk), for the Agents dashboard tab and /team. */
+  listTeams(): TeamDef[] {
+    return resolveTeams(this.focused().currentRoots())
+  }
+  /** Launch a reusable team by name toward `goal`: delegates to Friday with the roster pre-filled. */
+  teamPromptFor(name: string, goal: string): string | undefined {
+    const def = resolveTeam(name, this.focused().currentRoots())
+    if (!def) return undefined
+    const roster = def.members
+      .map((m) => `- ${m.role}${m.agent ? ` (agent: ${m.agent})` : ""}: ${m.prompt}`)
+      .join("\n")
+    return (
+      `Form the "${def.name}" team and call the team tool. Goal: ${goal || def.description}\n` +
+      `Use these members (role, agent, focus):\n${roster}`
+    )
   }
   listCommands(): CustomCommand[] {
     return loadCommands(this.focused().currentRoots())
