@@ -58,6 +58,9 @@ export type { SessionStats } from "./runner.ts"
 export type { StreamFn } from "./stream.ts"
 
 const now = () => Date.now()
+/** Hard cap on subagent nesting (root = depth 0). Bounds runaway recursive delegation; budget caps
+ * bound cost on top of this. */
+const MAX_AGENT_DEPTH = 3
 
 export interface EngineOptions {
   cwd: string
@@ -94,8 +97,12 @@ export class Engine {
   private modelCost?: { input: number; output: number }
 
   private runners = new Map<string, SessionRunner>()
-  /** sessionIds that are agent-spawned background tasks (vs user sessions), with their description. */
-  private taskMeta = new Map<string, { description: string; createdAt: number }>()
+  /** sessionIds that are agent-spawned (sub)agents (vs user sessions). `agentName` is the subagent
+   * type (for the Agents panel); `parentId`/`rootId` place it in its session's agent tree. */
+  private taskMeta = new Map<
+    string,
+    { description: string; createdAt: number; agentName?: string; parentId?: string; rootId?: string }
+  >()
   /** follow-up prompts queued for a background task while it was busy; drained when it goes idle */
   private taskQueue = new Map<string, string[]>()
   private focusedId!: string
@@ -123,6 +130,7 @@ export class Engine {
     projectPermissions: (root) => projectPermissions(root),
     persistPermission: (root, rule) => persistPermission(root, rule),
     spawnTask: (prompt, description, opts) => this.spawnTask(prompt, description, opts),
+    spawnAgent: (prompt, description, opts) => this.spawnAgent(prompt, description, opts),
     sendToTask: (id, text) => this.sendToTask(id, text),
     taskList: () => this.taskList(),
     stopTask: (id) => this.stopTask(id),
@@ -210,22 +218,90 @@ export class Engine {
    * `worktree` is set, the task first enters an isolated git worktree of that name (parallel writable
    * work that won't collide with the main checkout or other tasks). */
   spawnTask(prompt: string, description: string, opts?: SpawnOpts): string {
-    const roots = this.focused().currentRoots()
-    const title = (description || "task").slice(0, 60)
+    return this.spawnAgent(prompt, description, opts).id
+  }
+  /**
+   * Spawn a (sub)agent as a child runner placed in its parent's agent tree, configured from its agent
+   * def (model, tools, posture, permission). Returns its id plus a `done` promise that resolves to its
+   * final summary text — inline delegation awaits it; background callers ignore it. Both variants are
+   * real, switchable runners that bubble permission/ask prompts to the user (no deadlock).
+   */
+  spawnAgent(prompt: string, description: string, opts?: SpawnOpts): { id: string; done: Promise<string> } {
+    const parentId = opts?.parentId
+    const depth = parentId ? this.depthOf(parentId) + 1 : 0
+    if (depth > MAX_AGENT_DEPTH)
+      return {
+        id: "",
+        done: Promise.resolve("Delegation depth limit reached — do this work directly instead of spawning a subagent."),
+      }
+    const roots = (parentId && this.runners.get(parentId)?.currentRoots()) || this.focused().currentRoots()
+    const title = (opts?.agentName ? `${opts.agentName} · ${description}` : description || "task").slice(0, 60)
     const runner = this.makeRunner(this.store.buildRow(roots, crypto.randomUUID(), now(), title))
-    this.taskMeta.set(runner.sessionId, { description, createdAt: now() })
-    // Budget caps hard-stop the session; an optional posture pins its permission mode.
+    const rootId = parentId ? this.rootOf(parentId) : runner.sessionId
+    this.taskMeta.set(runner.sessionId, {
+      description,
+      createdAt: now(),
+      agentName: opts?.agentName,
+      parentId,
+      rootId,
+    })
+    // Apply the agent def: budget caps hard-stop the run; posture/autoDeny set its permission stance;
+    // toolNames + system scope what it can do and who it is.
     runner.configureAgent({
       posture: opts?.posture,
+      model: opts?.model,
       budgetUsd: opts?.budgetUsd,
       budgetTokens: opts?.budgetTokens,
+      toolNames: opts?.toolNames,
+      system: opts?.system,
+      agentName: opts?.agentName,
+      autoDeny: opts?.autoDeny,
     })
-    void (async () => {
-      if (opts?.worktree) await runner.enterWorktree(opts.worktree)
-      await runner.runPrompt(prompt)
+    const done = (async () => {
+      try {
+        if (opts?.worktree) await runner.enterWorktree(opts.worktree)
+        await runner.runPrompt(prompt)
+        return runner.lastAssistantText() || "(no result)"
+      } catch (e: any) {
+        return `Subagent error: ${e?.message ?? e}`
+      }
     })()
     this.emitTasks()
-    return runner.sessionId
+    return { id: runner.sessionId, done }
+  }
+  /** The top user-session id a (sub)agent belongs to (itself if it's a root user session). */
+  private rootOf(id: string): string {
+    return this.taskMeta.get(id)?.rootId ?? id
+  }
+  /** Nesting depth of a runner (root user session = 0). */
+  private depthOf(id: string): number {
+    let depth = 0
+    let cur: string | undefined = id
+    const seen = new Set<string>()
+    while (cur && this.taskMeta.has(cur) && !seen.has(cur)) {
+      seen.add(cur)
+      depth++
+      cur = this.taskMeta.get(cur)!.parentId
+    }
+    return depth
+  }
+  /** Emit the focused session's agent tree (main + subagents) for the Agents panel. */
+  private emitAgents(): void {
+    const root = this.rootOf(this.focusedId)
+    const items: { id: string; name: string; parentId?: string; depth: number; isMain: boolean }[] = [
+      { id: root, name: "main", depth: 0, isMain: true },
+    ]
+    for (const [id, m] of this.taskMeta) {
+      if (m.rootId !== root) continue
+      items.push({
+        id,
+        name: m.agentName || m.description || "agent",
+        parentId: m.parentId,
+        depth: this.depthOf(id),
+        isMain: false,
+      })
+    }
+    this.dispatch(this.focusedId, { type: "agents", rootId: root, items })
   }
   taskList(): { id: string; title: string; description: string; status: "running" | "done"; summary?: string }[] {
     return [...this.taskMeta.entries()].map(([id, meta]) => {
@@ -348,6 +424,7 @@ export class Engine {
   }
   private emitTasks(): void {
     this.dispatch(this.focusedId, { type: "tasks", items: this.taskList() })
+    this.emitAgents()
   }
 
   // ---- cron (recurring background tasks) ----
@@ -489,6 +566,7 @@ export class Engine {
         contextWindow: this.contextWindow,
       })
     this.focused().emitState(true)
+    this.emitAgents()
     this.dispatch(this.focusedId, { type: "ready", needsModel: !this.model || !this.providerId })
   }
 
@@ -627,6 +705,7 @@ export class Engine {
     this.discardIfEmpty(prev) // throw away the empty session we just left
     this.applySessionSelection(id) // restore this session's model/provider/mode/effort
     runner.emitState(true)
+    this.emitAgents() // re-scope the Agents panel to the newly-focused session's tree
   }
   /** Add a directory to the focused session's workspace (no new session). */
   addRoot(dir: string): void {

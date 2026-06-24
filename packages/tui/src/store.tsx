@@ -96,6 +96,8 @@ export type PlanEntry = { id: string; title: string; text: string }
 export type SessionItem = { id: string; title: string; cwd: string; roots: string[] }
 export type ChangedFile = { path: string; status: string; added: number; removed: number; kind?: "file" | "dir" }
 export type TaskRow = { id: string; title: string; description: string; status: "running" | "done"; summary?: string }
+/** One node in the focused session's agent tree (main agent + spawned subagents). */
+export type AgentNode = { id: string; name: string; parentId?: string; depth: number; isMain: boolean }
 
 /** Prefix of the synthetic prompt sent when a plan is accepted — recognized so history replay renders
  * it as a flow breaker instead of a user bubble (keeps plan execution looking continuous). */
@@ -220,6 +222,8 @@ export function createAppStore(engine: Engine, version = "dev") {
   const [compactionView, setCompactionView] = createSignal<string | null>(null)
   // Background tasks (agent-spawned async sessions) — global, not per focused session.
   const [tasks, setTasks] = createSignal<TaskRow[]>([])
+  // The focused session's agent tree (main + subagents) — drives the Agents panel.
+  const [agents, setAgents] = createSignal<AgentNode[]>([])
   // Optional usage budget (tokens/$) — drives a warning in the context panel when exceeded.
   const [budget, setBudget] = createSignal<{ tokens?: number; usd?: number } | null>(engine.userConfig().budget ?? null)
   // Per-session unread marker: the item count last seen while focused on a session.
@@ -755,6 +759,10 @@ export function createAppStore(engine: Engine, version = "dev") {
       case "tasks":
         // Global (not per-session): the agent-spawned background tasks panel.
         setTasks(e.items)
+        break
+      case "agents":
+        // The focused session's agent tree (main + subagents) — for the Agents panel.
+        setAgents(e.items)
         break
       case "compaction-start":
         setKey(setSessionCompacting, sid, true)
@@ -1754,6 +1762,7 @@ export function createAppStore(engine: Engine, version = "dev") {
     todos,
     changedFiles,
     tasks,
+    agents,
     sessionItems,
     budget,
     diagnostics,

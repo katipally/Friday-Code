@@ -13,10 +13,14 @@ function skillsSection(skills?: SkillSummary[]): string {
   return `\n# Skills\nThese skills are available — call skill({ name }) to load one's instructions when it fits:\n${lines.join("\n")}`
 }
 
-function agentsSection(): string {
+function agentsSection(agents?: { name: string; description: string }[]): string {
+  const types = agents?.length
+    ? `\nAvailable subagent types (pass as subagent_type):\n${agents.map((a) => `- ${a.name}: ${a.description}`).join("\n")}`
+    : ""
   return (
     `\n# Sub-agents\n` +
-    `Delegate read-only investigation with delegate({ prompt, background: false }) — it spawns a focused sub-agent that searches/reads the codebase and returns just the answer, keeping your own context clean. Reach for it whenever a question means sweeping many files ("where is X handled", "how does Y work", "find everything that calls Z") instead of reading them all yourself.`
+    `Delegate a self-contained piece of work with agent({ description, prompt, subagent_type }). The subagent runs in its OWN context with its own tools and reports back, keeping your context clean. Inline by default — you wait for its summary; pass background: true to run it detached (returns a task id; manage with task_status / task_list / task_stop / send_to_task). You can issue several inline agent calls in ONE turn to fan them out in parallel. Reach for 'explore' for read-only investigation ("where is X handled", "how does Y work"), 'plan' to draft an approach, 'review' to check a diff, or 'general' for anything else. Don't poll in a loop.` +
+    types
   )
 }
 
@@ -57,6 +61,10 @@ export function systemPrompt(opts: {
   roots?: string[]
   mode: ModeId
   context?: string
+  /** when running as a spawned subagent: its role/system prompt, rendered prominently. */
+  agentRole?: string
+  /** subagent types available for delegation (for the Sub-agents section). */
+  agents?: { name: string; description: string }[]
   skills?: SkillSummary[]
   deferredTools?: { name: string; description: string }[]
   memory?: string
@@ -67,6 +75,9 @@ export function systemPrompt(opts: {
   const extraRoots = (opts.roots ?? []).slice(1)
   return [
     opts.context ? `# Project context\n${opts.context}\n` : "",
+    opts.agentRole
+      ? `# Your role (subagent)\n${opts.agentRole}\nYou were delegated this task by the main agent. Do the work, then end with a concise summary it can use — that final message is what gets returned.\n`
+      : "",
     "You are Friday, an expert AI software engineer working inside Friday Code, a terminal coding agent.",
     "",
     "# Behavior",
@@ -91,12 +102,12 @@ export function systemPrompt(opts: {
     "- todo_write: for any task with 3+ steps, maintain a live task list. Pass the FULL list each call; keep one item 'active', mark items 'done' as you finish. This keeps the user oriented.",
     "- Language server (when available): lsp_hover / lsp_definition / lsp_symbols give real type info, jump-to-def, and symbol search. After you edit a file, its compiler diagnostics are appended to the tool result automatically — read them and fix real errors before moving on.",
     "- For web/UI work you can drive the user's real browser: load the browser_* tools via tool_search, then browser_navigate + browser_snapshot to inspect a page and browser_click/browser_type to act. For OS-level control (only when the task truly needs it) the computer_* tools exist if the user has installed that backend. ALWAYS computer_screenshot FIRST and read the returned image to locate elements before computer_click/computer_type — never click at guessed coordinates blind — then screenshot again to verify the action landed (the OS can silently drop input if permissions are missing; the screenshot is your only proof it worked). If a screenshot/action returns an error about support or permissions, STOP and tell the user exactly what to fix rather than continuing. They prompt for permission unless the user is in yolo mode.",
-    "- Sub-agents — DELEGATE a focused piece to a read-only sub-agent: { background: false } runs inline and returns the answer with clean context (best for investigation — 'where is X', 'how does Y work'); background by default returns a task id you check with task_status. For longer detached work use task_create (returns a task id; manage with task_list / task_status / task_stop / send_to_task). Cap spend with `budget` ('$0.20' or a token count). Don't poll in a loop.",
+    "- Sub-agents — agent({ description, prompt, subagent_type }) delegates a self-contained piece to a typed subagent (see the Sub-agents section). Inline by default (you get its summary); background: true detaches it (manage with task_status / task_list / task_stop / send_to_task). Cap spend with `budget` ('$0.20' or a token count). Don't poll in a loop.",
     opts.memory
       ? `\n# Memory\nDurable facts you saved previously (use them; update via the memory tool when they change):\n${opts.memory}`
       : "",
     skillsSection(opts.skills),
-    agentsSection(),
+    agentsSection(opts.agents),
     deferredToolsSection(opts.deferredTools),
     providerOverlay(opts.providerId),
     outputStyleOverlay(opts.outputStyle),

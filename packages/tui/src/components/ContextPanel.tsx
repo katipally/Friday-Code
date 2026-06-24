@@ -134,6 +134,8 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
   const [filesNew, setFilesNew] = createSignal(false)
   const [plansOpen, setPlansOpen] = createSignal(false)
   const [plansNew, setPlansNew] = createSignal(false)
+  const [agentsOpen, setAgentsOpen] = createSignal(true)
+  const [agentHov, setAgentHov] = createSignal(-1)
 
   // Auto-reveal Todos/Files when their backing data changes (signature compare).
   const todoSig = () =>
@@ -381,7 +383,49 @@ export function ContextPanel(props: { fullscreen?: boolean; widthOverride?: numb
 
             <Rule width={innerW()} />
 
-            {/* ── 4. PLANS · TODOS · FILES ── */}
+            {/* ── 4. AGENTS · PLANS · TODOS · FILES ── */}
+            {/* The session's agent tree: the main agent + any subagents it spawned. Click one to switch
+                the chat view to it (and back to main) — all within this same session. */}
+            <Section
+              label="agents"
+              count={app.agents().length}
+              open={agentsOpen()}
+              onToggle={() => setAgentsOpen(!agentsOpen())}
+            >
+              <For each={app.agents()}>
+                {(a, i) => {
+                  const focused = () => app.activeSession() === a.id
+                  const needs = () => app.sessionNeedsInput(a.id)
+                  const running = () => app.sessionRunning(a.id)
+                  const glyph = () => (needs() ? "⚠" : running() ? "⟳" : a.isMain ? "◆" : "✓")
+                  const glyphColor = () =>
+                    needs() ? theme.warning : running() ? accent() : a.isMain ? theme.brand : theme.success
+                  const tok = () => app.sessionTokenCount(a.id)
+                  return (
+                    <box
+                      flexDirection="row"
+                      gap={1}
+                      paddingLeft={Math.min(a.depth, 3)}
+                      backgroundColor={agentHov() === i() ? theme.bgHover : "transparent"}
+                      onMouseOver={() => setAgentHov(i())}
+                      onMouseOut={() => setAgentHov(-1)}
+                      onMouseDown={() => app.switchSession(a.id)}
+                    >
+                      <text fg={focused() ? theme.brand : theme.textFaint}>{focused() ? "●" : "○"}</text>
+                      <text fg={glyphColor()}>{glyph()}</text>
+                      <text fg={focused() ? theme.text : theme.textMuted}>
+                        {truncate(a.isMain ? "main" : a.name, innerW() - 12)}
+                      </text>
+                      <box flexGrow={1} />
+                      <Show when={tok() > 0}>
+                        <text fg={theme.textFaint}>{fmtTokens(tok())}</text>
+                      </Show>
+                    </box>
+                  )
+                }}
+              </For>
+            </Section>
+
             {/* Plans proposed this session — click one to re-open the full plan + execute gate. */}
             <Section
               label="plans"

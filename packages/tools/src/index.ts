@@ -31,11 +31,11 @@ export { LSP_DEFINITION, LSP_HOVER, LSP_SYMBOLS, LSP_TOOLS } from "./builtin/lsp
 export { MEMORY_TOOL } from "./builtin/memory.ts"
 export { EXIT_PLAN } from "./builtin/plan.ts"
 export {
+  AGENT,
   CRON_CREATE,
   CRON_DELETE,
   CRON_LIST,
   CRON_TOOLS,
-  DELEGATE,
   parseBudget,
   SEND_TO_TASK,
   TASK_BG_TOOLS,

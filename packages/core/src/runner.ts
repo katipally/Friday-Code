@@ -18,6 +18,7 @@ import {
   type ToolCall,
 } from "@friday/shared"
 import {
+  AGENT,
   ASK_USER,
   CRON_CREATE,
   CRON_DELETE,
@@ -27,7 +28,6 @@ import {
   EXIT_PLAN,
   EXIT_WORKTREE,
   LSP_DEFINITION,
-  DELEGATE,
   LSP_HOVER,
   LSP_SYMBOLS,
   LSP_TOOLS,
@@ -49,6 +49,7 @@ import {
   unifiedDiff,
   WORKTREE_LIST,
 } from "@friday/tools"
+import { type AgentDef, agentSummaries, getAgent, resolveAgentTools } from "./agents.ts"
 import {
   applyFiles,
   type Checkpoint,
@@ -277,10 +278,22 @@ export interface SpawnBudget {
   budgetUsd?: number
   budgetTokens?: number
 }
-/** Options for spawning a background agent: isolation, posture, and budget. */
+/** Options for spawning a (sub)agent: isolation, posture, budget, and agent-def-derived behavior. */
 export interface SpawnOpts extends SpawnBudget {
   worktree?: string
   posture?: ModeId
+  /** the spawning runner's session id — sets the parent link + root for the agent tree. */
+  parentId?: string
+  /** display name for the Agents panel (the subagent type, e.g. "explore"). */
+  agentName?: string
+  /** model id override for this agent (omitted = inherit parent's model). */
+  model?: string
+  /** tool-name allowlist for this agent (omitted = inherit all tools). */
+  toolNames?: Set<string>
+  /** the agent's role/system prompt body, appended to the base system prompt. */
+  system?: string
+  /** never prompt for permission — deny instead (unattended background agents). */
+  autoDeny?: boolean
 }
 
 /** Shared, manager-owned services a runner needs. */
@@ -320,6 +333,9 @@ export interface RunnerHost {
   persistPermission: (root: string, rule: { category: PermissionCategory; command?: string }) => void
   /** spawn a detached background task (agent-driven session); optional isolated worktree; returns its id */
   spawnTask: (prompt: string, description: string, opts?: SpawnOpts) => string
+  /** spawn a (sub)agent as a child runner and get a handle: its id (for the tree/UI) plus a promise
+   * that resolves to its final summary text. Inline delegation awaits `done`; background ignores it. */
+  spawnAgent: (prompt: string, description: string, opts?: SpawnOpts) => { id: string; done: Promise<string> }
   /** inject a follow-up prompt into a background task (queued if it's mid-turn) */
   sendToTask: (id: string, text: string) => boolean
   /** list background tasks with status */
@@ -356,6 +372,14 @@ export class SessionRunner {
   private posturePin?: ModeId
   /** Model pinned for this session (a spawned agent's def.model); overrides the engine model. */
   private modelPin?: string
+  /** Tool-name allowlist for a spawned agent (a def's resolved tools); undefined = all tools. */
+  private toolFilter?: Set<string>
+  /** A spawned agent's role/system prompt body, appended to the base system prompt. */
+  private systemRole?: string
+  /** A spawned agent's display name (subagent type) — for the Agents panel. */
+  private agentName?: string
+  /** When set, permission-gated tools are denied without prompting (unattended background agents). */
+  private autoDeny = false
   /** input tokens the provider reported for the most recent request — the real size of the current
    * context, used to drive auto-compaction (more accurate than the char estimate). */
   private lastInputTokens = 0
@@ -771,11 +795,44 @@ export class SessionRunner {
 
   /** Configure a spawned agent: pin its permission posture, model, and a per-spawn budget hard-stop.
    * Called by the engine right after the runner is built. */
-  configureAgent(opts: { posture?: ModeId; model?: string; budgetUsd?: number; budgetTokens?: number }): void {
+  configureAgent(opts: {
+    posture?: ModeId
+    model?: string
+    budgetUsd?: number
+    budgetTokens?: number
+    toolNames?: Set<string>
+    system?: string
+    agentName?: string
+    autoDeny?: boolean
+  }): void {
     if (opts.posture) this.posturePin = opts.posture
     if (opts.model) this.modelPin = opts.model
     if (opts.budgetUsd != null) this.budgetUsd = opts.budgetUsd
     if (opts.budgetTokens != null) this.budgetTokens = opts.budgetTokens
+    if (opts.toolNames) this.toolFilter = opts.toolNames
+    if (opts.system) this.systemRole = opts.system
+    if (opts.agentName) this.agentName = opts.agentName
+    if (opts.autoDeny) this.autoDeny = true
+  }
+  /** Build the spawn options for a subagent from its def (shared by inline + background `agent` calls). */
+  private agentSpawnOpts(def: AgentDef, budget: { usd?: number; tokens?: number }, worktree?: string): SpawnOpts {
+    return {
+      parentId: this.sessionId,
+      agentName: def.name,
+      model: def.model,
+      posture: def.posture,
+      toolNames: resolveAgentTools(def, this.host.registry().list),
+      system: def.system,
+      autoDeny: def.permission === "auto-deny",
+      worktree: worktree?.trim() || undefined,
+      budgetUsd: budget.usd,
+      budgetTokens: budget.tokens,
+    }
+  }
+  /** The last assistant text — a spawned agent's "final summary", returned to the delegating agent. */
+  lastAssistantText(): string {
+    const m = [...this.messages].reverse().find((x) => x.role === "assistant" && !!(x as { text?: string }).text)
+    return (m as { text?: string } | undefined)?.text ?? ""
   }
   /** True once this session's spend has crossed its per-spawn budget (if any). */
   private overBudget(costUsd?: number): boolean {
@@ -1368,6 +1425,8 @@ export class SessionRunner {
               roots: this.roots,
               mode: this.posturePin ?? sel.mode,
               context: this.context.content + this.pinnedContent(),
+              agentRole: this.systemRole,
+              agents: agentSummaries(this.roots),
               skills: this.skills.map((s) => ({ name: s.name, description: s.description, whenToUse: s.whenToUse })),
               // Advertise deferred tools (by name) that aren't yet activated, so the model knows to search.
               deferredTools: registry.list
@@ -1387,9 +1446,12 @@ export class SessionRunner {
         tools: registry.defs.filter((d) => {
           const t = registry.get(d.name)
           if (t?.deferred && !this.activatedTools.has(d.name)) return false
+          // A spawned agent only sees its def's allowed tools (undefined = all).
+          if (this.toolFilter && !this.toolFilter.has(d.name)) return false
           // Plan mode is read-only for the filesystem/shell, but browser & computer actions are
           // permitted with a prompt (they ask in plan), so only edit/bash are hidden here.
-          if (sel.mode === "plan") return !t || (t.permission !== "edit" && t.permission !== "bash")
+          if ((this.posturePin ?? sel.mode) === "plan")
+            return !t || (t.permission !== "edit" && t.permission !== "bash")
           return d.name !== EXIT_PLAN
         }),
         effort: sel.reasoning ? sel.effort : undefined,
@@ -1486,6 +1548,30 @@ export class SessionRunner {
       // bubble now (stops its streaming caret) without ending the turn — busy stays true.
       this.emit({ type: "message-stop", id, intermediate: true })
 
+      // Parallel fan-out: kick off every inline `agent` call now so they run concurrently as child
+      // runners; the sequential loop below just awaits each one's handle. Background agents (and all
+      // other tools) are handled inline in the loop.
+      const inlineAgents = new Map<string, Promise<string>>()
+      for (const tc of toolCalls) {
+        if (tc.name !== AGENT) continue
+        const a = safeParse(tc.arguments) as {
+          prompt?: string
+          description?: string
+          subagent_type?: string
+          background?: boolean
+          budget?: string | number
+        }
+        if (a.background === true) continue
+        const def = getAgent(this.roots, a.subagent_type)
+        const budget = parseBudget(a.budget)
+        const { done } = this.host.spawnAgent(
+          a.prompt ?? "",
+          a.description ?? def.name,
+          this.agentSpawnOpts(def, budget),
+        )
+        inlineAgents.set(tc.id, done)
+      }
+
       for (const tc of toolCalls) {
         if (signal.aborted) return
 
@@ -1544,30 +1630,54 @@ export class SessionRunner {
           continue
         }
 
-        if (tc.name === TASK_CREATE || tc.name === DELEGATE) {
+        if (tc.name === AGENT) {
+          const a = safeParse(tc.arguments) as {
+            description?: string
+            prompt?: string
+            subagent_type?: string
+            background?: boolean
+            budget?: string | number
+            worktree?: string
+          }
+          const def = getAgent(this.roots, a.subagent_type)
+          const label = clip(a.description ?? def.name)
+          // Inline: the child was pre-started above; await its summary. Background: spawn now, return id.
+          if (a.background === true) {
+            const budget = parseBudget(a.budget)
+            const { id } = this.host.spawnAgent(
+              a.prompt ?? "",
+              a.description ?? def.name,
+              this.agentSpawnOpts(def, budget, a.worktree),
+            )
+            const where = a.worktree ? ` (isolated in worktree “${a.worktree}”)` : ""
+            const output = `Started background ${def.name} agent ${id} — “${label}”${where}. Check it with task_status({ id: "${id}" }).`
+            this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: output })
+            this.emit({ type: "tool-result", callId: tc.id, ok: true, output, title: `agent ${def.name}: ${label}` })
+            continue
+          }
+          const summary = (await inlineAgents.get(tc.id)) ?? "(no result)"
+          void this.hook("SubagentStop", { tool_response: summary })
+          this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: summary })
+          this.emit({
+            type: "tool-result",
+            callId: tc.id,
+            ok: true,
+            output: summary,
+            title: `agent ${def.name}: ${label}`,
+          })
+          continue
+        }
+        if (tc.name === TASK_CREATE) {
           const a = safeParse(tc.arguments) as {
             description?: string
             prompt?: string
             worktree?: string
-            background?: boolean
             budget?: string | number
           }
-          // delegate defaults to the inline subagent (reports back, clean context); background:true
-          // and task_create are detached background sessions.
-          if (tc.name === DELEGATE && a.background !== true) {
-            const summary = await this.runSubagent(a.prompt ?? "")
-            this.addMessage({ role: "tool", callId: tc.id, name: tc.name, result: summary })
-            this.emit({
-              type: "tool-result",
-              callId: tc.id,
-              ok: true,
-              output: summary,
-              title: `delegate: ${clip(a.description ?? "subagent")}`,
-            })
-            continue
-          }
           const budget = parseBudget(a.budget)
-          const id = this.host.spawnTask(a.prompt ?? "", a.description ?? "task", {
+          const { id } = this.host.spawnAgent(a.prompt ?? "", a.description ?? "task", {
+            parentId: this.sessionId,
+            agentName: "task",
             worktree: a.worktree?.trim() || undefined,
             budgetUsd: budget.usd,
             budgetTokens: budget.tokens,
@@ -2048,6 +2158,10 @@ export class SessionRunner {
     const verdict = getMode(mode).policy[cat]
     if (verdict === "allow") return "allow"
     if (verdict === "deny") return "deny"
+
+    // An auto-deny agent (unattended background work) never blocks on a human — it's denied and the
+    // agent recovers, rather than parking a prompt no one will answer.
+    if (this.autoDeny) return "deny"
 
     const requestId = this.host.nextId()
     const detail =

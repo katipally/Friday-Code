@@ -5,10 +5,10 @@ export const TASK_LIST = "task_list"
 export const TASK_STATUS = "task_status"
 export const TASK_STOP = "task_stop"
 export const SEND_TO_TASK = "send_to_task"
-// `delegate` runs a single read-only subagent inline; task_create spawns one detached
-// background agent session.
-export const DELEGATE = "delegate"
-export const TASK_BG_TOOLS = new Set([TASK_CREATE, TASK_LIST, TASK_STATUS, TASK_STOP, SEND_TO_TASK, DELEGATE])
+// `agent` delegates to a typed subagent (its own context + tools): inline (returns a summary) or
+// background (returns an id). It supersedes the old read-only `delegate` tool.
+export const AGENT = "agent"
+export const TASK_BG_TOOLS = new Set([TASK_CREATE, TASK_LIST, TASK_STATUS, TASK_STOP, SEND_TO_TASK, AGENT])
 
 /** Parse a spawn budget from `"$0.20"` (dollars) or `50000` / `"50000"` (tokens). */
 export function parseBudget(input?: string | number): { usd?: number; tokens?: number } {
@@ -102,26 +102,27 @@ export const CRON_LIST = "cron_list"
 export const CRON_DELETE = "cron_delete"
 export const CRON_TOOLS = new Set([CRON_CREATE, CRON_LIST, CRON_DELETE])
 
-export const delegateTool: Tool = {
-  name: DELEGATE,
+export const agentTool: Tool = {
+  name: AGENT,
   description:
-    "Delegate work to a read-only sub-agent. By default ({ background: false }) it runs INLINE and returns the answer with a clean context — best for read-only investigation ('where is X handled', 'how does Y work', 'find everything that calls Z'). Pass `background: true` to run it as a detached session instead (returns a task id; check with task_status). `budget` caps spend as '$0.20' or a token count like 50000. `worktree` isolates a background agent's edits.",
+    "Delegate a task to a subagent that runs in its own context with its own tools, then reports back. `subagent_type` picks the agent type (see the Sub-agents section for the available types; defaults to 'general'). By default ({ background: false }) it runs INLINE — you wait and get its final summary; great for focused investigation or a self-contained piece of work. Pass `background: true` to run it detached (returns a task id you check with task_status / manage with task_list, task_stop, send_to_task). You may issue several inline `agent` calls in ONE turn to fan them out in parallel. `budget` caps spend ('$0.20' or a token count). `worktree` isolates a background agent's edits.",
   permission: "read",
   parameters: obj(
     {
-      prompt: { type: "string", description: "the full instruction for the sub-agent" },
-      description: { type: "string", description: "short label" },
+      description: { type: "string", description: "short label for the subagent (3-5 words)" },
+      prompt: { type: "string", description: "the full instruction for the subagent" },
+      subagent_type: { type: "string", description: "agent type to use (e.g. general, explore, plan, review)" },
       background: {
         type: "boolean",
-        description: "true (default) = detached background session; false = inline, returns the answer",
+        description: "false (default) = inline, returns the summary; true = detached background agent",
       },
       budget: { type: "string", description: "optional spend cap, e.g. '$0.20' or '50000' tokens" },
-      worktree: { type: "string", description: "optional branch/worktree name to isolate edits" },
+      worktree: { type: "string", description: "optional branch/worktree name to isolate a background agent's edits" },
     },
-    ["prompt"],
+    ["description", "prompt"],
   ),
   async execute() {
-    return { output: "delegate is handled by the agent runtime." }
+    return { output: "agent is handled by the agent runtime." }
   },
 }
 
@@ -167,7 +168,7 @@ export const cronDeleteTool: Tool = {
 }
 
 export const TASK_BG_TOOL_LIST: Tool[] = [
-  delegateTool,
+  agentTool,
   taskCreateTool,
   taskListTool,
   taskStatusTool,

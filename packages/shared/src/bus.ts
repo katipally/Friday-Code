@@ -67,6 +67,13 @@ export type EngineEventBody =
       type: "tasks"
       items: { id: string; title: string; description: string; status: "running" | "done"; summary?: string }[]
     }
+  /** The agent tree for the focused session's root — the main agent plus any subagents it spawned.
+   * Drives the sidebar "Agents" panel; selecting one switches the chat view to it (same session tree). */
+  | {
+      type: "agents"
+      rootId: string
+      items: { id: string; name: string; parentId?: string; depth: number; isMain: boolean }[]
+    }
   | { type: "error"; message: string }
   // A /add note (id correlates with the optimistic UI item) has been folded into the agent's context
   // at a step boundary — the UI flips its "pending" chip to "attached".
