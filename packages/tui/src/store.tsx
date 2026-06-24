@@ -9,6 +9,7 @@ import {
   type Keymap,
   loadKeybindings,
   normalizeChord,
+  type PresenceRow,
   RESERVED,
   type SessionStats,
   saveKeybindings,
@@ -242,6 +243,8 @@ export function createAppStore(engine: Engine, version = "dev") {
   const [tasks, setTasks] = createSignal<TaskRow[]>([])
   // Active agent team (orchestrator + shared board) — drives the console view. Null when no team.
   const [team, setTeam] = createSignal<TeamState | null>(engine.teamSnapshot() as TeamState | null)
+  // Live runners owned by OTHER terminals in this project (cross-process presence), polled on refresh.
+  const [remoteAgents, setRemoteAgents] = createSignal<PresenceRow[]>(engine.remoteAgents())
   // Optional usage budget (tokens/$) — drives a warning in the context panel when exceeded.
   const [budget, setBudget] = createSignal<{ tokens?: number; usd?: number } | null>(engine.userConfig().budget ?? null)
   // Per-session unread marker: the item count last seen while focused on a session.
@@ -477,6 +480,14 @@ export function createAppStore(engine: Engine, version = "dev") {
     setSkills(engine.listSkills())
     setAgentDefs(engine.listAgents())
     setTeamDefs(engine.listTeams())
+    // Cross-terminal sync: re-read shared state every poll so teams/tasks/sessions started in another
+    // terminal of this project show up here (hot-reload), and stale ones drop off.
+    setRemoteAgents(engine.remoteAgents())
+    setTeam((cur) => {
+      const snap = engine.teamSnapshot() as TeamState | null
+      // Don't clobber a locally-driven team's richer live state with a thinner DB snapshot of the same team.
+      return cur && snap && cur.teamId === snap.teamId ? cur : snap
+    })
   }
 
   const pinContextFile = (rel: string) => {
@@ -1631,7 +1642,8 @@ export function createAppStore(engine: Engine, version = "dev") {
     setView("shell")
   }
   function stopAgent(sessionId: string) {
-    engine.stopTask(sessionId)
+    // requestStop aborts locally if we own it, else queues a stop for the owning terminal to apply.
+    engine.requestStop(sessionId)
     pushToast("stopped agent", "input")
   }
   /** Remove a swarm/background agent from the dashboard (stops it first if running). */
@@ -1977,6 +1989,7 @@ export function createAppStore(engine: Engine, version = "dev") {
     visitAgent,
     stopAgent,
     removeAgent,
+    remoteAgents,
     dismissTeam,
     popoutAgent,
     budget,

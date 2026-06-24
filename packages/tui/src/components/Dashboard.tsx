@@ -3,7 +3,7 @@ import { theme } from "@friday/shared"
 import { useKeyboard } from "@opentui/solid"
 import { createMemo, createSignal, For, type JSX, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { useHover } from "../motion/index.ts"
-import { useApp, type ViewItem } from "../store.tsx"
+import { type TaskRow, useApp, type ViewItem } from "../store.tsx"
 import { groupSessionsByDir, homeDir } from "../util/sessions.ts"
 import { dot, line } from "./ConsoleView.tsx"
 import { Pill, SectionLabel, Tabs } from "./ui.tsx"
@@ -75,7 +75,24 @@ export function Dashboard() {
   const grouped = createMemo(() => groupSessionsByDir(app.sessions()))
   const sessions = () => grouped().flat
   const teams = () => (app.team() ? [app.team()!] : [])
-  const swarm = () => app.tasks()
+  // Swarm = this terminal's background agents PLUS agents running in OTHER terminals of this project
+  // (cross-process presence), so every dashboard shows the same live set. Remote rows get window/stop.
+  type SwarmRow = TaskRow & { remote?: boolean }
+  const swarm = (): SwarmRow[] => [
+    ...app.tasks(),
+    ...app
+      .remoteAgents()
+      .filter((p) => p.kind === "task")
+      .map((p) => ({
+        id: p.sessionId,
+        title: p.title || p.description,
+        description: p.description,
+        status: p.busy ? ("running" as const) : ("done" as const),
+        remote: true,
+      })),
+  ]
+  // Live sessions running in other terminals of this project (shown read-only under the local list).
+  const remoteSessions = () => app.remoteAgents().filter((p) => p.kind === "session")
   // Agents tab: a flat selectable list of agent defs followed by team defs.
   const agentList = () => app.agentDefs().filter((a) => a.name !== "friday")
   const teamList = () => app.teamDefs()
@@ -150,9 +167,9 @@ export function Dashboard() {
     } else if (tab() === 2) {
       const t = swarm()[clampedSel()]
       if (!t) return
-      if (enter) return app.visitAgent(t.id)
+      if (enter) return t.remote ? app.resumeInWindow(t.id) : app.visitAgent(t.id)
       if (key.name === "s") return app.stopAgent(t.id)
-      if (key.name === "d") return app.removeAgent(t.id)
+      if (key.name === "d" && !t.remote) return app.removeAgent(t.id)
     } else if (tab() === 3) {
       if (!enter) return
       const i = clampedSel()
@@ -278,8 +295,27 @@ export function Dashboard() {
                 }}
               </For>
             </Show>
+            <Show when={remoteSessions().length}>
+              <box marginTop={1}>
+                <text fg={theme.textMuted}>other terminals (this project)</text>
+              </box>
+              <For each={remoteSessions()}>
+                {(p) => (
+                  <Row selected={false} onSelect={() => {}} onActivate={() => app.resumeInWindow(p.sessionId)}>
+                    <text fg={p.busy ? theme.success : theme.textMuted}>{p.busy ? "●" : "○"}</text>
+                    <text fg={theme.textMuted}>{p.title}</text>
+                    <text fg={theme.textFaint}>⟂</text>
+                    <box flexGrow={1} />
+                    <Chip label="↗ window" onClick={() => app.resumeInWindow(p.sessionId)} />
+                    <Show when={p.busy}>
+                      <Chip label="stop" fg={theme.warning} onClick={() => app.stopAgent(p.sessionId)} />
+                    </Show>
+                  </Row>
+                )}
+              </For>
+            </Show>
             <box flexGrow={1} />
-            <text fg={theme.textFaint}>⏎ / click jump in · ↗ new window · d / ✗ remove · Ctrl+1..9 fast-path</text>
+            <text fg={theme.textFaint}>⏎ jump · ↗ window · d/✗ remove · ⟂ = another terminal · Ctrl+1..9</text>
           </box>
         </Match>
 
@@ -379,15 +415,22 @@ export function Dashboard() {
                         <text fg={i() === clampedSel() ? theme.text : theme.textMuted}>
                           {(t.title || t.description).slice(0, 18)}
                         </text>
+                        <Show when={t.remote}>
+                          <text fg={theme.textFaint}>⟂</text>
+                        </Show>
                         <box flexGrow={1} />
                         <Show when={app.sessionCost()[t.id]}>
                           <text fg={theme.textFaint}>${(app.sessionCost()[t.id] ?? 0).toFixed(3)}</text>
                         </Show>
-                        <Chip label="adopt" onClick={() => app.visitAgent(t.id)} />
+                        <Show when={!t.remote} fallback={<Chip label="↗ window" onClick={() => app.resumeInWindow(t.id)} />}>
+                          <Chip label="adopt" onClick={() => app.visitAgent(t.id)} />
+                        </Show>
                         <Show when={t.status === "running"}>
                           <Chip label="stop" fg={theme.warning} onClick={() => app.stopAgent(t.id)} />
                         </Show>
-                        <Chip label="✗" fg={theme.error} onClick={() => app.removeAgent(t.id)} />
+                        <Show when={!t.remote}>
+                          <Chip label="✗" fg={theme.error} onClick={() => app.removeAgent(t.id)} />
+                        </Show>
                       </Row>
                     )}
                   </For>

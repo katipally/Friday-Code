@@ -58,6 +58,12 @@ export class TeamBoard {
         orchestrator_session TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
       );`,
     )
+    // `root` scopes a team to its project so one global teams.db doesn't leak teams across projects.
+    try {
+      this.db.exec("ALTER TABLE teams ADD COLUMN root TEXT NOT NULL DEFAULT '';")
+    } catch {
+      /* already exists */
+    }
     this.db.exec(
       `CREATE TABLE IF NOT EXISTS members (
         team_id TEXT NOT NULL, session_id TEXT NOT NULL, role TEXT NOT NULL,
@@ -80,12 +86,14 @@ export class TeamBoard {
     )
   }
 
-  createTeam(goal: string, orchestratorSession: string): string {
+  createTeam(goal: string, orchestratorSession: string, root = ""): string {
     const id = crypto.randomUUID().slice(0, 8)
     const t = now()
     this.db
-      .query("INSERT INTO teams (id, goal, status, orchestrator_session, created_at, updated_at) VALUES (?,?,?,?,?,?)")
-      .run(id, goal, "running", orchestratorSession, t, t)
+      .query(
+        "INSERT INTO teams (id, goal, status, orchestrator_session, created_at, updated_at, root) VALUES (?,?,?,?,?,?,?)",
+      )
+      .run(id, goal, "running", orchestratorSession, t, t, root)
     return id
   }
 
@@ -194,11 +202,16 @@ export class TeamBoard {
     this.db.query("UPDATE teams SET status=?, updated_at=? WHERE id=?").run(status, now(), teamId)
   }
 
-  /** The most recently active team (for the console's default view). */
-  latestTeamId(): string | undefined {
-    const r = this.db.query("SELECT id FROM teams ORDER BY updated_at DESC, rowid DESC LIMIT 1").get() as
-      | { id: string }
-      | undefined
+  /** The most recently active team (for the console's default view), optionally scoped to a project root
+   * so a terminal only sees teams from its own project. Prefers a still-running team over a finished one. */
+  latestTeamId(root?: string): string | undefined {
+    const where = root ? "WHERE root = ?" : ""
+    const args = root ? [root] : []
+    const r = this.db
+      .query(
+        `SELECT id FROM teams ${where} ORDER BY (status='running') DESC, updated_at DESC, rowid DESC LIMIT 1`,
+      )
+      .get(...args) as { id: string } | undefined
     return r?.id
   }
 

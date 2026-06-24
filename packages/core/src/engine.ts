@@ -62,7 +62,7 @@ import {
 } from "./runner.ts"
 import { type AgentDef, resolveAgent, resolveAgents } from "./agents.ts"
 import { type TeamDef, resolveTeam, resolveTeams } from "./teams.ts"
-import { SessionStore } from "./sessions.ts"
+import { type PresenceRow, SessionStore } from "./sessions.ts"
 import type { SkillInfo } from "./skills.ts"
 import type { StreamFn } from "./stream.ts"
 import {
@@ -216,6 +216,64 @@ export class Engine {
     this.focusedId = runner.sessionId
     // Restore a resumed session's own model/provider/mode/effort (new sessions keep the global default).
     if (resumed) this.applySessionSelection(runner.sessionId)
+    // Cross-terminal sync: heartbeat this process's live runners into the shared DB and honor remote
+    // stop requests, so every terminal's dashboard reflects the true, current state (no IPC sockets).
+    this.store.prunePresence(Engine.PRESENCE_STALE_MS)
+    this.heartbeatTimer = setInterval(() => this.syncPresence(), Engine.HEARTBEAT_MS)
+    this.heartbeatTimer.unref?.()
+    // One exit hook per process (not per Engine) clears this pid's presence — keeps the suite from
+    // leaking exit listeners when it builds many engines.
+    if (!Engine.exitHooked) {
+      Engine.exitHooked = true
+      const store = this.store
+      process.once("exit", () => store.dropPresenceForPid(process.pid))
+    }
+  }
+  private static exitHooked = false
+
+  // ---- cross-process presence / control ----
+  /** A runner is "fresh" in another terminal if its heartbeat is younger than this. */
+  private static PRESENCE_STALE_MS = 8_000
+  private static HEARTBEAT_MS = 1_500
+  private heartbeatTimer?: ReturnType<typeof setInterval>
+
+  /** Heartbeat every runner this process owns, prune dead processes, and apply remote stop requests. */
+  private syncPresence(): void {
+    const rows = [...this.runners.values()].map((r) => {
+      const teamId = this.teamOf.get(r.sessionId)
+      const kind: "session" | "task" | "team" = teamId ? "team" : this.taskMeta.has(r.sessionId) ? "task" : "session"
+      return {
+        sessionId: r.sessionId,
+        pid: process.pid,
+        root: this.cwd,
+        title: r.currentTitle(),
+        kind,
+        busy: r.busy,
+        status: r.busy ? "running" : "done",
+        description: this.taskMeta.get(r.sessionId)?.description ?? "",
+        teamId,
+      }
+    })
+    this.store.heartbeat(rows)
+    this.store.prunePresence(Engine.PRESENCE_STALE_MS)
+    // Apply stop requests another terminal queued for runners we own.
+    const ours = [...this.runners.keys()]
+    for (const c of this.store.takeControl(ours)) {
+      if (c.action === "stop") this.runners.get(c.sessionId)?.abortRun()
+    }
+  }
+
+  /** Live runners owned by OTHER terminals in this project (fresh heartbeat), for the dashboard to merge. */
+  remoteAgents(): PresenceRow[] {
+    return this.store
+      .livePresence(Engine.PRESENCE_STALE_MS, this.cwd)
+      .filter((p) => p.pid !== process.pid && !this.runners.has(p.sessionId))
+  }
+  /** Ask the owning terminal to stop a runner we don't hold (cross-process). Local stop if we own it. */
+  requestStop(sessionId: string): void {
+    const local = this.runners.get(sessionId)
+    if (local) local.abortRun()
+    else this.store.requestControl(sessionId, "stop")
   }
 
   // ---- shared infra ----
@@ -360,7 +418,7 @@ export class Engine {
    * the shared board, and arm a gather timeout. Workers post findings to the board; when all finish the
    * orchestrator is automatically re-prompted to merge & report. Returns the team id. */
   spawnTeam(orchestrator: string, goal: string, members: TeamMemberSpec[], opts?: SpawnBudget): string {
-    const teamId = this.board.createTeam(goal, orchestrator)
+    const teamId = this.board.createTeam(goal, orchestrator, this.cwd)
     for (const r of members) {
       const wt = r.worktree || `team-${teamId}-${r.role}`.replace(/[^a-zA-Z0-9._/-]/g, "-")
       const briefing =
@@ -474,9 +532,10 @@ export class Engine {
   private emitTeam(teamId: string): void {
     this.dispatch(this.focusedId, { type: "team", team: this.teamPayload(teamId) })
   }
-  /** Current team snapshot for the console's initial render (most recently active team). */
+  /** Current team snapshot for the console's initial render (most recently active team IN THIS PROJECT,
+   * so a team started in another terminal of the same project shows up, but other projects don't leak). */
   teamSnapshot(): Extract<EngineEventBody, { type: "team" }>["team"] {
-    const id = this.board.latestTeamId()
+    const id = this.board.latestTeamId(this.cwd)
     return id ? this.teamPayload(id) : null
   }
   /** Pop a single agent out into a real terminal window (tmux pane / OS terminal). */
