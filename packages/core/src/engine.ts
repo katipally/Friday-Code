@@ -221,12 +221,19 @@ export class Engine {
     this.store.prunePresence(Engine.PRESENCE_STALE_MS)
     this.heartbeatTimer = setInterval(() => this.syncPresence(), Engine.HEARTBEAT_MS)
     this.heartbeatTimer.unref?.()
-    // One exit hook per process (not per Engine) clears this pid's presence — keeps the suite from
-    // leaking exit listeners when it builds many engines.
+    // One set of exit hooks per process (not per Engine). On a hard signal — terminal closed (SIGHUP)
+    // or kill (SIGTERM) — fully shut down: aborting every runner cascades to its bash process group,
+    // so background tasks/team members and anything they spawned (dev servers, watchers) die with
+    // Friday instead of orphaning and pinning the CPU. SIGINT is owned by the TUI's clean quit.
     if (!Engine.exitHooked) {
       Engine.exitHooked = true
-      const store = this.store
-      process.once("exit", () => store.dropPresenceForPid(process.pid))
+      process.once("exit", () => this.store.dropPresenceForPid(process.pid))
+      for (const sig of ["SIGTERM", "SIGHUP"] as const) {
+        process.once(sig, () => {
+          this.dispose()
+          process.exit(0)
+        })
+      }
     }
   }
   private static exitHooked = false
@@ -768,13 +775,21 @@ export class Engine {
     saveConfig({ mcp })
     this.mcpServers = [...this.mcpConnections.keys()]
   }
+  /** Shut down EVERYTHING this process owns: stop the heartbeat, abort all runners (which kills their
+   * bash process groups + child processes), close MCP servers, and clear this pid's presence so other
+   * terminals don't show ghosts. Idempotent — safe to call from the clean quit and from signal hooks. */
   dispose(): void {
+    if (this.disposed) return
+    this.disposed = true
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer)
     for (const [id, r] of this.runners) {
       if (r.isEmpty() && !r.busy) this.store.delete(id) // never persist empty placeholders
-      r.dispose()
+      r.dispose() // aborts the run → its bash tool's abort handler kills the whole process group
     }
     for (const c of this.mcpConnections.values()) c.close()
+    this.store.dropPresenceForPid(process.pid)
   }
+  private disposed = false
 
   // ---- announce / focus ----
   ready(): void {
