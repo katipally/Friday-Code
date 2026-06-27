@@ -1,7 +1,7 @@
 {
   "name": "friday-code",
   "version": "0.0.0-private",
-  "description": "A terminal AI coding agent — animated TUI, multi-provider, tool-calling. Ships as a self-contained binary; no runtime required.",
+  "description": "A terminal AI coding agent with an animated TUI, multi-provider support, and tool-calling. Ships as a self-contained binary, no runtime required.",
   "license": "MIT",
   "author": "Yashwanth Reddy Katipally",
   "homepage": "https://github.com/katipally/friday-code#readme",
@@ -23,7 +23,14 @@
     "claude",
     "anthropic",
     "openai",
-    "gemini"
+    "gemini",
+    "ai-agent",
+    "coding-assistant",
+    "bun",
+    "mcp",
+    "headless",
+    "automation",
+    "developer-tools"
   ],
   "type": "module",
   "engines": {
